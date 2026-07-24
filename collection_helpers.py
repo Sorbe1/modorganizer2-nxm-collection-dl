@@ -278,6 +278,24 @@ def staleZeroByteUnfinishedEntries(entries, now, stale_seconds):
     return zeroByteUnfinishedEntries(entries)
 
 
+def staleUnfinishedEntries(entries, now, stale_seconds):
+    """Return stale unfinished entries that can be retried from scratch.
+
+    This is stricter than pre-queue cleanup: it only runs after the progress
+    tracker has already waited for MO2 callbacks and disk updates. At that
+    point, removing the stale partial lets MO2 request a fresh signed URL
+    instead of leaving the collection blocked forever.
+    """
+    if stale_seconds <= 0 or not entries:
+        return []
+
+    newest_mtime = max(entry["mtime"] for entry in entries)
+    if now - newest_mtime < stale_seconds:
+        return []
+
+    return list(entries)
+
+
 def coerceDownloadId(download_id):
     """Return a usable MO2 download id, or None for failed queue-start values."""
     try:

@@ -29,7 +29,7 @@ from .collection_helpers import (
     hasPartialUnfinishedEntries,
     parseCollectionAddress,
     safeDisplayText,
-    staleZeroByteUnfinishedEntries,
+    staleUnfinishedEntries,
     unfinishedDownloadEntries,
     zeroByteUnfinishedEntries,
 )
@@ -1014,7 +1014,7 @@ class stepDownloadProgress(QDialog):
             self.retry_stale_unfinished_downloads()
 
     def retry_stale_unfinished_downloads(self):
-        """Requeue zero-byte unfinished files that MO2 left idle without a callback."""
+        """Requeue unfinished files that MO2 left idle without a callback."""
         if not self.stale_unfinished_seconds:
             return
 
@@ -1025,7 +1025,7 @@ class stepDownloadProgress(QDialog):
 
         for key in pending_keys:
             entries = entries_by_key.get(key)
-            stale_entries = staleZeroByteUnfinishedEntries(
+            stale_entries = staleUnfinishedEntries(
                 entries, now, self.stale_unfinished_seconds
             )
             if not stale_entries:
@@ -1037,7 +1037,7 @@ class stepDownloadProgress(QDialog):
                 self.failed_count += 1
                 self.completed_count += self.key_counts.get(key, 1)
                 qDebug(
-                    "[NXMColDL Progress] Zero-byte unfinished download exhausted retries: "
+                    "[NXMColDL Progress] Stale unfinished download exhausted retries: "
                     f"ModID {key[0]}, FileID {key[1]}"
                 )
                 continue
@@ -1073,7 +1073,7 @@ class stepDownloadProgress(QDialog):
             )
             self.detail_label.setStyleSheet("color: orange;")
             qDebug(
-                "[NXMColDL Progress] Requeueing stale zero-byte unfinished download "
+                "[NXMColDL Progress] Requeueing stale unfinished download "
                 f"ModID {key[0]}, FileID {key[1]} "
                 f"({attempts + 1}/{self.max_retries})"
             )

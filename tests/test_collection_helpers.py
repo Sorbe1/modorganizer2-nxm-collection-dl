@@ -14,6 +14,7 @@ from collection_helpers import (
     parseCollectionAddress,
     safeDisplayText,
     sanitizeModName,
+    staleUnfinishedEntries,
     staleZeroByteUnfinishedEntries,
     unfinishedDownloadEntries,
     zeroByteUnfinishedEntries,
@@ -144,6 +145,20 @@ class UnfinishedDownloadEntriesTests(unittest.TestCase):
         ]
 
         self.assertEqual(staleZeroByteUnfinishedEntries(entries, 200, 60), entries)
+        self.assertEqual(staleUnfinishedEntries(entries, 200, 60), entries)
+
+    def test_identifies_stale_partial_unfinished_entries_for_retry(self):
+        entries = [
+            {
+                "archive": Path("Partial.7z.unfinished"),
+                "metadata": Path("Partial.7z.unfinished.meta"),
+                "archive_size": 128,
+                "mtime": 100,
+            }
+        ]
+
+        self.assertEqual(staleUnfinishedEntries(entries, 200, 60), entries)
+        self.assertEqual(staleZeroByteUnfinishedEntries(entries, 200, 60), [])
 
     def test_identifies_zero_byte_unfinished_entries_for_prequeue_cleanup(self):
         entries = [
@@ -173,6 +188,7 @@ class UnfinishedDownloadEntriesTests(unittest.TestCase):
 
         self.assertEqual(staleZeroByteUnfinishedEntries([fresh_entry], 200, 60), [])
         self.assertEqual(staleZeroByteUnfinishedEntries([partial_entry], 200, 60), [])
+        self.assertEqual(staleUnfinishedEntries([fresh_entry], 200, 60), [])
         self.assertEqual(zeroByteUnfinishedEntries([partial_entry]), [])
 
     def test_identifies_resumable_partial_unfinished_entries(self):
