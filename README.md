@@ -9,6 +9,7 @@ A Mod Organizer 2 plugin that lets you download Nexus Mods collections directly 
 - View counts for essential, optional, external and bundled resources.
 - Select optional/external items to include before downloading.
 - Queue Premium downloads through MO2 and skip archives that are already present.
+- Retry stale unfinished downloads that stop making progress.
 - Install downloaded collection files one at a time.
 - Install repeated collection entries as separate MO2 mods with numbered suffixes.
 - Optionally activate installed collection mods and plugins after installation.

@@ -161,7 +161,7 @@ class DownloadCollectionTool(mobase.IPluginTool):
             ),
             mobase.PluginSetting(
                 "stale_unfinished_retry_seconds",
-                "Retry zero-byte unfinished downloads after this many idle seconds (0 disables)",
+                "Retry stale unfinished downloads after this many idle seconds (0 disables)",
                 60,
             ),
         ]
