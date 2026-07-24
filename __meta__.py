@@ -2,7 +2,7 @@ import mobase  # type: ignore
 from PyQt6.QtCore import QTimer, QUrl, qDebug
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QMainWindow
-from .collection_helpers import parseCollectionAddress
+from .collection_helpers import coerceBoolSetting, parseCollectionAddress
 from .download import stepCollectionLinkFlow, stepURL
 from .install import stepSelectCollection
 from pathlib import Path
@@ -56,8 +56,10 @@ def consumePendingCollectionLink(organizer: mobase.IOrganizer, parent):
     _active_collection_link_flow = stepCollectionLinkFlow(
         url,
         parent,
-        auto_install=organizer.pluginSetting(
-            "NXM Collection Link Handler", "auto_install_after_download"
+        auto_install=coerceBoolSetting(
+            organizer.pluginSetting(
+                "NXM Collection Link Handler", "auto_install_after_download"
+            )
         ),
     )
     _active_collection_link_flow.exec()
@@ -339,8 +341,8 @@ class CollectionModPage(mobase.IPluginModPage):
             return False
 
         qDebug(f"[NXMColDL] Handling collection link from Nexus: {url}")
-        auto_install = self._organizer.pluginSetting(
-            self.name(), "auto_install_after_download"
+        auto_install = coerceBoolSetting(
+            self._organizer.pluginSetting(self.name(), "auto_install_after_download")
         )
         QTimer.singleShot(0, lambda: self.startCollectionFlow(url, auto_install))
         return True

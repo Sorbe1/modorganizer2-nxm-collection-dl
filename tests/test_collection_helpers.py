@@ -4,6 +4,7 @@ import unittest
 
 from collection_helpers import (
     allocateUniqueModName,
+    coerceBoolSetting,
     coerceDownloadId,
     downloadCompletionPlan,
     downloadedFileKeys,
@@ -353,6 +354,27 @@ class SafeDisplayTextTests(unittest.TestCase):
 
     def test_falls_back_for_empty_display_text(self):
         self.assertEqual(safeDisplayText("\U0001f5ff"), "Unknown Collection")
+
+
+class CoerceBoolSettingTests(unittest.TestCase):
+    def test_accepts_native_bool_and_numeric_values(self):
+        self.assertTrue(coerceBoolSetting(True))
+        self.assertFalse(coerceBoolSetting(False))
+        self.assertTrue(coerceBoolSetting(1))
+        self.assertFalse(coerceBoolSetting(0))
+
+    def test_accepts_common_string_values(self):
+        self.assertTrue(coerceBoolSetting("true"))
+        self.assertTrue(coerceBoolSetting(" YES "))
+        self.assertTrue(coerceBoolSetting("on"))
+        self.assertFalse(coerceBoolSetting("false"))
+        self.assertFalse(coerceBoolSetting("0"))
+        self.assertFalse(coerceBoolSetting(" off "))
+
+    def test_unknown_values_fall_back_to_python_truthiness(self):
+        self.assertTrue(coerceBoolSetting("custom"))
+        self.assertFalse(coerceBoolSetting(""))
+        self.assertFalse(coerceBoolSetting(None))
 
 
 if __name__ == "__main__":

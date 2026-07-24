@@ -88,6 +88,23 @@ def safeDisplayText(text):
     return " ".join("".join(safe_chars).split()) or "Unknown Collection"
 
 
+def coerceBoolSetting(value):
+    """Return a bool for MO2 plugin settings stored as bools or strings."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    return bool(value)
+
+
 def allocateUniqueModName(mod_name, used_mod_names, mod_name_counts):
     """Return a stable MO2 mod name without merging collection file entries."""
     base_name = sanitizeModName(mod_name)
