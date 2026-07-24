@@ -43,6 +43,17 @@ class ParseCollectionAddressTests(unittest.TestCase):
         self.assertEqual(parsed["collection"], "xxsqm4")
         self.assertEqual(parsed["revision"], 99)
 
+    def test_parses_scheme_less_nexus_collection_url(self):
+        parsed = parseCollectionAddress(
+            "www.nexusmods.com/games/skyrimspecialedition/collections/8vdyr1/about"
+        )
+
+        self.assertEqual(
+            parsed["uri"],
+            "https://www.nexusmods.com/games/skyrimspecialedition/collections/8vdyr1",
+        )
+        self.assertEqual(parsed["revision"], None)
+
     def test_parses_nxm_collection_url(self):
         parsed = parseCollectionAddress(
             "nxm://skyrimspecialedition/collections/xxsqm4/revisions/99"
@@ -55,6 +66,15 @@ class ParseCollectionAddressTests(unittest.TestCase):
         self.assertEqual(parsed["game"], "skyrimspecialedition")
         self.assertEqual(parsed["collection"], "xxsqm4")
         self.assertEqual(parsed["revision"], 99)
+
+    def test_parses_nxm_collection_url_without_revision(self):
+        parsed = parseCollectionAddress("nxm://skyrimspecialedition/collections/xxsqm4")
+
+        self.assertEqual(
+            parsed["uri"],
+            "https://www.nexusmods.com/games/skyrimspecialedition/collections/xxsqm4",
+        )
+        self.assertEqual(parsed["revision"], None)
 
     def test_rejects_non_collection_nxm_url(self):
         self.assertIsNone(

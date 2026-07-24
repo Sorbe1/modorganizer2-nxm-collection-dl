@@ -113,15 +113,16 @@ def parseCollectionAddress(address):
     normalized = address.strip()
     normalized = normalized.replace("http://", "https://")
     normalized = normalized.split("?", 1)[0].split("#", 1)[0]
-    for suffix in ["/mods", "/comments", "/changelog", "/bugs"]:
+    for suffix in ["/about", "/mods", "/comments", "/changelog", "/bugs"]:
         if normalized.endswith(suffix):
             normalized = normalized[: -len(suffix)]
 
     web_match = re.match(
-        r"^https:\/\/(?:www\.)?nexusmods\.com\/games\/([a-zA-Z0-9_\-]+)"
+        r"^(?:https:\/\/)?(?:www\.)?nexusmods\.com\/games\/([a-zA-Z0-9_\-]+)"
         r"\/collections\/([a-zA-Z0-9_\-]+)"
         r"(?:\/revisions\/([0-9]+))?\/?$",
         normalized,
+        re.IGNORECASE,
     )
     if web_match:
         return {
@@ -136,8 +137,9 @@ def parseCollectionAddress(address):
 
     nxm_match = re.match(
         r"^nxm:\/\/([a-zA-Z0-9_\-]+)\/collections\/([a-zA-Z0-9_\-]+)"
-        r"\/revisions\/([0-9]+)\/?$",
+        r"(?:\/revisions\/([0-9]+))?\/?$",
         normalized,
+        re.IGNORECASE,
     )
     if nxm_match:
         return {
@@ -147,7 +149,7 @@ def parseCollectionAddress(address):
             ),
             "game": nxm_match.group(1),
             "collection": nxm_match.group(2),
-            "revision": int(nxm_match.group(3)),
+            "revision": int(nxm_match.group(3)) if nxm_match.group(3) else None,
         }
 
     return None
