@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 from . import __meta__, var
 from .collection_helpers import (
     allocateUniqueModName,
+    coerceBoolSetting,
     installerDefaultActionLabel,
     normalizedButtonLabel,
     safeDisplayText,
@@ -553,11 +554,15 @@ class stepInstallMods(QDialog):
                 "mods_to_activate": [],
                 "used_mod_names": set(modlist.allMods()),
                 "mod_name_counts": {},
-                "activation_enabled": organizer.pluginSetting(
-                    plugin_instance.name(), "activate_mods_after_install"
+                "activation_enabled": coerceBoolSetting(
+                    organizer.pluginSetting(
+                        plugin_instance.name(), "activate_mods_after_install"
+                    )
                 ),
-                "separate_file_installs": organizer.pluginSetting(
-                    plugin_instance.name(), "install_files_as_separate_mods"
+                "separate_file_installs": coerceBoolSetting(
+                    organizer.pluginSetting(
+                        plugin_instance.name(), "install_files_as_separate_mods"
+                    )
                 ),
                 "next_index": 0,
             }
@@ -631,19 +636,27 @@ class stepInstallMods(QDialog):
             self.dialog_handler_generation += 1
             dialog_handler_generation = self.dialog_handler_generation
             scheduleInstallDialogHandlers(
-                organizer.pluginSetting(
-                    plugin_instance.name(), "auto_accept_quick_install"
+                coerceBoolSetting(
+                    organizer.pluginSetting(
+                        plugin_instance.name(), "auto_accept_quick_install"
+                    )
                 ),
-                organizer.pluginSetting(
-                    plugin_instance.name(),
-                    "auto_dismiss_known_post_install_errors",
+                coerceBoolSetting(
+                    organizer.pluginSetting(
+                        plugin_instance.name(),
+                        "auto_dismiss_known_post_install_errors",
+                    )
                 ),
-                organizer.pluginSetting(
-                    plugin_instance.name(), "auto_merge_existing_mods"
+                coerceBoolSetting(
+                    organizer.pluginSetting(
+                        plugin_instance.name(), "auto_merge_existing_mods"
+                    )
                 ),
             )
-            if organizer.pluginSetting(
-                plugin_instance.name(), "auto_advance_fomod_defaults"
+            if coerceBoolSetting(
+                organizer.pluginSetting(
+                    plugin_instance.name(), "auto_advance_fomod_defaults"
+                )
             ):
                 self.scheduleInstallerDefaultAdvancer(dialog_handler_generation)
 
