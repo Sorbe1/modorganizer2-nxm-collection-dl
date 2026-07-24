@@ -105,6 +105,18 @@ def coerceBoolSetting(value):
     return bool(value)
 
 
+def coerceIntSetting(value, default=0, minimum=None):
+    """Return an int for MO2 plugin settings while tolerating stale text values."""
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError):
+        coerced = int(default)
+
+    if minimum is not None:
+        return max(coerced, minimum)
+    return coerced
+
+
 def allocateUniqueModName(mod_name, used_mod_names, mod_name_counts):
     """Return a stable MO2 mod name without merging collection file entries."""
     base_name = sanitizeModName(mod_name)

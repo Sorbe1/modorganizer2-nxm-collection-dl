@@ -23,7 +23,9 @@ from .api import fetchRevisions, fetchInfo, fetchModInfo
 from . import __meta__
 from . import var
 from .collection_helpers import (
+    coerceBoolSetting,
     coerceDownloadId,
+    coerceIntSetting,
     downloadCompletionPlan,
     downloadedFileKeys,
     hasPartialUnfinishedEntries,
@@ -515,8 +517,10 @@ class stepExternal(QDialog):
 
         plugin_instance = getattr(__meta__, "_download_plugin", None)
         if plugin_instance and plugin_instance._organizer:
-            var.openModWebsites = plugin_instance._organizer.pluginSetting(
-                plugin_instance.name(), "modpage_browser_default"
+            var.chosenExternal = coerceBoolSetting(
+                plugin_instance._organizer.pluginSetting(
+                    plugin_instance.name(), "externalmods_browser_default"
+                )
             )
 
         self.urlCheck = QCheckBox("Open URLs in Browser")
@@ -608,8 +612,10 @@ class stepSummary(QDialog):
 
         plugin_instance = getattr(__meta__, "_download_plugin", None)
         if plugin_instance and plugin_instance._organizer:
-            var.openModWebsites = plugin_instance._organizer.pluginSetting(
-                plugin_instance.name(), "modpage_browser_default"
+            var.openModWebsites = coerceBoolSetting(
+                plugin_instance._organizer.pluginSetting(
+                    plugin_instance.name(), "modpage_browser_default"
+                )
             )
 
         self.urlCheck = QCheckBox(
@@ -1188,23 +1194,26 @@ class stepDownload(QDialog):
                 )
                 mods_to_download = var.essentialMods + var.chosenOptional
                 qDebug(f"[NXMColDL] Queueing {len(mods_to_download)} downloads")
-                max_retries = int(
+                max_retries = coerceIntSetting(
                     plugin_instance._organizer.pluginSetting(
                         plugin_instance.name(), "download_retry_count"
-                    )
-                    or 0
+                    ),
+                    default=0,
+                    minimum=0,
                 )
-                success_close_delay_ms = 1000 * int(
+                success_close_delay_ms = 1000 * coerceIntSetting(
                     plugin_instance._organizer.pluginSetting(
                         plugin_instance.name(), "download_success_close_delay_seconds"
-                    )
-                    or 0
+                    ),
+                    default=0,
+                    minimum=0,
                 )
-                stale_unfinished_seconds = int(
+                stale_unfinished_seconds = coerceIntSetting(
                     plugin_instance._organizer.pluginSetting(
                         plugin_instance.name(), "stale_unfinished_retry_seconds"
-                    )
-                    or 0
+                    ),
+                    default=0,
+                    minimum=0,
                 )
                 self.progress_dialog = stepDownloadProgress(
                     self.parent(),
@@ -1249,11 +1258,12 @@ class stepDownload(QDialog):
     def update_batch_button(self):
         plugin_instance = getattr(__meta__, "_download_plugin", None)
         if plugin_instance and hasattr(plugin_instance, "_organizer"):
-            batch_size = int(
+            batch_size = coerceIntSetting(
                 plugin_instance._organizer.pluginSetting(
                     plugin_instance.name(), "modpage_batch_size"
-                )
-                or 5
+                ),
+                default=5,
+                minimum=1,
             )
         else:
             batch_size = 5
@@ -1271,11 +1281,12 @@ class stepDownload(QDialog):
     def open_next_batch(self):
         plugin_instance = getattr(__meta__, "_download_plugin", None)
         if plugin_instance and hasattr(plugin_instance, "_organizer"):
-            batch_size = int(
+            batch_size = coerceIntSetting(
                 plugin_instance._organizer.pluginSetting(
                     plugin_instance.name(), "modpage_batch_size"
-                )
-                or 5
+                ),
+                default=5,
+                minimum=1,
             )
         else:
             batch_size = 5
@@ -1374,23 +1385,26 @@ class stepCollectionLinkFlow(QDialog):
             )
 
         mods_to_download = var.essentialMods + var.chosenOptional
-        max_retries = int(
+        max_retries = coerceIntSetting(
             plugin_instance._organizer.pluginSetting(
                 plugin_instance.name(), "download_retry_count"
-            )
-            or 0
+            ),
+            default=0,
+            minimum=0,
         )
-        success_close_delay_ms = 1000 * int(
+        success_close_delay_ms = 1000 * coerceIntSetting(
             plugin_instance._organizer.pluginSetting(
                 plugin_instance.name(), "download_success_close_delay_seconds"
-            )
-            or 0
+            ),
+            default=0,
+            minimum=0,
         )
-        stale_unfinished_seconds = int(
+        stale_unfinished_seconds = coerceIntSetting(
             plugin_instance._organizer.pluginSetting(
                 plugin_instance.name(), "stale_unfinished_retry_seconds"
-            )
-            or 0
+            ),
+            default=0,
+            minimum=0,
         )
         self.progress_dialog = stepDownloadProgress(
             self.parent(),

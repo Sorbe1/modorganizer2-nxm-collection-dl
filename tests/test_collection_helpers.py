@@ -6,6 +6,7 @@ from collection_helpers import (
     allocateUniqueModName,
     coerceBoolSetting,
     coerceDownloadId,
+    coerceIntSetting,
     downloadCompletionPlan,
     downloadedFileKeys,
     hasPartialUnfinishedEntries,
@@ -391,6 +392,20 @@ class CoerceBoolSettingTests(unittest.TestCase):
         self.assertTrue(coerceBoolSetting("custom"))
         self.assertFalse(coerceBoolSetting(""))
         self.assertFalse(coerceBoolSetting(None))
+
+
+class CoerceIntSettingTests(unittest.TestCase):
+    def test_accepts_native_and_string_integer_values(self):
+        self.assertEqual(coerceIntSetting(3, default=1), 3)
+        self.assertEqual(coerceIntSetting("7", default=1), 7)
+
+    def test_uses_default_for_missing_or_invalid_values(self):
+        self.assertEqual(coerceIntSetting(None, default=5), 5)
+        self.assertEqual(coerceIntSetting("not-a-number", default=5), 5)
+
+    def test_clamps_to_minimum_when_requested(self):
+        self.assertEqual(coerceIntSetting("-3", default=5, minimum=0), 0)
+        self.assertEqual(coerceIntSetting("2", default=5, minimum=1), 2)
 
 
 if __name__ == "__main__":
