@@ -4,13 +4,19 @@ A Mod Organizer 2 plugin that lets you download Nexus Mods collections directly 
 
 ## Features
 - Enter a NXM collection URL and inspect the collection metadata (name, author, description, thumbnail).
+- Handle Nexus Mods "Add Collection" links from a browser or MO2's Nexus link handler.
 - Choose a specific revision of the collection.
 - View counts for essential, optional, external and bundled resources.
 - Select optional/external items to include before downloading.
+- Queue Premium downloads through MO2 and skip archives that are already present.
+- Install downloaded collection files one at a time.
+- Install repeated collection entries as separate MO2 mods with numbered suffixes.
+- Optionally activate installed collection mods and plugins after installation.
+- Optionally accept selected default choices in visible FOMOD installers.
 - Opens mod downloads in web browser if the user does not have Premium
 
 #### Currently Unimplemented:
-- FOMOD Selections (need to see if possible)
+- Collection author FOMOD choice replay
 - Cannot auto-detect user Premium status
 - Unable to implement bundled resources (Not in Nexus API documentation, will check if possible soon.)
 
@@ -23,7 +29,7 @@ A Mod Organizer 2 plugin that lets you download Nexus Mods collections directly 
 
 ## How to Use
 
-1. Open the plugin from the Tools menu
+1. Open the plugin from the Tools menu or click Nexus Mods' "Add Collection" button.
 2. Paste a collection URL (e.g., `https://www.nexusmods.com/games/skyrimspecialedition/collections/qdurkx`)
 3. Choose a revision
 4. Select any optional items you want
@@ -31,17 +37,20 @@ A Mod Organizer 2 plugin that lets you download Nexus Mods collections directly 
    - If you don't have Premium, make sure to check the 'Open in Browser' option to open the mod pages in your web browser for manual downloading.
 6. Install the downloaded mods in MO2 using the 'Install Downloaded Collection' tool.
 
+The collection URL parser accepts normal Nexus collection web URLs, collection
+tab URLs, and `nxm://.../collections/...` links. Links without a revision use the
+latest revision returned by Nexus Mods.
+
 The installer processes one downloaded archive at a time and waits briefly before
 starting the next archive. This avoids overlapping MO2 installer sessions while
 still allowing normal MO2 installer dialogs to appear when a mod needs manual
-choices. Installed mods are not enabled by default; enable
-`activate_mods_after_install` in the plugin settings if you want the install pass
-to check them in MO2 after it finishes. Collection files are installed as
-separate MO2 mod rows by default; repeated files from the same Nexus mod use
-`#2`, `#3`, and later suffixes instead of silently merging into one row. FOMOD
-choice replay is not implemented, but `auto_advance_fomod_defaults` can
-optionally advance visible FOMOD installers by accepting their selected default
-choices.
+choices. By default, the install pass checks installed collection mods in MO2
+and attempts to activate plugins from those mods after the collection completes.
+Collection files are installed as separate MO2 mod rows by default; repeated
+files from the same Nexus mod use `#2`, `#3`, and later suffixes instead of
+silently merging into one row. Collection author FOMOD choice replay is not
+implemented, but `auto_advance_fomod_defaults` can optionally advance visible
+FOMOD installers by accepting their selected default choices.
 
 ## Contributing
 
