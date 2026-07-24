@@ -30,6 +30,7 @@ from .collection_helpers import (
     downloadedFileKeys,
     hasPartialUnfinishedEntries,
     parseCollectionAddress,
+    popDownloadKey,
     safeDisplayText,
     staleUnfinishedEntries,
     unfinishedDownloadEntries,
@@ -918,7 +919,7 @@ class stepDownloadProgress(QDialog):
         if not self.is_tracking:
             return
 
-        key = self.download_ids.pop(int(download_id), None)
+        key = popDownloadKey(self.download_ids, download_id)
         if key is None or key in self.completed_keys:
             return
 
@@ -933,7 +934,7 @@ class stepDownloadProgress(QDialog):
         if not self.is_tracking:
             return
 
-        key = self.download_ids.pop(int(download_id), None)
+        key = popDownloadKey(self.download_ids, download_id)
         if key is None or key in self.completed_keys or key in self.failed_keys:
             return
 
@@ -968,7 +969,11 @@ class stepDownloadProgress(QDialog):
         self.finish_if_complete()
 
     def on_download_paused(self, download_id):
-        if not self.is_tracking or int(download_id) not in self.download_ids:
+        if not self.is_tracking:
+            return
+
+        coerced_download_id = coerceDownloadId(download_id)
+        if coerced_download_id is None or coerced_download_id not in self.download_ids:
             return
         qDebug(f"[NXMColDL Progress] Download paused: ID {download_id}")
         self.detail_label.setText("A tracked download is paused in MO2.")
@@ -978,7 +983,7 @@ class stepDownloadProgress(QDialog):
         if not self.is_tracking:
             return
 
-        key = self.download_ids.pop(int(download_id), None)
+        key = popDownloadKey(self.download_ids, download_id)
         if key is None or key in self.completed_keys or key in self.failed_keys:
             return
 

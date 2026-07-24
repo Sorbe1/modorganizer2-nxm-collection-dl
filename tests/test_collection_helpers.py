@@ -13,6 +13,7 @@ from collection_helpers import (
     installerDefaultActionLabel,
     normalizedButtonLabel,
     parseCollectionAddress,
+    popDownloadKey,
     safeDisplayText,
     sanitizeModName,
     staleUnfinishedEntries,
@@ -221,6 +222,18 @@ class CoerceDownloadIdTests(unittest.TestCase):
         self.assertIsNone(coerceDownloadId(None))
         self.assertIsNone(coerceDownloadId("not-an-id"))
         self.assertIsNone(coerceDownloadId(-1))
+
+    def test_pops_tracked_key_for_valid_download_id(self):
+        download_ids = {42: (123, 456)}
+
+        self.assertEqual(popDownloadKey(download_ids, "42"), (123, 456))
+        self.assertEqual(download_ids, {})
+
+    def test_ignores_invalid_download_id_without_mutating_state(self):
+        download_ids = {42: (123, 456)}
+
+        self.assertIsNone(popDownloadKey(download_ids, "not-an-id"))
+        self.assertEqual(download_ids, {42: (123, 456)})
 
 
 class InstallerDefaultActionLabelTests(unittest.TestCase):

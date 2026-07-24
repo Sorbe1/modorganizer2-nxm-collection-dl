@@ -316,3 +316,11 @@ def coerceDownloadId(download_id):
         return None
 
     return coerced if coerced >= 0 else None
+
+
+def popDownloadKey(download_ids, download_id):
+    """Pop a tracked MO2 download key while tolerating invalid callback IDs."""
+    coerced_download_id = coerceDownloadId(download_id)
+    if coerced_download_id is None:
+        return None
+    return download_ids.pop(coerced_download_id, None)
