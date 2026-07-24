@@ -379,6 +379,22 @@ class DuplicateDownloadPromptActionLabelTests(unittest.TestCase):
             )
         )
 
+    def test_acknowledges_already_started_download_prompt(self):
+        self.assertEqual(
+            duplicateDownloadPromptActionLabel("Already Started", [("OK", True)]),
+            "ok",
+        )
+
+    def test_ignores_disabled_already_started_prompt(self):
+        self.assertIsNone(
+            duplicateDownloadPromptActionLabel("Already Started", [("OK", False)])
+        )
+
+    def test_ignores_unrelated_ok_prompt(self):
+        self.assertIsNone(
+            duplicateDownloadPromptActionLabel("Error", [("OK", True)])
+        )
+
 
 class DownloadCompletionPlanTests(unittest.TestCase):
     def test_failed_downloads_keep_dialog_open_for_review(self):

@@ -683,6 +683,8 @@ class stepDownloadProgress(QDialog):
         self.completed_keys = set()
         self.failed_keys = set()
         self.duplicate_declined_keys = set()
+        self.already_started_keys = set()
+        self.already_started_at = {}
         self.retry_attempts = {}
         self.key_counts = {}
         self.queued_keys = set()
@@ -872,6 +874,18 @@ class stepDownloadProgress(QDialog):
                 self.finish_if_complete()
             return True
 
+        if key in self.already_started_keys:
+            self.waiting_partial_keys.add(key)
+            self.detail_label.setText(
+                "Waiting for an already-started MO2 download to complete..."
+            )
+            self.detail_label.setStyleSheet("color: orange;")
+            qDebug(
+                "[NXMColDL Progress] Waiting for already-started download "
+                f"for ModID {mod_id}, FileID {file_id}"
+            )
+            return True
+
         coerced_download_id = coerceDownloadId(download_id)
         if coerced_download_id is None:
             qDebug(
@@ -907,7 +921,7 @@ class stepDownloadProgress(QDialog):
             action = duplicateDownloadPromptActionLabel(
                 window.windowTitle(), self.dialog_buttons(window)
             )
-            if action != "no":
+            if action not in {"no", "ok"}:
                 continue
 
             for button in window.findChildren(QPushButton):
@@ -915,19 +929,41 @@ class stepDownloadProgress(QDialog):
                     normalizedButtonLabel(button.text()) == action
                     and button.isEnabled()
                 ):
-                    self.duplicate_declined_keys.add(self.active_queue_key)
                     self.duplicate_prompt_count += 1
-                    qDebug(
-                        "[NXMColDL Progress] Declined duplicate download prompt "
-                        f"for ModID {self.active_queue_key[0]}, "
-                        f"FileID {self.active_queue_key[1]}"
-                    )
+                    if action == "no":
+                        self.duplicate_declined_keys.add(self.active_queue_key)
+                        qDebug(
+                            "[NXMColDL Progress] Declined duplicate download prompt "
+                            f"for ModID {self.active_queue_key[0]}, "
+                            f"FileID {self.active_queue_key[1]}"
+                        )
+                    else:
+                        self.already_started_keys.add(self.active_queue_key)
+                        self.already_started_at[self.active_queue_key] = time.time()
+                        qDebug(
+                            "[NXMColDL Progress] Acknowledged already-started "
+                            "download prompt for "
+                            f"ModID {self.active_queue_key[0]}, "
+                            f"FileID {self.active_queue_key[1]}"
+                        )
                     button.click()
                     return
 
     def handle_queue_start_failed(self, mod, key):
         """Retry or fail a download that MO2 refused to queue."""
         self.queued_keys.discard(key)
+        if key in self.already_started_keys:
+            self.queued_keys.add(key)
+            self.waiting_partial_keys.add(key)
+            self.detail_label.setText(
+                "Waiting for an already-started MO2 download to complete..."
+            )
+            self.detail_label.setStyleSheet("color: orange;")
+            qDebug(
+                "[NXMColDL Progress] Queue start returned no id because MO2 "
+                f"already had ModID {key[0]}, FileID {key[1]} started"
+            )
+            return
         if key in self.duplicate_declined_keys:
             if self.mark_key_completed(key, "Skipped duplicate existing archive"):
                 self.update_progress()
@@ -1097,6 +1133,8 @@ class stepDownloadProgress(QDialog):
 
             self.mark_key_completed(key, "Reconciled completed download from disk")
             self.waiting_partial_keys.discard(key)
+            self.already_started_keys.discard(key)
+            self.already_started_at.pop(key, None)
 
         if newly_completed:
             self.update_progress()
@@ -1116,6 +1154,27 @@ class stepDownloadProgress(QDialog):
         now = time.time()
 
         for key in pending_keys:
+            started_at = self.already_started_at.get(key)
+            if (
+                key in self.already_started_keys
+                and not entries_by_key.get(key)
+                and started_at
+                and now - started_at >= self.stale_unfinished_seconds
+            ):
+                self.failed_keys.add(key)
+                self.failed_count += 1
+                self.completed_count += self.key_counts.get(key, 1)
+                self.queued_keys.discard(key)
+                self.waiting_partial_keys.discard(key)
+                self.already_started_keys.discard(key)
+                self.already_started_at.pop(key, None)
+                qDebug(
+                    "[NXMColDL Progress] Already-started download did not expose "
+                    "a resumable file before timeout: "
+                    f"ModID {key[0]}, FileID {key[1]}"
+                )
+                continue
+
             entries = entries_by_key.get(key)
             stale_entries = staleUnfinishedEntries(
                 entries, now, self.stale_unfinished_seconds

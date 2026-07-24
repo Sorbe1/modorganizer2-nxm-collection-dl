@@ -77,19 +77,26 @@ def duplicateDownloadPromptActionLabel(window_title, buttons):
     downloads directory. During a collection batch, declining the duplicate is
     the least surprising non-interactive choice: keep the existing archive and
     let the collection tracker reconcile the item from disk.
-    """
-    if window_title != "Download again?":
-        return None
 
+    MO2 can also show ``Already Started`` when its download manager already has
+    an entry for the Nexus file. That dialog has no useful choice for the batch
+    flow, so acknowledging it lets the tracker wait for MO2's existing entry.
+    """
     labels = {
         normalizedButtonLabel(label): bool(enabled)
         for label, enabled in buttons
         if normalizedButtonLabel(label)
     }
-    if not {"yes", "no", "cancel"}.issubset(labels):
-        return None
-    if labels.get("no"):
-        return "no"
+
+    if window_title == "Download again?":
+        if not {"yes", "no", "cancel"}.issubset(labels):
+            return None
+        if labels.get("no"):
+            return "no"
+
+    if window_title == "Already Started" and labels.get("ok"):
+        return "ok"
+
     return None
 
 
