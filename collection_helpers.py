@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from configparser import ConfigParser
 from pathlib import Path
 
@@ -72,6 +73,19 @@ def sanitizeModName(mod_name):
     clean_name = str(mod_name).replace("/", "-").replace("\\", "-")
     clean_name = " ".join(clean_name.split())
     return clean_name or "Collection Mod"
+
+
+def safeDisplayText(text):
+    """Return UI text that avoids MO2/Wine font gaps for collection labels."""
+    safe_chars = []
+    for char in str(text):
+        if unicodedata.category(char).startswith("C"):
+            continue
+        if ord(char) > 0xFFFF:
+            continue
+        safe_chars.append(char)
+
+    return " ".join("".join(safe_chars).split()) or "Unknown Collection"
 
 
 def allocateUniqueModName(mod_name, used_mod_names, mod_name_counts):

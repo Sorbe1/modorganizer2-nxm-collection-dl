@@ -11,6 +11,7 @@ from collection_helpers import (
     installerDefaultActionLabel,
     normalizedButtonLabel,
     parseCollectionAddress,
+    safeDisplayText,
     sanitizeModName,
     staleZeroByteUnfinishedEntries,
     unfinishedDownloadEntries,
@@ -321,6 +322,17 @@ class AllocateUniqueModNameTests(unittest.TestCase):
             allocateUniqueModName("New Statue", used, counts), "New Statue #3"
         )
         self.assertEqual(counts, {"New Statue": 4})
+
+
+class SafeDisplayTextTests(unittest.TestCase):
+    def test_preserves_regular_unicode_text(self):
+        self.assertEqual(safeDisplayText("Café Statues"), "Café Statues")
+
+    def test_removes_non_bmp_and_control_characters(self):
+        self.assertEqual(safeDisplayText("Sexy Statues\U0001f5ff\n"), "Sexy Statues")
+
+    def test_falls_back_for_empty_display_text(self):
+        self.assertEqual(safeDisplayText("\U0001f5ff"), "Unknown Collection")
 
 
 if __name__ == "__main__":

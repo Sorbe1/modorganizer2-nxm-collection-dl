@@ -24,6 +24,7 @@ from .collection_helpers import (
     allocateUniqueModName,
     installerDefaultActionLabel,
     normalizedButtonLabel,
+    safeDisplayText,
 )
 
 qDebug = var.debug
@@ -323,9 +324,9 @@ class stepSelectCollection(QDialog):
 
             # Update info label
             self.info.setText(f"""
-				<h2 style="margin:0;padding:0">{name}</h2>
+				<h2 style="margin:0;padding:0">{safeDisplayText(name)}</h2>
 				<br>
-				by <i>{author}</i>
+				by <i>{safeDisplayText(author)}</i>
 				<br>
 				<br>
 				{summary}
@@ -377,7 +378,7 @@ class stepInstallMods(QDialog):
         layout = QVBoxLayout()
 
         # Title
-        title = QLabel(f"Installing: {var.name}")
+        title = QLabel(f"Installing: {safeDisplayText(var.name)}")
         title.setStyleSheet("font-weight: bold; font-size: 14pt;")
         layout.addWidget(title)
 

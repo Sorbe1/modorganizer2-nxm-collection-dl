@@ -28,6 +28,7 @@ from .collection_helpers import (
     downloadedFileKeys,
     hasPartialUnfinishedEntries,
     parseCollectionAddress,
+    safeDisplayText,
     staleZeroByteUnfinishedEntries,
     unfinishedDownloadEntries,
     zeroByteUnfinishedEntries,
@@ -232,9 +233,9 @@ class stepVersion(QDialog):
             infoBox.addWidget(self.thumb_label)
 
         self.info = QLabel(f"""
-							<h2 style="margin:0;padding:0">{var.name}</h2>
+							<h2 style="margin:0;padding:0">{safeDisplayText(var.name)}</h2>
 							<br>
-							by <i>{var.author}</i>
+							by <i>{safeDisplayText(var.author)}</i>
 							<br>
 							<br>
 							{var.summary}
@@ -1335,7 +1336,9 @@ class stepCollectionLinkFlow(QDialog):
                 self.fail("Failed to determine the latest collection revision.")
                 return
 
-        self.label.setText(f"Fetching collection manifest for {var.name}...")
+        self.label.setText(
+            f"Fetching collection manifest for {safeDisplayText(var.name)}..."
+        )
         mods = fetchModInfo(var.uri)
         if mods is None:
             self.fail("Failed to fetch collection mod information from Nexus Mods.")
