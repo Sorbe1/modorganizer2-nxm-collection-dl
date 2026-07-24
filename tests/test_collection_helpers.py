@@ -4,6 +4,7 @@ import unittest
 
 from collection_helpers import (
     INSTALLER_SETTING_DEFAULTS,
+    activeDownloadPromptKey,
     allocateUniqueModName,
     cleanupZeroByteUnfinishedDownloads,
     coerceBoolSetting,
@@ -455,6 +456,40 @@ class DownloadCompletionPlanTests(unittest.TestCase):
                 "close_immediately": False,
                 "close_delay_ms": 5000,
             },
+        )
+
+
+class ActiveDownloadPromptKeyTests(unittest.TestCase):
+    def test_prefers_current_active_queue_key(self):
+        self.assertEqual(
+            activeDownloadPromptKey(
+                active_key=(1, 2),
+                context_key=(3, 4),
+                context_expires_at=50,
+                now=100,
+            ),
+            (1, 2),
+        )
+
+    def test_uses_unexpired_prompt_context(self):
+        self.assertEqual(
+            activeDownloadPromptKey(
+                active_key=None,
+                context_key=(3, 4),
+                context_expires_at=105,
+                now=100,
+            ),
+            (3, 4),
+        )
+
+    def test_ignores_expired_prompt_context(self):
+        self.assertIsNone(
+            activeDownloadPromptKey(
+                active_key=None,
+                context_key=(3, 4),
+                context_expires_at=99,
+                now=100,
+            )
         )
 
 

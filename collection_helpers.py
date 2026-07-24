@@ -117,6 +117,15 @@ def downloadCompletionPlan(failed_count, has_on_complete, close_on_success, dela
     }
 
 
+def activeDownloadPromptKey(active_key, context_key, context_expires_at, now):
+    """Return the Nexus key that owns a currently visible MO2 download prompt."""
+    if active_key is not None:
+        return active_key
+    if context_key is not None and now <= context_expires_at:
+        return context_key
+    return None
+
+
 def sanitizeModName(mod_name):
     clean_name = str(mod_name).replace("/", "-").replace("\\", "-")
     clean_name = " ".join(clean_name.split())

@@ -24,6 +24,7 @@ from .api import fetchRevisions, fetchInfo, fetchModInfo
 from . import __meta__
 from . import var
 from .collection_helpers import (
+    activeDownloadPromptKey,
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
@@ -679,6 +680,8 @@ class stepDownloadProgress(QDialog):
         self.prequeue_cleanup_count = 0
         self.is_tracking = True
         self.active_queue_key = None
+        self.prompt_context_key = None
+        self.prompt_context_expires_at = 0
         self.download_ids = {}
         self.completed_keys = set()
         self.failed_keys = set()
@@ -693,7 +696,7 @@ class stepDownloadProgress(QDialog):
         self.reconcile_timer.setInterval(1000)
         self.reconcile_timer.timeout.connect(self.reconcile_completed_downloads)
         self.duplicate_prompt_timer = QTimer(self)
-        self.duplicate_prompt_timer.setInterval(250)
+        self.duplicate_prompt_timer.setInterval(50)
         self.duplicate_prompt_timer.timeout.connect(
             self.dismiss_duplicate_download_prompt
         )
@@ -863,9 +866,15 @@ class stepDownloadProgress(QDialog):
             f"ModID: {mod_id}, FileID: {file_id}, Name: {mod_name}"
         )
         self.active_queue_key = key
+        self.set_prompt_context(key)
         try:
             download_id = plugin_instance.downloadMod(mod)
         finally:
+            # MO2 sometimes posts duplicate/already-started prompts just after
+            # startDownloadNexusFile returns. Pumping one event pass keeps the
+            # prompt tied to this collection entry instead of leaving it modal.
+            QApplication.processEvents()
+            self.dismiss_duplicate_download_prompt()
             self.active_queue_key = None
 
         if key in self.duplicate_declined_keys:
@@ -907,12 +916,34 @@ class stepDownloadProgress(QDialog):
             for button in window.findChildren(QPushButton)
         ]
 
+    def set_prompt_context(self, key):
+        self.prompt_context_key = key
+        self.prompt_context_expires_at = time.time() + 5
+
+    def current_prompt_key(self):
+        key = activeDownloadPromptKey(
+            self.active_queue_key,
+            self.prompt_context_key,
+            self.prompt_context_expires_at,
+            time.time(),
+        )
+        if key is None:
+            self.prompt_context_key = None
+            self.prompt_context_expires_at = 0
+        return key
+
+    def clear_prompt_context(self, key):
+        if self.prompt_context_key == key:
+            self.prompt_context_key = None
+            self.prompt_context_expires_at = 0
+
     def dismiss_duplicate_download_prompt(self):
         """Decline MO2's duplicate archive prompt while a collection is queueing."""
         if not self.is_tracking:
             self.duplicate_prompt_timer.stop()
             return
-        if not self.active_queue_key:
+        prompt_key = self.current_prompt_key()
+        if not prompt_key:
             return
 
         for window in QApplication.topLevelWidgets():
@@ -931,21 +962,22 @@ class stepDownloadProgress(QDialog):
                 ):
                     self.duplicate_prompt_count += 1
                     if action == "no":
-                        self.duplicate_declined_keys.add(self.active_queue_key)
+                        self.duplicate_declined_keys.add(prompt_key)
                         qDebug(
                             "[NXMColDL Progress] Declined duplicate download prompt "
-                            f"for ModID {self.active_queue_key[0]}, "
-                            f"FileID {self.active_queue_key[1]}"
+                            f"for ModID {prompt_key[0]}, "
+                            f"FileID {prompt_key[1]}"
                         )
                     else:
-                        self.already_started_keys.add(self.active_queue_key)
-                        self.already_started_at[self.active_queue_key] = time.time()
+                        self.already_started_keys.add(prompt_key)
+                        self.already_started_at[prompt_key] = time.time()
                         qDebug(
                             "[NXMColDL Progress] Acknowledged already-started "
                             "download prompt for "
-                            f"ModID {self.active_queue_key[0]}, "
-                            f"FileID {self.active_queue_key[1]}"
+                            f"ModID {prompt_key[0]}, "
+                            f"FileID {prompt_key[1]}"
                         )
+                    self.clear_prompt_context(prompt_key)
                     button.click()
                     return
 
