@@ -60,6 +60,29 @@ def installerDefaultActionLabel(window_title, buttons):
     return None
 
 
+def duplicateDownloadPromptActionLabel(window_title, buttons):
+    """Return the duplicate-download prompt action to click, or None.
+
+    MO2 shows this confirmation when a same-named archive already exists in the
+    downloads directory. During a collection batch, declining the duplicate is
+    the least surprising non-interactive choice: keep the existing archive and
+    let the collection tracker reconcile the item from disk.
+    """
+    if window_title != "Download again?":
+        return None
+
+    labels = {
+        normalizedButtonLabel(label): bool(enabled)
+        for label, enabled in buttons
+        if normalizedButtonLabel(label)
+    }
+    if not {"yes", "no", "cancel"}.issubset(labels):
+        return None
+    if labels.get("no"):
+        return "no"
+    return None
+
+
 def downloadCompletionPlan(failed_count, has_on_complete, close_on_success, delay_ms):
     """Return terminal actions for a successful download progress dialog."""
     if failed_count:

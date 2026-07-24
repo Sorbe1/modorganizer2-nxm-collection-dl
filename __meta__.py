@@ -164,6 +164,11 @@ class DownloadCollectionTool(mobase.IPluginTool):
                 "Retry stale unfinished downloads after this many idle seconds (0 disables)",
                 60,
             ),
+            mobase.PluginSetting(
+                "auto_decline_duplicate_download_prompts",
+                "Automatically decline duplicate archive prompts during collection downloads",
+                True,
+            ),
         ]
 
     def onUserInterfaceInitializedCallback(self, main_window: "QMainWindow"):

@@ -4,6 +4,7 @@ from PyQt6.QtCore import QObject, QSize, QThread, QTimer, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QFontMetrics
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -29,7 +30,9 @@ from .collection_helpers import (
     cleanupZeroByteUnfinishedDownloads,
     downloadCompletionPlan,
     downloadedFileKeys,
+    duplicateDownloadPromptActionLabel,
     hasPartialUnfinishedEntries,
+    normalizedButtonLabel,
     parseCollectionAddress,
     popDownloadKey,
     removeUnfinishedEntries,
@@ -654,6 +657,7 @@ class stepDownloadProgress(QDialog):
         stale_unfinished_seconds=60,
         close_on_success=False,
         success_close_delay_ms=0,
+        decline_duplicate_prompts=True,
     ):
         super().__init__(parent)
         self.setWindowTitle("NXM Collection Downloader - Download Progress")
@@ -667,14 +671,18 @@ class stepDownloadProgress(QDialog):
         self.stale_unfinished_seconds = max(0, int(stale_unfinished_seconds or 0))
         self.close_on_success = close_on_success
         self.success_close_delay_ms = max(0, int(success_close_delay_ms or 0))
+        self.decline_duplicate_prompts = bool(decline_duplicate_prompts)
         self.completed_count = 0
         self.failed_count = 0
         self.retry_count = 0
+        self.duplicate_prompt_count = 0
         self.prequeue_cleanup_count = 0
         self.is_tracking = True
+        self.active_queue_key = None
         self.download_ids = {}
         self.completed_keys = set()
         self.failed_keys = set()
+        self.duplicate_declined_keys = set()
         self.retry_attempts = {}
         self.key_counts = {}
         self.queued_keys = set()
@@ -682,6 +690,11 @@ class stepDownloadProgress(QDialog):
         self.reconcile_timer = QTimer(self)
         self.reconcile_timer.setInterval(1000)
         self.reconcile_timer.timeout.connect(self.reconcile_completed_downloads)
+        self.duplicate_prompt_timer = QTimer(self)
+        self.duplicate_prompt_timer.setInterval(250)
+        self.duplicate_prompt_timer.timeout.connect(
+            self.dismiss_duplicate_download_prompt
+        )
         for mod in self.mods_to_download:
             key = self.mod_key(mod)
             self.key_counts[key] = self.key_counts.get(key, 0) + 1
@@ -724,6 +737,8 @@ class stepDownloadProgress(QDialog):
 
         QTimer.singleShot(0, self.queue_downloads)
         self.reconcile_timer.start()
+        if self.decline_duplicate_prompts:
+            self.duplicate_prompt_timer.start()
 
     def mod_key(self, mod):
         return (int(mod["file"]["mod"]["modId"]), int(mod["file"]["fileId"]))
@@ -845,7 +860,18 @@ class stepDownloadProgress(QDialog):
             "[NXMColDL] Queueing download - "
             f"ModID: {mod_id}, FileID: {file_id}, Name: {mod_name}"
         )
-        download_id = plugin_instance.downloadMod(mod)
+        self.active_queue_key = key
+        try:
+            download_id = plugin_instance.downloadMod(mod)
+        finally:
+            self.active_queue_key = None
+
+        if key in self.duplicate_declined_keys:
+            if self.mark_key_completed(key, "Skipped duplicate existing archive"):
+                self.update_progress()
+                self.finish_if_complete()
+            return True
+
         coerced_download_id = coerceDownloadId(download_id)
         if coerced_download_id is None:
             qDebug(
@@ -861,9 +887,52 @@ class stepDownloadProgress(QDialog):
         )
         return True
 
+    def dialog_buttons(self, window):
+        return [
+            (button.text(), button.isEnabled())
+            for button in window.findChildren(QPushButton)
+        ]
+
+    def dismiss_duplicate_download_prompt(self):
+        """Decline MO2's duplicate archive prompt while a collection is queueing."""
+        if not self.is_tracking:
+            self.duplicate_prompt_timer.stop()
+            return
+        if not self.active_queue_key:
+            return
+
+        for window in QApplication.topLevelWidgets():
+            if not window.isVisible():
+                continue
+            action = duplicateDownloadPromptActionLabel(
+                window.windowTitle(), self.dialog_buttons(window)
+            )
+            if action != "no":
+                continue
+
+            for button in window.findChildren(QPushButton):
+                if (
+                    normalizedButtonLabel(button.text()) == action
+                    and button.isEnabled()
+                ):
+                    self.duplicate_declined_keys.add(self.active_queue_key)
+                    self.duplicate_prompt_count += 1
+                    qDebug(
+                        "[NXMColDL Progress] Declined duplicate download prompt "
+                        f"for ModID {self.active_queue_key[0]}, "
+                        f"FileID {self.active_queue_key[1]}"
+                    )
+                    button.click()
+                    return
+
     def handle_queue_start_failed(self, mod, key):
         """Retry or fail a download that MO2 refused to queue."""
         self.queued_keys.discard(key)
+        if key in self.duplicate_declined_keys:
+            if self.mark_key_completed(key, "Skipped duplicate existing archive"):
+                self.update_progress()
+                self.finish_if_complete()
+            return
         if self.is_already_downloaded(key):
             if self.mark_key_completed(key, "Skipped already-downloaded archive"):
                 self.update_progress()
@@ -1109,6 +1178,7 @@ class stepDownloadProgress(QDialog):
         )
         self.is_tracking = False
         self.reconcile_timer.stop()
+        self.duplicate_prompt_timer.stop()
         plan = downloadCompletionPlan(
             self.failed_count,
             self.on_complete is not None,
@@ -1224,6 +1294,12 @@ class stepDownload(QDialog):
                     default=0,
                     minimum=0,
                 )
+                decline_duplicate_prompts = coerceBoolSetting(
+                    plugin_instance._organizer.pluginSetting(
+                        plugin_instance.name(),
+                        "auto_decline_duplicate_download_prompts",
+                    )
+                )
                 self.progress_dialog = stepDownloadProgress(
                     self.parent(),
                     mods_to_download,
@@ -1231,6 +1307,7 @@ class stepDownload(QDialog):
                     max_retries=max_retries,
                     stale_unfinished_seconds=stale_unfinished_seconds,
                     success_close_delay_ms=success_close_delay_ms,
+                    decline_duplicate_prompts=decline_duplicate_prompts,
                 )
 
                 self.label.setText(f"Queued {len(mods_to_download)} downloads in MO2.")
@@ -1415,6 +1492,11 @@ class stepCollectionLinkFlow(QDialog):
             default=0,
             minimum=0,
         )
+        decline_duplicate_prompts = coerceBoolSetting(
+            plugin_instance._organizer.pluginSetting(
+                plugin_instance.name(), "auto_decline_duplicate_download_prompts"
+            )
+        )
         self.progress_dialog = stepDownloadProgress(
             self.parent(),
             mods_to_download,
@@ -1423,6 +1505,7 @@ class stepCollectionLinkFlow(QDialog):
             stale_unfinished_seconds=stale_unfinished_seconds,
             close_on_success=self.auto_install,
             success_close_delay_ms=success_close_delay_ms,
+            decline_duplicate_prompts=decline_duplicate_prompts,
         )
         self.hide()
         self.progress_dialog.exec()

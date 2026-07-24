@@ -8,6 +8,7 @@ from collection_helpers import (
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
+    duplicateDownloadPromptActionLabel,
     downloadCompletionPlan,
     downloadedFileKeys,
     hasPartialUnfinishedEntries,
@@ -348,6 +349,33 @@ class InstallerDefaultActionLabelTests(unittest.TestCase):
                 [("", True), ("&Next >", True), ("Cancel", True)],
             ),
             "next",
+        )
+
+
+class DuplicateDownloadPromptActionLabelTests(unittest.TestCase):
+    def test_declines_mo2_duplicate_download_prompt(self):
+        self.assertEqual(
+            duplicateDownloadPromptActionLabel(
+                "Download again?",
+                [("&Yes", True), ("&No", True), ("Cancel", True)],
+            ),
+            "no",
+        )
+
+    def test_ignores_fomod_dialog_with_no_button(self):
+        self.assertIsNone(
+            duplicateDownloadPromptActionLabel(
+                "Some FOMOD",
+                [("&Back", True), ("&Next >", True), ("Cancel", True)],
+            )
+        )
+
+    def test_requires_complete_confirmation_button_set(self):
+        self.assertIsNone(
+            duplicateDownloadPromptActionLabel(
+                "Download again?",
+                [("&Yes", True), ("Cancel", True)],
+            )
         )
 
 
