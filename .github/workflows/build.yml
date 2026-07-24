@@ -24,12 +24,32 @@ jobs:
           cp __init__.py nxm-collection-dl/
           cp __meta__.py nxm-collection-dl/
           cp api.py nxm-collection-dl/
+          cp collection_helpers.py nxm-collection-dl/
           cp download.py nxm-collection-dl/
           cp install.py nxm-collection-dl/
           cp var.py nxm-collection-dl/
           cp -R icons/ nxm-collection-dl/
           cp LICENSE nxm-collection-dl/
           cp README.md nxm-collection-dl/
+
+      - name: Validate release archive contents
+        run: |
+          required_files=(
+            "__init__.py"
+            "__meta__.py"
+            "api.py"
+            "collection_helpers.py"
+            "download.py"
+            "install.py"
+            "var.py"
+            "icons/download.ico"
+            "icons/install.ico"
+            "LICENSE"
+            "README.md"
+          )
+          for file in "${required_files[@]}"; do
+            test -f "nxm-collection-dl/${file}"
+          done
 
       - name: Create release archive
         run: |
