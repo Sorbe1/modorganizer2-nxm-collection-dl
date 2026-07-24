@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from collection_helpers import (
+    INSTALLER_SETTING_DEFAULTS,
     allocateUniqueModName,
     cleanupZeroByteUnfinishedDownloads,
     coerceBoolSetting,
@@ -524,6 +525,21 @@ class CoerceIntSettingTests(unittest.TestCase):
     def test_clamps_to_minimum_when_requested(self):
         self.assertEqual(coerceIntSetting("-3", default=5, minimum=0), 0)
         self.assertEqual(coerceIntSetting("2", default=5, minimum=1), 2)
+
+
+class InstallerSettingDefaultsTests(unittest.TestCase):
+    def test_duplicate_mod_merging_is_opt_in(self):
+        self.assertFalse(INSTALLER_SETTING_DEFAULTS["auto_merge_existing_mods"])
+
+    def test_non_interactive_collection_defaults_match_verified_workflow(self):
+        self.assertTrue(INSTALLER_SETTING_DEFAULTS["auto_accept_quick_install"])
+        self.assertTrue(
+            INSTALLER_SETTING_DEFAULTS["auto_dismiss_known_post_install_errors"]
+        )
+        self.assertTrue(INSTALLER_SETTING_DEFAULTS["install_files_as_separate_mods"])
+        self.assertTrue(INSTALLER_SETTING_DEFAULTS["activate_mods_after_install"])
+        self.assertFalse(INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"])
+        self.assertEqual(INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_max_steps"], 20)
 
 
 if __name__ == "__main__":

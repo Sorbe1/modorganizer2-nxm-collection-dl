@@ -2,7 +2,11 @@ import mobase  # type: ignore
 from PyQt6.QtCore import QTimer, QUrl, qDebug
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QMainWindow
-from .collection_helpers import coerceBoolSetting, parseCollectionAddress
+from .collection_helpers import (
+    INSTALLER_SETTING_DEFAULTS,
+    coerceBoolSetting,
+    parseCollectionAddress,
+)
 from .download import stepCollectionLinkFlow, stepURL
 from .install import stepSelectCollection
 from pathlib import Path
@@ -241,37 +245,37 @@ class InstallCollectionTool(mobase.IPluginTool):
             mobase.PluginSetting(
                 "auto_accept_quick_install",
                 "Automatically accept MO2 Quick Install dialogs",
-                True,
+                INSTALLER_SETTING_DEFAULTS["auto_accept_quick_install"],
             ),
             mobase.PluginSetting(
                 "auto_dismiss_known_post_install_errors",
                 "Automatically dismiss known MO2 post-install error dialogs",
-                True,
+                INSTALLER_SETTING_DEFAULTS["auto_dismiss_known_post_install_errors"],
             ),
             mobase.PluginSetting(
                 "auto_merge_existing_mods",
-                "Automatically merge when MO2 reports that a mod already exists",
-                True,
+                "Automatically merge duplicate MO2 mod names instead of keeping # suffixes",
+                INSTALLER_SETTING_DEFAULTS["auto_merge_existing_mods"],
             ),
             mobase.PluginSetting(
                 "auto_advance_fomod_defaults",
                 "Automatically accept default FOMOD installer choices",
-                False,
+                INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"],
             ),
             mobase.PluginSetting(
                 "auto_advance_fomod_max_steps",
                 "Maximum FOMOD default choices to accept for one archive",
-                20,
+                INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_max_steps"],
             ),
             mobase.PluginSetting(
                 "install_files_as_separate_mods",
                 "Install each collection file as a separate named MO2 mod",
-                True,
+                INSTALLER_SETTING_DEFAULTS["install_files_as_separate_mods"],
             ),
             mobase.PluginSetting(
                 "activate_mods_after_install",
                 "Activate installed mods after the collection install pass completes",
-                True,
+                INSTALLER_SETTING_DEFAULTS["activate_mods_after_install"],
             ),
         ]
 

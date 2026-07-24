@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from . import __meta__, var
 from .collection_helpers import (
+    INSTALLER_SETTING_DEFAULTS,
     allocateUniqueModName,
     coerceBoolSetting,
     coerceIntSetting,
@@ -177,9 +178,11 @@ def advanceInstallerDialogDefaults():
 
 
 def scheduleInstallDialogHandlers(
-    auto_accept_quick_install=True,
-    auto_dismiss_known_post_install_errors=True,
-    auto_merge_existing_mods=True,
+    auto_accept_quick_install=INSTALLER_SETTING_DEFAULTS["auto_accept_quick_install"],
+    auto_dismiss_known_post_install_errors=INSTALLER_SETTING_DEFAULTS[
+        "auto_dismiss_known_post_install_errors"
+    ],
+    auto_merge_existing_mods=INSTALLER_SETTING_DEFAULTS["auto_merge_existing_mods"],
 ):
     for delay in (250, 750, 1500, 3000, 5000):
         if auto_accept_quick_install:

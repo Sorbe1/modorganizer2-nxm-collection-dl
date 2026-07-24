@@ -13,6 +13,16 @@ FOMOD_ADVANCE_EXCLUDED_TITLES = {
     "NXM Collection Installer - Select Collection",
 }
 
+INSTALLER_SETTING_DEFAULTS = {
+    "auto_accept_quick_install": True,
+    "auto_dismiss_known_post_install_errors": True,
+    "auto_merge_existing_mods": False,
+    "auto_advance_fomod_defaults": False,
+    "auto_advance_fomod_max_steps": 20,
+    "install_files_as_separate_mods": True,
+    "activate_mods_after_install": True,
+}
+
 
 def normalizedButtonLabel(label):
     return " ".join(
