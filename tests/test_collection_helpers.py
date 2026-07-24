@@ -333,6 +333,23 @@ class InstallerDefaultActionLabelTests(unittest.TestCase):
             installerDefaultActionLabel("NXM Collection Link Handler", [("Next", True)])
         )
 
+    def test_rejects_cancel_only_confirmation_dialog(self):
+        self.assertIsNone(
+            installerDefaultActionLabel(
+                "Download again?",
+                [("Yes", True), ("No", True), ("Cancel", True)],
+            )
+        )
+
+    def test_ignores_empty_button_text(self):
+        self.assertEqual(
+            installerDefaultActionLabel(
+                "Some FOMOD",
+                [("", True), ("&Next >", True), ("Cancel", True)],
+            ),
+            "next",
+        )
+
 
 class DownloadCompletionPlanTests(unittest.TestCase):
     def test_failed_downloads_keep_dialog_open_for_review(self):

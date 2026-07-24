@@ -254,6 +254,11 @@ class InstallCollectionTool(mobase.IPluginTool):
                 False,
             ),
             mobase.PluginSetting(
+                "auto_advance_fomod_max_steps",
+                "Maximum FOMOD default choices to accept for one archive",
+                20,
+            ),
+            mobase.PluginSetting(
                 "install_files_as_separate_mods",
                 "Install each collection file as a separate named MO2 mod",
                 True,

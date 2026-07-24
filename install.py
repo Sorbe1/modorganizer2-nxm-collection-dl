@@ -23,6 +23,7 @@ from . import __meta__, var
 from .collection_helpers import (
     allocateUniqueModName,
     coerceBoolSetting,
+    coerceIntSetting,
     installerDefaultActionLabel,
     normalizedButtonLabel,
     safeDisplayText,
@@ -166,14 +167,13 @@ def advanceInstallerDialogDefaults():
         if not button:
             continue
 
-        qDebug(
-            "[NXMColDL Install] Auto-advancing installer defaults for "
-            f"{widget.windowTitle()}"
-        )
+        title = safeDisplayText(widget.windowTitle())
+        label = normalizedButtonLabel(button.text())
+        qDebug(f"[NXMColDL Install] Auto-advancing installer defaults for {title}")
         suppressDialogAndClick(widget, button)
-        return True
+        return title, label
 
-    return False
+    return None
 
 
 def scheduleInstallDialogHandlers(
@@ -418,6 +418,7 @@ class stepInstallMods(QDialog):
         self.install_context = None
         self.cancel_requested = False
         self.dialog_handler_generation = 0
+        self.fomod_auto_advances = []
 
         # Start installation after dialog is shown
         QTimer.singleShot(500, self.startInstallation)
@@ -566,6 +567,7 @@ class stepInstallMods(QDialog):
                 ),
                 "next_index": 0,
             }
+            self.fomod_auto_advances = []
             QTimer.singleShot(1500, self.installNextMod)
 
         except Exception as e:
@@ -658,7 +660,24 @@ class stepInstallMods(QDialog):
                     plugin_instance.name(), "auto_advance_fomod_defaults"
                 )
             ):
-                self.scheduleInstallerDefaultAdvancer(dialog_handler_generation)
+                max_steps = coerceIntSetting(
+                    organizer.pluginSetting(
+                        plugin_instance.name(), "auto_advance_fomod_max_steps"
+                    ),
+                    default=20,
+                    minimum=0,
+                )
+                if max_steps:
+                    self.scheduleInstallerDefaultAdvancer(
+                        dialog_handler_generation,
+                        mod_name,
+                        max_steps,
+                    )
+                else:
+                    self.log(
+                        "  FOMOD default auto-advance disabled by max-step limit",
+                        "warning",
+                    )
 
             if context["separate_file_installs"]:
                 target_mod_name = self.allocateCollectionModName(
@@ -710,18 +729,46 @@ class stepInstallMods(QDialog):
         self.log("")
         QTimer.singleShot(1500, self.installNextMod)
 
-    def scheduleInstallerDefaultAdvancer(self, generation, remaining=240):
+    def scheduleInstallerDefaultAdvancer(
+        self, generation, mod_name, max_steps, remaining=240, advanced=0
+    ):
         if remaining <= 0:
+            return
+        if advanced >= max_steps:
+            self.log(
+                f"  FOMOD default auto-advance stopped after {advanced} step(s)",
+                "warning",
+            )
             return
         if generation != self.dialog_handler_generation:
             return
         if not self.install_context:
             return
 
-        advanceInstallerDialogDefaults()
+        action = advanceInstallerDialogDefaults()
+        if action:
+            title, button_label = action
+            advanced += 1
+            self.fomod_auto_advances.append(
+                {
+                    "mod": mod_name,
+                    "dialog": title,
+                    "action": button_label,
+                }
+            )
+            self.log(
+                f"  FOMOD default auto-advance: {button_label} on {title}",
+                "warning",
+            )
         QTimer.singleShot(
             250,
-            lambda: self.scheduleInstallerDefaultAdvancer(generation, remaining - 1),
+            lambda: self.scheduleInstallerDefaultAdvancer(
+                generation,
+                mod_name,
+                max_steps,
+                remaining - 1,
+                advanced,
+            ),
         )
 
     def finishInstallation(self, cancelled=False):
@@ -807,6 +854,7 @@ class stepInstallMods(QDialog):
             f"  Failed/skipped collection entries: {len(mods_to_install) - len(installed_mods)}"
         )
         self.log(f"  MO2 warnings captured: {len(self.install_warnings)}")
+        self.log(f"  FOMOD default auto-advances: {len(self.fomod_auto_advances)}")
         report_path = self.writeWarningReport(organizer)
         if report_path:
             self.log(f"  Warning report: {report_path}", "warning")

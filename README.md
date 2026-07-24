@@ -56,7 +56,9 @@ Collection files are installed as separate MO2 mod rows by default; repeated
 files from the same Nexus mod use `#2`, `#3`, and later suffixes instead of
 silently merging into one row. Collection author FOMOD choice replay is not
 implemented, but `auto_advance_fomod_defaults` can optionally advance visible
-FOMOD installers by accepting their selected default choices.
+FOMOD installers by accepting their selected default choices. The FOMOD
+automation is bounded by `auto_advance_fomod_max_steps` per archive so a bad or
+unexpected installer cannot be clicked indefinitely.
 
 ## Contributing
 

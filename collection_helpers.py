@@ -39,10 +39,18 @@ def installerDefaultActionLabel(window_title, buttons):
     labels = set()
     for label, enabled in buttons:
         normalized = normalizedButtonLabel(label)
+        if not normalized:
+            continue
         labels.add(normalized)
         enabled_by_label[normalized] = bool(enabled)
 
     if "cancel" not in labels:
+        return None
+
+    # Avoid generic confirmation prompts and MO2 utility dialogs. FOMOD wizard
+    # pages normally expose Back/Next/Cancel, or Back/Install/Cancel on the
+    # final page.
+    if "back" not in labels and "next" not in labels and "install" not in labels:
         return None
 
     for label in ("next", "install"):
