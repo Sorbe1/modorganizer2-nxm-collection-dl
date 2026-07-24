@@ -41,6 +41,11 @@ The collection URL parser accepts normal Nexus collection web URLs, collection
 tab URLs, and `nxm://.../collections/...` links. Links without a revision use the
 latest revision returned by Nexus Mods.
 
+When launched from Nexus Mods' Add Collection button, the plugin downloads the
+collection and then starts the install pass automatically by default. Disable
+`auto_install_after_download` under the Nexus Mods Collections plugin settings
+if you prefer to inspect the Downloads tab and install manually.
+
 The installer processes one downloaded archive at a time and waits briefly before
 starting the next archive. This avoids overlapping MO2 installer sessions while
 still allowing normal MO2 installer dialogs to appear when a mod needs manual

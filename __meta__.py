@@ -322,7 +322,7 @@ class CollectionModPage(mobase.IPluginModPage):
             mobase.PluginSetting(
                 "auto_install_after_download",
                 "Automatically install a collection after Add Collection downloads finish",
-                False,
+                True,
             ),
         ]
 
