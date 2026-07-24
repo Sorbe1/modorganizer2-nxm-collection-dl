@@ -4,6 +4,7 @@ import unittest
 
 from collection_helpers import (
     allocateUniqueModName,
+    cleanupZeroByteUnfinishedDownloads,
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
@@ -14,6 +15,7 @@ from collection_helpers import (
     normalizedButtonLabel,
     parseCollectionAddress,
     popDownloadKey,
+    removeUnfinishedEntries,
     safeDisplayText,
     sanitizeModName,
     staleUnfinishedEntries,
@@ -211,6 +213,64 @@ class UnfinishedDownloadEntriesTests(unittest.TestCase):
         self.assertTrue(hasPartialUnfinishedEntries([empty_entry, partial_entry]))
         self.assertFalse(hasPartialUnfinishedEntries([empty_entry]))
         self.assertFalse(hasPartialUnfinishedEntries([]))
+
+    def test_removes_unfinished_entry_files(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Queued.7z.unfinished"
+            archive.write_bytes(b"")
+            metadata = downloads / "Queued.7z.unfinished.meta"
+            metadata.write_text("[General]\nmodID=111\nfileID=222\n", encoding="utf-8")
+
+            removed = removeUnfinishedEntries(
+                [{"archive": archive, "metadata": metadata}]
+            )
+
+            self.assertEqual(removed, 2)
+            self.assertFalse(archive.exists())
+            self.assertFalse(metadata.exists())
+
+    def test_preflight_cleans_only_requested_zero_byte_entries(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+
+            target_archive = downloads / "Target.7z.unfinished"
+            target_archive.write_bytes(b"")
+            target_meta = downloads / "Target.7z.unfinished.meta"
+            target_meta.write_text(
+                "[General]\nmodID=111\nfileID=222\n", encoding="utf-8"
+            )
+
+            other_archive = downloads / "Other.7z.unfinished"
+            other_archive.write_bytes(b"")
+            other_meta = downloads / "Other.7z.unfinished.meta"
+            other_meta.write_text(
+                "[General]\nmodID=333\nfileID=444\n", encoding="utf-8"
+            )
+
+            cleanup = cleanupZeroByteUnfinishedDownloads(downloads, {(111, 222)})
+
+            self.assertEqual(cleanup["cleaned_keys"], {(111, 222)})
+            self.assertEqual(cleanup["removed_files"], 2)
+            self.assertFalse(target_archive.exists())
+            self.assertFalse(target_meta.exists())
+            self.assertTrue(other_archive.exists())
+            self.assertTrue(other_meta.exists())
+
+    def test_preflight_preserves_partial_downloads(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Partial.7z.unfinished"
+            archive.write_bytes(b"partial")
+            metadata = downloads / "Partial.7z.unfinished.meta"
+            metadata.write_text("[General]\nmodID=111\nfileID=222\n", encoding="utf-8")
+
+            cleanup = cleanupZeroByteUnfinishedDownloads(downloads, {(111, 222)})
+
+            self.assertEqual(cleanup["cleaned_keys"], set())
+            self.assertEqual(cleanup["removed_files"], 0)
+            self.assertTrue(archive.exists())
+            self.assertTrue(metadata.exists())
 
 
 class CoerceDownloadIdTests(unittest.TestCase):

@@ -267,6 +267,48 @@ def zeroByteUnfinishedEntries(entries):
     return list(entries)
 
 
+def removeUnfinishedEntries(entries):
+    """Remove unfinished archive/metadata pairs and return removed file count."""
+    removed = 0
+    for entry in entries or []:
+        for path_key in ("archive", "metadata"):
+            path = entry[path_key]
+            try:
+                path.unlink(missing_ok=True)
+                removed += 1
+            except OSError:
+                continue
+
+    return removed
+
+
+def cleanupZeroByteUnfinishedDownloads(downloads_dir, pending_keys):
+    """Remove empty unfinished downloads for the requested Nexus file keys.
+
+    MO2 prompts before queueing if a same-named ``.unfinished`` placeholder is
+    still present. This preflight only removes entries whose matching archive is
+    still zero bytes, preserving real partial downloads for normal MO2 resume.
+    """
+    entries_by_key = unfinishedDownloadEntries(downloads_dir)
+    cleaned_keys = set()
+    removed_files = 0
+
+    for key in pending_keys:
+        cleanup_entries = zeroByteUnfinishedEntries(entries_by_key.get(key))
+        if not cleanup_entries:
+            continue
+
+        removed = removeUnfinishedEntries(cleanup_entries)
+        if removed:
+            cleaned_keys.add(key)
+            removed_files += removed
+
+    return {
+        "cleaned_keys": cleaned_keys,
+        "removed_files": removed_files,
+    }
+
+
 def hasPartialUnfinishedEntries(entries):
     """Return True when MO2 has already written archive data for this file."""
     return bool(entries) and any(entry["archive_size"] > 0 for entry in entries)

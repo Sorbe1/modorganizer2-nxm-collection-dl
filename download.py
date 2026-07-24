@@ -26,11 +26,13 @@ from .collection_helpers import (
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
+    cleanupZeroByteUnfinishedDownloads,
     downloadCompletionPlan,
     downloadedFileKeys,
     hasPartialUnfinishedEntries,
     parseCollectionAddress,
     popDownloadKey,
+    removeUnfinishedEntries,
     safeDisplayText,
     staleUnfinishedEntries,
     unfinishedDownloadEntries,
@@ -683,6 +685,7 @@ class stepDownloadProgress(QDialog):
         for mod in self.mods_to_download:
             key = self.mod_key(mod)
             self.key_counts[key] = self.key_counts.get(key, 0) + 1
+        self.preflight_cleanup_zero_byte_unfinished()
         self.already_downloaded_keys = downloadedFileKeys(downloadDirectory())
 
         layout = QVBoxLayout()
@@ -783,6 +786,22 @@ class stepDownloadProgress(QDialog):
         self.already_downloaded_keys = downloadedFileKeys(downloadDirectory())
         return key in self.already_downloaded_keys
 
+    def preflight_cleanup_zero_byte_unfinished(self):
+        """Clear dead MO2 placeholders before queueing the collection batch."""
+        cleanup = cleanupZeroByteUnfinishedDownloads(
+            downloadDirectory(), set(self.key_counts)
+        )
+        if not cleanup["cleaned_keys"]:
+            return
+
+        cleaned_count = len(cleanup["cleaned_keys"])
+        self.prequeue_cleanup_count += cleaned_count
+        qDebug(
+            "[NXMColDL Progress] Removed zero-byte unfinished downloads "
+            f"before queueing {cleaned_count} collection file(s); "
+            f"{cleanup['removed_files']} file(s) removed"
+        )
+
     def cleanup_stale_unfinished_before_queue(self, key):
         """Remove empty leftovers before MO2 sees a duplicate file."""
         entries = unfinishedDownloadEntries(downloadDirectory()).get(key)
@@ -790,20 +809,13 @@ class stepDownloadProgress(QDialog):
         if not cleanup_entries:
             return
 
-        for entry in cleanup_entries:
-            for path_key in ("archive", "metadata"):
-                try:
-                    entry[path_key].unlink(missing_ok=True)
-                except OSError as exc:
-                    qDebug(
-                        "[NXMColDL Progress] Failed removing stale unfinished "
-                        f"{path_key} for ModID {key[0]}, FileID {key[1]}: {exc}"
-                    )
+        removed = removeUnfinishedEntries(cleanup_entries)
 
         self.prequeue_cleanup_count += 1
         qDebug(
             "[NXMColDL Progress] Removed zero-byte unfinished download "
-            f"before queueing ModID {key[0]}, FileID {key[1]}"
+            f"before queueing ModID {key[0]}, FileID {key[1]}; "
+            f"{removed} file(s) removed"
         )
 
     def wait_for_existing_partial_download(self, key):
@@ -1068,15 +1080,7 @@ class stepDownloadProgress(QDialog):
             for download_id in download_ids:
                 self.download_ids.pop(download_id, None)
 
-            for entry in stale_entries:
-                for path_key in ("archive", "metadata"):
-                    try:
-                        entry[path_key].unlink(missing_ok=True)
-                    except OSError as exc:
-                        qDebug(
-                            "[NXMColDL Progress] Failed removing stale unfinished "
-                            f"{path_key} for ModID {key[0]}, FileID {key[1]}: {exc}"
-                        )
+            removed = removeUnfinishedEntries(stale_entries)
 
             mod_name = self.mod_label(mod)
             self.detail_label.setText(
@@ -1086,7 +1090,7 @@ class stepDownloadProgress(QDialog):
             qDebug(
                 "[NXMColDL Progress] Requeueing stale unfinished download "
                 f"ModID {key[0]}, FileID {key[1]} "
-                f"({attempts + 1}/{self.max_retries})"
+                f"({attempts + 1}/{self.max_retries}); {removed} file(s) removed"
             )
             QTimer.singleShot(
                 self.retry_delay_ms,
