@@ -245,6 +245,12 @@ class UnfinishedDownloadEntriesTests(unittest.TestCase):
             ),
             68861,
         )
+        self.assertEqual(
+            inferModIdFromDownloadName(
+                "Lanterns of Skyrim SE-2429-1-01.rar.unfinished"
+            ),
+            2429,
+        )
         self.assertIsNone(inferModIdFromDownloadName("not-a-nexus-name.7z"))
 
     def test_returns_orphan_unfinished_entries_without_metadata(self):

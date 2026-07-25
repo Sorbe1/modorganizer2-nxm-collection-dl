@@ -714,6 +714,7 @@ class stepDownloadProgress(QDialog):
         self.duplicate_declined_keys = set()
         self.already_started_keys = set()
         self.already_started_at = {}
+        self.already_started_cleanup_attempts = set()
         self.retry_attempts = {}
         self.key_counts = {}
         self.queued_keys = set()
@@ -958,6 +959,7 @@ class stepDownloadProgress(QDialog):
         self.waiting_partial_keys.discard(key)
         self.already_started_keys.discard(key)
         self.already_started_at.pop(key, None)
+        self.already_started_cleanup_attempts.discard(key)
         if self.active_queue_key == key:
             self.active_queue_key = None
         self.clear_prompt_context(key)
@@ -1009,16 +1011,17 @@ class stepDownloadProgress(QDialog):
         cleanup_entries = zeroByteUnfinishedEntries(entries)
         orphan_removed = removeOrphanUnfinishedDownloadsForKeys(downloads_dir, {key})
         if not cleanup_entries and not orphan_removed:
-            return
+            return 0
 
         removed = removeUnfinishedEntries(cleanup_entries) + orphan_removed
 
-        self.prequeue_cleanup_count += 1
+        self.prequeue_cleanup_count += removed
         qDebug(
             "[NXMColDL Progress] Removed zero-byte unfinished download "
             f"before queueing ModID {key[0]}, FileID {key[1]}; "
             f"{removed} file(s) removed"
         )
+        return removed
 
     def wait_for_existing_partial_download(self, key):
         """Avoid duplicate prompts when MO2 already has a resumable partial file."""
@@ -1063,6 +1066,8 @@ class stepDownloadProgress(QDialog):
             return self.handle_duplicate_declined_key(key)
 
         if key in self.already_started_keys:
+            if self.retry_after_already_started_cleanup(mod, key):
+                return True
             self.record_waiting_for_existing_download(
                 key,
                 "Waiting for an already-started MO2 download to complete...",
@@ -1163,6 +1168,8 @@ class stepDownloadProgress(QDialog):
         """Retry or fail a download that MO2 refused to queue."""
         self.queued_keys.discard(key)
         if key in self.already_started_keys:
+            if self.retry_after_already_started_cleanup(mod, key):
+                return
             self.record_waiting_for_existing_download(
                 key,
                 "Waiting for an already-started MO2 download to complete...",
@@ -1205,6 +1212,49 @@ class stepDownloadProgress(QDialog):
         if self.mark_key_failed(key, "Failed to queue download after retries"):
             self.update_progress()
             self.finish_if_complete()
+
+    def retry_after_already_started_cleanup(self, mod, key, count_retry=False):
+        """Requeue once after removing a stale placeholder that blocked MO2."""
+        if key in self.already_started_cleanup_attempts:
+            return False
+
+        if count_retry:
+            attempts = self.retry_attempts.get(key, 0)
+            if attempts >= self.max_retries:
+                return False
+
+        removed = self.cleanup_stale_unfinished_before_queue(key)
+        if not removed:
+            return False
+
+        self.already_started_cleanup_attempts.add(key)
+        retry_suffix = ""
+        if count_retry:
+            self.retry_attempts[key] = attempts + 1
+            self.retry_count += 1
+            retry_suffix = f" ({attempts + 1}/{self.max_retries})"
+
+        self.queued_keys.discard(key)
+        self.waiting_partial_keys.discard(key)
+        self.already_started_keys.discard(key)
+        self.already_started_at.pop(key, None)
+        self.remove_download_ids_for_key(key)
+
+        mod_name = self.mod_label(mod) if mod else f"ModID {key[0]}"
+        self.detail_label.setText(
+            f"Retrying already-started {mod_name}{retry_suffix}..."
+        )
+        self.detail_label.setStyleSheet("color: orange;")
+        qDebug(
+            "[NXMColDL Progress] Requeueing after stale already-started "
+            f"placeholder for ModID {key[0]}, FileID {key[1]}; "
+            f"{removed} file(s) removed"
+        )
+        QTimer.singleShot(
+            self.retry_delay_ms,
+            lambda m=mod, k=key: self.requeue_mod(m, k),
+        )
+        return True
 
     def requeue_mod(self, mod, key):
         """Requeue a download after clearing empty placeholders for the same file."""
@@ -1472,6 +1522,11 @@ class stepDownloadProgress(QDialog):
                 and started_at
                 and now - started_at >= self.stale_unfinished_seconds
             ):
+                mod = self.mod_by_key(key)
+                if mod and self.retry_after_already_started_cleanup(
+                    mod, key, count_retry=True
+                ):
+                    continue
                 self.clear_pending_state_for_key(key)
                 self.mark_key_failed(
                     key,
@@ -1589,6 +1644,7 @@ class stepDownloadProgress(QDialog):
         for key in retry_keys:
             self.already_started_keys.discard(key)
             self.already_started_at.pop(key, None)
+            self.already_started_cleanup_attempts.discard(key)
             self.retry_attempts[key] = 0
 
         self.completion_callback_started = False
