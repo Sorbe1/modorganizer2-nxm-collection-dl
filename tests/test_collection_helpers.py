@@ -686,6 +686,7 @@ class DownloadProgressStateTests(unittest.TestCase):
 
         self.assertEqual(state["successful"], 1)
         self.assertEqual(state["failed"], 1)
+        self.assertEqual(state["progress"], 1)
         self.assertEqual(state["processed"], 2)
         self.assertEqual(state["remaining"], 1)
         self.assertFalse(state["is_terminal"])
@@ -700,6 +701,7 @@ class DownloadProgressStateTests(unittest.TestCase):
 
         self.assertEqual(state["successful"], 1)
         self.assertEqual(state["failed"], 0)
+        self.assertEqual(state["progress"], 1)
         self.assertEqual(state["remaining"], 1)
 
     def test_counts_duplicate_collection_entries_by_key_weight(self):
@@ -711,6 +713,7 @@ class DownloadProgressStateTests(unittest.TestCase):
         )
 
         self.assertEqual(state["successful"], 2)
+        self.assertEqual(state["progress"], 2)
         self.assertEqual(state["processed"], 2)
         self.assertEqual(state["remaining"], 1)
 

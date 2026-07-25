@@ -124,6 +124,7 @@ def downloadProgressState(total_mods, completed_keys, failed_keys, key_counts):
         key_counts.get(key, 1) for key in set(failed_keys) - set(completed_keys)
     )
     total = max(0, int(total_mods or 0))
+    progress = min(total, successful)
     processed = min(total, successful + failed)
     remaining = max(0, total - processed)
 
@@ -131,6 +132,7 @@ def downloadProgressState(total_mods, completed_keys, failed_keys, key_counts):
         "total": total,
         "successful": successful,
         "failed": failed,
+        "progress": progress,
         "processed": processed,
         "remaining": remaining,
         "has_failures": failed > 0,

@@ -1246,21 +1246,24 @@ class stepDownloadProgress(QDialog):
             self.reconcile_timer.stop()
             return
 
-        completed_on_disk = downloadedFileKeys(downloadDirectory())
-        newly_completed = (
-            completed_on_disk
-            & set(self.key_counts) - self.completed_keys - self.failed_keys
-        )
-        for key in newly_completed:
-            self.mark_key_completed(key, "Reconciled completed download from disk")
-            self.clear_pending_state_for_key(key)
-
-        if newly_completed:
+        if self.reconcile_completed_downloads_from_disk():
             self.update_progress()
             self.finish_if_complete()
 
         if self.is_tracking:
             self.retry_stale_unfinished_downloads()
+
+    def reconcile_completed_downloads_from_disk(self):
+        """Credit all collection files that now have completed archives on disk."""
+        completed_on_disk = downloadedFileKeys(downloadDirectory())
+        newly_completed = (
+            completed_on_disk & set(self.key_counts)
+        ) - self.completed_keys
+        for key in newly_completed:
+            self.mark_key_completed(key, "Reconciled completed download from disk")
+            self.clear_pending_state_for_key(key)
+
+        return bool(newly_completed)
 
     def downgrade_stale_orphan_completed_downloads(self):
         """Reopen completed keys when MO2 has a stale orphan placeholder."""
@@ -1438,7 +1441,7 @@ class stepDownloadProgress(QDialog):
         self.is_tracking = False
         self.reconcile_timer.stop()
         self.duplicate_prompt_timer.stop()
-        self.progress.setValue(state["processed"])
+        self.progress.setValue(state["progress"])
         self.label.setText(
             f"Downloading mods: {state['successful']}/{state['total']} completed"
         )
@@ -1517,6 +1520,9 @@ class stepDownloadProgress(QDialog):
         QTimer.singleShot(0, lambda keys=retry_keys: self.queue_downloads(only_keys=keys))
 
     def finish_if_complete(self):
+        if self.reconcile_completed_downloads_from_disk():
+            self.update_progress()
+
         state = self.refresh_progress_counts()
         if not state["is_terminal"]:
             return
@@ -1555,7 +1561,7 @@ class stepDownloadProgress(QDialog):
     def update_progress(self):
         """Update the progress display."""
         state = self.refresh_progress_counts()
-        self.progress.setValue(state["processed"])
+        self.progress.setValue(state["progress"])
         self.label.setText(
             f"Downloading mods: {state['successful']}/{state['total']} completed"
         )
