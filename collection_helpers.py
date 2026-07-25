@@ -299,6 +299,47 @@ def readDownloadMetaKey(metadata_file):
         return None
 
 
+def inferModIdFromDownloadName(name):
+    """Infer a Nexus mod ID from an MO2 archive filename when metadata is missing."""
+    clean_name = str(name)
+    if clean_name.endswith(".unfinished"):
+        clean_name = clean_name[: -len(".unfinished")]
+
+    for match in re.finditer(r"-(\d+)(?=[-.])", clean_name):
+        value = int(match.group(1))
+        if value >= 1000:
+            return value
+    return None
+
+
+def orphanUnfinishedDownloadEntries(downloads_dir):
+    """Return unfinished archives that have no MO2 metadata sidecar."""
+    entries = []
+    if not downloads_dir or not downloads_dir.exists():
+        return entries
+
+    for archive_file in downloads_dir.glob("*.unfinished"):
+        metadata_file = Path(str(archive_file) + ".meta")
+        if metadata_file.exists():
+            continue
+
+        try:
+            stat = archive_file.stat()
+        except OSError:
+            continue
+
+        entries.append(
+            {
+                "archive": archive_file,
+                "archive_size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "mod_id": inferModIdFromDownloadName(archive_file.name),
+            }
+        )
+
+    return entries
+
+
 def unfinishedDownloadEntries(downloads_dir):
     """Return unfinished MO2 download files indexed by Nexus (mod_id, file_id)."""
     entries = {}
@@ -356,6 +397,32 @@ def removeUnfinishedEntries(entries):
                 removed += 1
             except OSError:
                 continue
+
+    return removed
+
+
+def staleOrphanUnfinishedDownloadEntries(entries, now, stale_seconds):
+    """Return stale orphan unfinished archives after the tracker has waited."""
+    if stale_seconds <= 0:
+        return []
+
+    return [entry for entry in entries or [] if now - entry["mtime"] >= stale_seconds]
+
+
+def removeOrphanUnfinishedDownloadsForKeys(downloads_dir, keys):
+    """Remove zero-byte orphan unfinished archives inferred to belong to keys."""
+    mod_ids = {int(key[0]) for key in keys}
+    removed = 0
+
+    for entry in orphanUnfinishedDownloadEntries(downloads_dir):
+        if entry["archive_size"] > 0 or entry["mod_id"] not in mod_ids:
+            continue
+
+        try:
+            entry["archive"].unlink(missing_ok=True)
+            removed += 1
+        except OSError:
+            continue
 
     return removed
 

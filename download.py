@@ -36,10 +36,13 @@ from .collection_helpers import (
     duplicateDownloadPromptActionLabel,
     hasPartialUnfinishedEntries,
     normalizedButtonLabel,
+    orphanUnfinishedDownloadEntries,
     parseCollectionAddress,
     popDownloadKey,
+    removeOrphanUnfinishedDownloadsForKeys,
     removeUnfinishedEntries,
     safeDisplayText,
+    staleOrphanUnfinishedDownloadEntries,
     staleUnfinishedEntries,
     unfinishedDownloadEntries,
     zeroByteUnfinishedEntries,
@@ -869,30 +872,74 @@ class stepDownloadProgress(QDialog):
         self.already_downloaded_keys = downloadedFileKeys(downloadDirectory())
         return key in self.already_downloaded_keys
 
+    def remove_download_ids_for_key(self, key):
+        download_ids = [
+            download_id
+            for download_id, download_key in self.download_ids.items()
+            if download_key == key
+        ]
+        for download_id in download_ids:
+            self.download_ids.pop(download_id, None)
+
+    def clear_pending_state_for_key(self, key):
+        self.queued_keys.discard(key)
+        self.waiting_partial_keys.discard(key)
+        self.already_started_keys.discard(key)
+        self.already_started_at.pop(key, None)
+        if self.active_queue_key == key:
+            self.active_queue_key = None
+        self.clear_prompt_context(key)
+        self.remove_download_ids_for_key(key)
+
+    def orphan_candidate_keys(
+        self, entry, completed_on_disk=None, include_completed=False
+    ):
+        mod_id = entry.get("mod_id")
+        if mod_id is None:
+            return []
+
+        completed_on_disk = completed_on_disk or set()
+        candidates = []
+        for key in self.key_counts:
+            if key[0] != mod_id or key in self.failed_keys:
+                continue
+            if key in completed_on_disk:
+                continue
+            if not include_completed and key in self.completed_keys:
+                continue
+            candidates.append(key)
+        return candidates
+
     def preflight_cleanup_zero_byte_unfinished(self):
         """Clear dead MO2 placeholders before queueing the collection batch."""
-        cleanup = cleanupZeroByteUnfinishedDownloads(
-            downloadDirectory(), set(self.key_counts)
+        downloads_dir = downloadDirectory()
+        pending_keys = set(self.key_counts)
+        cleanup = cleanupZeroByteUnfinishedDownloads(downloads_dir, pending_keys)
+        orphan_removed = removeOrphanUnfinishedDownloadsForKeys(
+            downloads_dir, pending_keys
         )
-        if not cleanup["cleaned_keys"]:
+        if not cleanup["cleaned_keys"] and not orphan_removed:
             return
 
-        cleaned_count = len(cleanup["cleaned_keys"])
+        cleaned_count = len(cleanup["cleaned_keys"]) + orphan_removed
         self.prequeue_cleanup_count += cleaned_count
         qDebug(
             "[NXMColDL Progress] Removed zero-byte unfinished downloads "
             f"before queueing {cleaned_count} collection file(s); "
-            f"{cleanup['removed_files']} file(s) removed"
+            f"{cleanup['removed_files'] + orphan_removed} file(s) removed "
+            f"({orphan_removed} orphan)"
         )
 
     def cleanup_stale_unfinished_before_queue(self, key):
         """Remove empty leftovers before MO2 sees a duplicate file."""
-        entries = unfinishedDownloadEntries(downloadDirectory()).get(key)
+        downloads_dir = downloadDirectory()
+        entries = unfinishedDownloadEntries(downloads_dir).get(key)
         cleanup_entries = zeroByteUnfinishedEntries(entries)
-        if not cleanup_entries:
+        orphan_removed = removeOrphanUnfinishedDownloadsForKeys(downloads_dir, {key})
+        if not cleanup_entries and not orphan_removed:
             return
 
-        removed = removeUnfinishedEntries(cleanup_entries)
+        removed = removeUnfinishedEntries(cleanup_entries) + orphan_removed
 
         self.prequeue_cleanup_count += 1
         qDebug(
@@ -1205,18 +1252,8 @@ class stepDownloadProgress(QDialog):
             & set(self.key_counts) - self.completed_keys - self.failed_keys
         )
         for key in newly_completed:
-            download_ids = [
-                download_id
-                for download_id, download_key in self.download_ids.items()
-                if download_key == key
-            ]
-            for download_id in download_ids:
-                self.download_ids.pop(download_id, None)
-
             self.mark_key_completed(key, "Reconciled completed download from disk")
-            self.waiting_partial_keys.discard(key)
-            self.already_started_keys.discard(key)
-            self.already_started_at.pop(key, None)
+            self.clear_pending_state_for_key(key)
 
         if newly_completed:
             self.update_progress()
@@ -1224,6 +1261,108 @@ class stepDownloadProgress(QDialog):
 
         if self.is_tracking:
             self.retry_stale_unfinished_downloads()
+
+    def downgrade_stale_orphan_completed_downloads(self):
+        """Reopen completed keys when MO2 has a stale orphan placeholder."""
+        if not self.stale_unfinished_seconds:
+            return False
+
+        downloads_dir = downloadDirectory()
+        completed_on_disk = downloadedFileKeys(downloads_dir)
+        orphan_entries = staleOrphanUnfinishedDownloadEntries(
+            orphanUnfinishedDownloadEntries(downloads_dir),
+            time.time(),
+            self.stale_unfinished_seconds,
+        )
+        changed = False
+
+        for entry in orphan_entries:
+            candidates = [
+                key
+                for key in self.orphan_candidate_keys(
+                    entry,
+                    completed_on_disk=completed_on_disk,
+                    include_completed=True,
+                )
+                if key in self.completed_keys
+            ]
+            if len(candidates) != 1:
+                if entry.get("mod_id") is not None and len(candidates) > 1:
+                    qDebug(
+                        "[NXMColDL Progress] Orphan unfinished download has "
+                        "ambiguous collection match; leaving it for MO2: "
+                        f"{entry['archive'].name}"
+                    )
+                continue
+
+            key = candidates[0]
+            self.completed_keys.discard(key)
+            self.clear_pending_state_for_key(key)
+            changed = True
+            qDebug(
+                "[NXMColDL Progress] Reopened stalled orphan download "
+                "previously marked complete: "
+                f"ModID {key[0]}, FileID {key[1]}, file {entry['archive'].name}"
+            )
+
+        if changed:
+            self.refresh_progress_counts()
+        return changed
+
+    def retry_stale_orphan_unfinished_downloads(self, pending_keys, now):
+        """Requeue stale orphan placeholders that MO2 never gave metadata for."""
+        downloads_dir = downloadDirectory()
+        orphan_entries = staleOrphanUnfinishedDownloadEntries(
+            orphanUnfinishedDownloadEntries(downloads_dir),
+            now,
+            self.stale_unfinished_seconds,
+        )
+
+        for entry in orphan_entries:
+            candidates = [
+                key for key in self.orphan_candidate_keys(entry) if key in pending_keys
+            ]
+            if len(candidates) != 1:
+                if entry.get("mod_id") is not None and len(candidates) > 1:
+                    qDebug(
+                        "[NXMColDL Progress] Stale orphan unfinished download "
+                        "has ambiguous collection match; leaving it for MO2: "
+                        f"{entry['archive'].name}"
+                    )
+                continue
+
+            key = candidates[0]
+            attempts = self.retry_attempts.get(key, 0)
+            if attempts >= self.max_retries:
+                self.clear_pending_state_for_key(key)
+                self.mark_key_failed(
+                    key,
+                    "Stale orphan unfinished download exhausted retries",
+                )
+                continue
+
+            mod = self.mod_by_key(key)
+            if not mod:
+                continue
+
+            self.retry_attempts[key] = attempts + 1
+            self.retry_count += 1
+            self.clear_pending_state_for_key(key)
+            removed = removeOrphanUnfinishedDownloadsForKeys(downloads_dir, {key})
+            mod_name = self.mod_label(mod)
+            self.detail_label.setText(
+                f"Retrying stalled {mod_name} ({attempts + 1}/{self.max_retries})..."
+            )
+            self.detail_label.setStyleSheet("color: orange;")
+            qDebug(
+                "[NXMColDL Progress] Requeueing stale orphan unfinished "
+                f"download for ModID {key[0]}, FileID {key[1]}; "
+                f"{removed} file(s) removed"
+            )
+            QTimer.singleShot(
+                self.retry_delay_ms,
+                lambda keys={key}: self.queue_downloads(only_keys=keys),
+            )
 
     def retry_stale_unfinished_downloads(self):
         """Requeue unfinished files that MO2 left idle without a callback."""
@@ -1243,10 +1382,7 @@ class stepDownloadProgress(QDialog):
                 and started_at
                 and now - started_at >= self.stale_unfinished_seconds
             ):
-                self.queued_keys.discard(key)
-                self.waiting_partial_keys.discard(key)
-                self.already_started_keys.discard(key)
-                self.already_started_at.pop(key, None)
+                self.clear_pending_state_for_key(key)
                 self.mark_key_failed(
                     key,
                     "Already-started download timed out without resumable file",
@@ -1262,6 +1398,7 @@ class stepDownloadProgress(QDialog):
 
             attempts = self.retry_attempts.get(key, 0)
             if attempts >= self.max_retries:
+                self.clear_pending_state_for_key(key)
                 self.mark_key_failed(
                     key,
                     "Stale unfinished download exhausted retries",
@@ -1274,15 +1411,7 @@ class stepDownloadProgress(QDialog):
 
             self.retry_attempts[key] = attempts + 1
             self.retry_count += 1
-            self.queued_keys.discard(key)
-            download_ids = [
-                download_id
-                for download_id, download_key in self.download_ids.items()
-                if download_key == key
-            ]
-            for download_id in download_ids:
-                self.download_ids.pop(download_id, None)
-
+            self.clear_pending_state_for_key(key)
             removed = removeUnfinishedEntries(stale_entries)
 
             mod_name = self.mod_label(mod)
@@ -1300,6 +1429,7 @@ class stepDownloadProgress(QDialog):
                 lambda m=mod, k=key: self.requeue_mod(m, k),
             )
 
+        self.retry_stale_orphan_unfinished_downloads(pending_keys, now)
         self.update_progress()
         self.finish_if_complete()
 
@@ -1349,12 +1479,16 @@ class stepDownloadProgress(QDialog):
         if not retry_keys:
             return
 
-        entries_by_key = unfinishedDownloadEntries(downloadDirectory())
+        downloads_dir = downloadDirectory()
+        entries_by_key = unfinishedDownloadEntries(downloads_dir)
         removed_files = 0
         for key in retry_keys:
             entries = entries_by_key.get(key)
             if entries:
                 removed_files += removeUnfinishedEntries(entries)
+        removed_files += removeOrphanUnfinishedDownloadsForKeys(
+            downloads_dir, retry_keys
+        )
         if removed_files:
             qDebug(
                 "[NXMColDL Progress] Removed unfinished downloads before retrying "
@@ -1385,6 +1519,11 @@ class stepDownloadProgress(QDialog):
     def finish_if_complete(self):
         state = self.refresh_progress_counts()
         if not state["is_terminal"]:
+            return
+
+        if self.downgrade_stale_orphan_completed_downloads():
+            self.update_progress()
+            self.retry_stale_unfinished_downloads()
             return
 
         qDebug(

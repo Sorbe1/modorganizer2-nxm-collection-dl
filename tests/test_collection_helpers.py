@@ -15,13 +15,17 @@ from collection_helpers import (
     downloadProgressState,
     downloadedFileKeys,
     hasPartialUnfinishedEntries,
+    inferModIdFromDownloadName,
     installerDefaultActionLabel,
     normalizedButtonLabel,
+    orphanUnfinishedDownloadEntries,
     parseCollectionAddress,
     popDownloadKey,
+    removeOrphanUnfinishedDownloadsForKeys,
     removeUnfinishedEntries,
     safeDisplayText,
     sanitizeModName,
+    staleOrphanUnfinishedDownloadEntries,
     staleUnfinishedEntries,
     staleZeroByteUnfinishedEntries,
     unfinishedDownloadEntries,
@@ -141,6 +145,83 @@ class UnfinishedDownloadEntriesTests(unittest.TestCase):
             )
 
             self.assertEqual(unfinishedDownloadEntries(downloads), {})
+
+    def test_infers_mod_id_from_orphan_unfinished_names(self):
+        self.assertEqual(
+            inferModIdFromDownloadName(
+                "Trade Routes-12358-3-0-beta-3-1612588897.7z.unfinished"
+            ),
+            12358,
+        )
+        self.assertEqual(
+            inferModIdFromDownloadName(
+                "2-4k. New Farrer Statue-68861-1-0-0-1654437722.zip.unfinished"
+            ),
+            68861,
+        )
+        self.assertIsNone(inferModIdFromDownloadName("not-a-nexus-name.7z"))
+
+    def test_returns_orphan_unfinished_entries_without_metadata(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            orphan = downloads / (
+                "Trade Routes-12358-3-0-beta-3-1612588897.7z.unfinished"
+            )
+            orphan.write_bytes(b"")
+            backed = downloads / "Backed-1111-2222.7z.unfinished"
+            backed.write_bytes(b"")
+            (downloads / "Backed-1111-2222.7z.unfinished.meta").write_text(
+                "[General]\nmodID=1111\nfileID=2222\n", encoding="utf-8"
+            )
+
+            entries = orphanUnfinishedDownloadEntries(downloads)
+
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0]["archive"], orphan)
+            self.assertEqual(entries[0]["archive_size"], 0)
+            self.assertEqual(entries[0]["mod_id"], 12358)
+
+    def test_identifies_stale_orphan_unfinished_entries(self):
+        entries = [
+            {
+                "archive": Path("x.unfinished"),
+                "archive_size": 0,
+                "mtime": 100,
+                "mod_id": 12358,
+            }
+        ]
+
+        self.assertEqual(
+            staleOrphanUnfinishedDownloadEntries(entries, 200, 60), entries
+        )
+        self.assertEqual(staleOrphanUnfinishedDownloadEntries(entries, 120, 60), [])
+
+    def test_removes_matching_zero_byte_orphan_unfinished_downloads(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            target = downloads / (
+                "Trade Routes-12358-3-0-beta-3-1612588897.7z.unfinished"
+            )
+            target.write_bytes(b"")
+            non_empty = downloads / (
+                "Trade Routes-12358-3-0-beta-3-1612588897-copy.7z.unfinished"
+            )
+            non_empty.write_bytes(b"partial")
+            other = downloads / "Other-99999-1-0.7z.unfinished"
+            other.write_bytes(b"")
+            backed = downloads / "Backed-12358-777.7z.unfinished"
+            backed.write_bytes(b"")
+            (downloads / "Backed-12358-777.7z.unfinished.meta").write_text(
+                "[General]\nmodID=12358\nfileID=777\n", encoding="utf-8"
+            )
+
+            removed = removeOrphanUnfinishedDownloadsForKeys(downloads, {(12358, 1)})
+
+            self.assertEqual(removed, 1)
+            self.assertFalse(target.exists())
+            self.assertTrue(non_empty.exists())
+            self.assertTrue(other.exists())
+            self.assertTrue(backed.exists())
 
     def test_identifies_stale_zero_byte_unfinished_entries(self):
         entries = [
