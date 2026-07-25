@@ -30,6 +30,7 @@ from .collection_helpers import (
     coerceDownloadId,
     coerceIntSetting,
     cleanupZeroByteUnfinishedDownloads,
+    downloadCompletionChoices,
     downloadCompletionPlan,
     downloadProgressState,
     downloadedFileKeys,
@@ -1441,6 +1442,7 @@ class stepDownloadProgress(QDialog):
         self.is_tracking = False
         self.reconcile_timer.stop()
         self.duplicate_prompt_timer.stop()
+        choices = downloadCompletionChoices(state, self.on_complete is not None)
         self.progress.setValue(state["progress"])
         self.label.setText(
             f"Downloading mods: {state['successful']}/{state['total']} completed"
@@ -1455,14 +1457,10 @@ class stepDownloadProgress(QDialog):
         else:
             self.detail_label.setText("Downloads complete. Install collection now or close.")
             self.detail_label.setStyleSheet("color: green;")
-        self.retry_failed_btn.setVisible(state["failed"] > 0)
-        self.install_available_btn.setVisible(
-            bool(self.on_complete) and state["successful"] > 0
-        )
-        self.install_available_btn.setText(
-            "Install Available" if state["has_failures"] else "Install Collection"
-        )
-        self.fomod_defaults_check.setVisible(bool(self.on_complete))
+        self.retry_failed_btn.setVisible(choices["retry_visible"])
+        self.install_available_btn.setVisible(choices["install_visible"])
+        self.install_available_btn.setText(choices["install_label"])
+        self.fomod_defaults_check.setVisible(choices["fomod_defaults_visible"])
         self.close_btn.setText("Close")
         self.close_btn.setVisible(True)
 

@@ -117,6 +117,21 @@ def downloadCompletionPlan(failed_count, has_on_complete, close_on_success, dela
     }
 
 
+def downloadCompletionChoices(state, has_on_complete):
+    """Return the visible terminal choices for a completed download pass."""
+    successful = int(state.get("successful") or 0)
+    failed = int(state.get("failed") or 0)
+    has_failures = bool(state.get("has_failures"))
+    install_visible = bool(has_on_complete) and successful > 0
+
+    return {
+        "retry_visible": failed > 0,
+        "install_visible": install_visible,
+        "install_label": "Install Available" if has_failures else "Install Collection",
+        "fomod_defaults_visible": bool(has_on_complete),
+    }
+
+
 def downloadProgressState(total_mods, completed_keys, failed_keys, key_counts):
     """Return collection download progress without treating failures as success."""
     successful = sum(key_counts.get(key, 1) for key in completed_keys)

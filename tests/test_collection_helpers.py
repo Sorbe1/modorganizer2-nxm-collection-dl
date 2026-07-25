@@ -11,6 +11,7 @@ from collection_helpers import (
     coerceDownloadId,
     coerceIntSetting,
     duplicateDownloadPromptActionLabel,
+    downloadCompletionChoices,
     downloadCompletionPlan,
     downloadProgressState,
     downloadedFileKeys,
@@ -537,6 +538,50 @@ class DownloadCompletionPlanTests(unittest.TestCase):
                 "run_complete": False,
                 "close_immediately": False,
                 "close_delay_ms": 5000,
+            },
+        )
+
+
+class DownloadCompletionChoicesTests(unittest.TestCase):
+    def test_failed_downloads_offer_retry_and_install_available(self):
+        self.assertEqual(
+            downloadCompletionChoices(
+                {"successful": 552, "failed": 7, "has_failures": True},
+                has_on_complete=True,
+            ),
+            {
+                "retry_visible": True,
+                "install_visible": True,
+                "install_label": "Install Available",
+                "fomod_defaults_visible": True,
+            },
+        )
+
+    def test_failed_downloads_without_install_callback_only_offer_retry(self):
+        self.assertEqual(
+            downloadCompletionChoices(
+                {"successful": 552, "failed": 7, "has_failures": True},
+                has_on_complete=False,
+            ),
+            {
+                "retry_visible": True,
+                "install_visible": False,
+                "install_label": "Install Available",
+                "fomod_defaults_visible": False,
+            },
+        )
+
+    def test_successful_downloads_offer_install_collection(self):
+        self.assertEqual(
+            downloadCompletionChoices(
+                {"successful": 75, "failed": 0, "has_failures": False},
+                has_on_complete=True,
+            ),
+            {
+                "retry_visible": False,
+                "install_visible": True,
+                "install_label": "Install Collection",
+                "fomod_defaults_visible": True,
             },
         )
 
