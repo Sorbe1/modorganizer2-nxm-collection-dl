@@ -30,6 +30,7 @@ from .collection_helpers import (
     coerceDownloadId,
     coerceIntSetting,
     cleanupZeroByteUnfinishedDownloads,
+    collectionDownloadExpectedSizes,
     collectionLinkCompletionPolicy,
     downloadCompletionChoices,
     downloadCompletionPlan,
@@ -729,7 +730,13 @@ class stepDownloadProgress(QDialog):
             key = self.mod_key(mod)
             self.key_counts[key] = self.key_counts.get(key, 0) + 1
         self.preflight_cleanup_zero_byte_unfinished()
-        self.already_downloaded_keys = downloadedFileKeys(downloadDirectory())
+        self.expected_file_sizes = collectionDownloadExpectedSizes(
+            self.mods_to_download
+        )
+        self.already_downloaded_keys = downloadedFileKeys(
+            downloadDirectory(),
+            self.expected_file_sizes,
+        )
 
         layout = QVBoxLayout()
 
@@ -766,7 +773,7 @@ class stepDownloadProgress(QDialog):
         button_row.addWidget(self.install_available_btn)
 
         self.close_btn = QPushButton("Close")
-        self.close_btn.clicked.connect(self.accept)
+        self.close_btn.clicked.connect(self.request_close)
         button_row.addWidget(self.close_btn)
         layout.addLayout(button_row)
 
@@ -841,6 +848,38 @@ class stepDownloadProgress(QDialog):
             self.key_counts,
         )
 
+    def can_close_dialog(self):
+        """Allow closing once this progress dialog is no longer tracking work."""
+        return not self.is_tracking or self.progress_state()["is_terminal"]
+
+    def request_close(self):
+        """Keep the tracker alive while MO2 still owns active downloads."""
+        if self.can_close_dialog():
+            self.accept()
+            return
+
+        self.detail_label.setText(
+            "Downloads are still running in MO2; wait for completion or retry "
+            "when available."
+        )
+        self.detail_label.setStyleSheet("color: orange;")
+        qDebug("[NXMColDL Progress] Ignored close request while downloads are active")
+
+    def reject(self):
+        if self.can_close_dialog():
+            super().reject()
+            return
+
+        self.request_close()
+
+    def closeEvent(self, event):
+        if self.can_close_dialog():
+            event.accept()
+            return
+
+        self.request_close()
+        event.ignore()
+
     def refresh_progress_counts(self):
         state = self.progress_state()
         self.completed_count = state["successful"]
@@ -873,8 +912,37 @@ class stepDownloadProgress(QDialog):
         if key in self.already_downloaded_keys:
             return True
 
-        self.already_downloaded_keys = downloadedFileKeys(downloadDirectory())
+        self.already_downloaded_keys = downloadedFileKeys(
+            downloadDirectory(),
+            self.expected_file_sizes,
+        )
         return key in self.already_downloaded_keys
+
+    def record_waiting_for_existing_download(self, key, message):
+        """Track a file MO2 is already downloading instead of prompting again."""
+        self.queued_keys.add(key)
+        self.waiting_partial_keys.add(key)
+        self.already_started_at.setdefault(key, time.time())
+        self.detail_label.setText(message)
+        self.detail_label.setStyleSheet("color: orange;")
+
+    def handle_duplicate_declined_key(self, key):
+        """Handle duplicate prompts without crediting partial archives."""
+        if self.is_already_downloaded(key):
+            if self.mark_key_completed(key, "Skipped duplicate existing archive"):
+                self.update_progress()
+                self.finish_if_complete()
+            return True
+
+        self.record_waiting_for_existing_download(
+            key,
+            "Waiting for an existing MO2 download/archive to complete...",
+        )
+        qDebug(
+            "[NXMColDL Progress] Duplicate prompt declined for incomplete archive "
+            f"ModID {key[0]}, FileID {key[1]}; waiting for MO2"
+        )
+        return True
 
     def remove_download_ids_for_key(self, key):
         download_ids = [
@@ -992,17 +1060,13 @@ class stepDownloadProgress(QDialog):
             self.active_queue_key = None
 
         if key in self.duplicate_declined_keys:
-            if self.mark_key_completed(key, "Skipped duplicate existing archive"):
-                self.update_progress()
-                self.finish_if_complete()
-            return True
+            return self.handle_duplicate_declined_key(key)
 
         if key in self.already_started_keys:
-            self.waiting_partial_keys.add(key)
-            self.detail_label.setText(
-                "Waiting for an already-started MO2 download to complete..."
+            self.record_waiting_for_existing_download(
+                key,
+                "Waiting for an already-started MO2 download to complete...",
             )
-            self.detail_label.setStyleSheet("color: orange;")
             qDebug(
                 "[NXMColDL Progress] Waiting for already-started download "
                 f"for ModID {mod_id}, FileID {file_id}"
@@ -1099,21 +1163,17 @@ class stepDownloadProgress(QDialog):
         """Retry or fail a download that MO2 refused to queue."""
         self.queued_keys.discard(key)
         if key in self.already_started_keys:
-            self.queued_keys.add(key)
-            self.waiting_partial_keys.add(key)
-            self.detail_label.setText(
-                "Waiting for an already-started MO2 download to complete..."
+            self.record_waiting_for_existing_download(
+                key,
+                "Waiting for an already-started MO2 download to complete...",
             )
-            self.detail_label.setStyleSheet("color: orange;")
             qDebug(
                 "[NXMColDL Progress] Queue start returned no id because MO2 "
                 f"already had ModID {key[0]}, FileID {key[1]} started"
             )
             return
         if key in self.duplicate_declined_keys:
-            if self.mark_key_completed(key, "Skipped duplicate existing archive"):
-                self.update_progress()
-                self.finish_if_complete()
+            self.handle_duplicate_declined_key(key)
             return
         if self.is_already_downloaded(key):
             if self.mark_key_completed(key, "Skipped already-downloaded archive"):
@@ -1180,9 +1240,20 @@ class stepDownloadProgress(QDialog):
         if key is None or key in self.completed_keys:
             return
 
-        if self.mark_key_completed(key, f"Download completed: ID {download_id}"):
-            self.update_progress()
-            self.finish_if_complete()
+        if self.is_already_downloaded(key):
+            if self.mark_key_completed(key, f"Download completed: ID {download_id}"):
+                self.update_progress()
+                self.finish_if_complete()
+            return
+
+        self.record_waiting_for_existing_download(
+            key,
+            "Waiting for MO2 to finish writing the completed archive...",
+        )
+        qDebug(
+            "[NXMColDL Progress] Download-complete callback fired before archive "
+            f"validated for ModID {key[0]}, FileID {key[1]}"
+        )
 
     def on_download_failed(self, download_id):
         """Called when a download fails"""
@@ -1194,6 +1265,15 @@ class stepDownloadProgress(QDialog):
             return
 
         qDebug(f"[NXMColDL Progress] Download failed: ID {download_id}")
+        if self.is_already_downloaded(key):
+            if self.mark_key_completed(
+                key,
+                f"Recovered completed archive: ID {download_id}",
+            ):
+                self.update_progress()
+                self.finish_if_complete()
+            return
+
         attempts = self.retry_attempts.get(key, 0)
         if attempts < self.max_retries:
             self.retry_attempts[key] = attempts + 1
@@ -1259,7 +1339,10 @@ class stepDownloadProgress(QDialog):
 
     def reconcile_completed_downloads_from_disk(self):
         """Credit all collection files that now have completed archives on disk."""
-        completed_on_disk = downloadedFileKeys(downloadDirectory())
+        completed_on_disk = downloadedFileKeys(
+            downloadDirectory(),
+            self.expected_file_sizes,
+        )
         newly_completed = (
             completed_on_disk & set(self.key_counts)
         ) - self.completed_keys
@@ -1275,7 +1358,7 @@ class stepDownloadProgress(QDialog):
             return False
 
         downloads_dir = downloadDirectory()
-        completed_on_disk = downloadedFileKeys(downloads_dir)
+        completed_on_disk = downloadedFileKeys(downloads_dir, self.expected_file_sizes)
         orphan_entries = staleOrphanUnfinishedDownloadEntries(
             orphanUnfinishedDownloadEntries(downloads_dir),
             time.time(),

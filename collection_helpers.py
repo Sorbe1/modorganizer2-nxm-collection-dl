@@ -302,9 +302,27 @@ def parseCollectionAddress(address):
     return None
 
 
-def downloadedFileKeys(downloads_dir):
+def collectionDownloadExpectedSizes(mods_to_download):
+    """Return expected archive sizes keyed by Nexus (mod_id, file_id)."""
+    sizes = {}
+    for mod in mods_to_download or []:
+        try:
+            mod_id = int(mod["file"]["mod"]["modId"])
+            file_id = int(mod["file"]["fileId"])
+            expected_size = int(mod["file"]["sizeInBytes"])
+        except (TypeError, KeyError, ValueError):
+            continue
+
+        if expected_size > 0:
+            sizes[(mod_id, file_id)] = expected_size
+
+    return sizes
+
+
+def downloadedFileKeys(downloads_dir, expected_sizes=None):
     """Return Nexus (mod_id, file_id) pairs with a completed archive on disk."""
     keys = set()
+    expected_sizes = expected_sizes or {}
     if not downloads_dir or not downloads_dir.exists():
         return keys
 
@@ -322,8 +340,24 @@ def downloadedFileKeys(downloads_dir):
             continue
 
         archive_file = metadata_file.with_suffix("")
-        if archive_file.exists() and archive_file.stat().st_size > 0:
-            keys.add((mod_id, file_id))
+        unfinished_archive = Path(str(archive_file) + ".unfinished")
+        unfinished_metadata = Path(str(archive_file) + ".unfinished.meta")
+        if unfinished_archive.exists() or unfinished_metadata.exists():
+            continue
+
+        try:
+            archive_size = archive_file.stat().st_size
+        except OSError:
+            continue
+
+        if archive_size <= 0:
+            continue
+
+        expected_size = expected_sizes.get((mod_id, file_id))
+        if expected_size and archive_size < expected_size:
+            continue
+
+        keys.add((mod_id, file_id))
 
     return keys
 

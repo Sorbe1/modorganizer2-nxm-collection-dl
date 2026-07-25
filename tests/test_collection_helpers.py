@@ -11,6 +11,7 @@ from collection_helpers import (
     coerceDownloadId,
     coerceIntSetting,
     collectionLinkCompletionPolicy,
+    collectionDownloadExpectedSizes,
     duplicateDownloadPromptActionLabel,
     downloadCompletionChoices,
     downloadCompletionPlan,
@@ -100,6 +101,53 @@ class ParseCollectionAddressTests(unittest.TestCase):
 
 
 class DownloadedFileKeysTests(unittest.TestCase):
+    def test_accepts_archive_matching_expected_size(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Example Mod-123-456.7z"
+            archive.write_bytes(b"archive")
+            (downloads / "Example Mod-123-456.7z.meta").write_text(
+                "[General]\nmodID=123\nfileID=456\n", encoding="utf-8"
+            )
+
+            self.assertEqual(
+                downloadedFileKeys(downloads, {(123, 456): 7}), {(123, 456)}
+            )
+
+    def test_rejects_archive_smaller_than_expected(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Example Mod-123-456.7z"
+            archive.write_bytes(b"part")
+            (downloads / "Example Mod-123-456.7z.meta").write_text(
+                "[General]\nmodID=123\nfileID=456\n", encoding="utf-8"
+            )
+
+            self.assertEqual(downloadedFileKeys(downloads, {(123, 456): 7}), set())
+
+    def test_rejects_archive_with_unfinished_sibling(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Example Mod-123-456.7z"
+            archive.write_bytes(b"archive")
+            Path(str(archive) + ".unfinished").write_bytes(b"partial")
+            (downloads / "Example Mod-123-456.7z.meta").write_text(
+                "[General]\nmodID=123\nfileID=456\n", encoding="utf-8"
+            )
+
+            self.assertEqual(downloadedFileKeys(downloads, {(123, 456): 7}), set())
+
+    def test_accepts_archive_without_expected_size(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Example Mod-123-456.7z"
+            archive.write_bytes(b"archive")
+            (downloads / "Example Mod-123-456.7z.meta").write_text(
+                "[General]\nmodID=123\nfileID=456\n", encoding="utf-8"
+            )
+
+            self.assertEqual(downloadedFileKeys(downloads, {}), {(123, 456)})
+
     def test_returns_only_completed_archives_with_valid_metadata(self):
         with TemporaryDirectory() as tmp:
             downloads = Path(tmp)
@@ -121,6 +169,41 @@ class DownloadedFileKeysTests(unittest.TestCase):
             )
 
             self.assertEqual(downloadedFileKeys(downloads), {(123, 456)})
+
+
+class CollectionDownloadExpectedSizesTests(unittest.TestCase):
+    def test_extracts_expected_download_sizes(self):
+        mods = [
+            {
+                "file": {
+                    "fileId": "456",
+                    "sizeInBytes": "7",
+                    "mod": {"modId": "123"},
+                }
+            }
+        ]
+
+        self.assertEqual(collectionDownloadExpectedSizes(mods), {(123, 456): 7})
+
+    def test_ignores_missing_or_invalid_sizes(self):
+        mods = [
+            {
+                "file": {
+                    "fileId": "456",
+                    "sizeInBytes": "0",
+                    "mod": {"modId": "123"},
+                }
+            },
+            {
+                "file": {
+                    "fileId": "bad",
+                    "sizeInBytes": "7",
+                    "mod": {"modId": "123"},
+                }
+            },
+        ]
+
+        self.assertEqual(collectionDownloadExpectedSizes(mods), {})
 
 
 class UnfinishedDownloadEntriesTests(unittest.TestCase):
