@@ -24,6 +24,7 @@ bundledMods = []
 chosenOptional = []
 chosenExternal = True
 openModWebsites = False
+autoAdvanceFomodDefaultsOverride = None
 
 
 def debug(message):

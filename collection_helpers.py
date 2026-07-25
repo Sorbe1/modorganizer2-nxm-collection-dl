@@ -117,6 +117,27 @@ def downloadCompletionPlan(failed_count, has_on_complete, close_on_success, dela
     }
 
 
+def downloadProgressState(total_mods, completed_keys, failed_keys, key_counts):
+    """Return collection download progress without treating failures as success."""
+    successful = sum(key_counts.get(key, 1) for key in completed_keys)
+    failed = sum(
+        key_counts.get(key, 1) for key in set(failed_keys) - set(completed_keys)
+    )
+    total = max(0, int(total_mods or 0))
+    processed = min(total, successful + failed)
+    remaining = max(0, total - processed)
+
+    return {
+        "total": total,
+        "successful": successful,
+        "failed": failed,
+        "processed": processed,
+        "remaining": remaining,
+        "has_failures": failed > 0,
+        "is_terminal": processed >= total,
+    }
+
+
 def activeDownloadPromptKey(active_key, context_key, context_expires_at, now):
     """Return the Nexus key that owns a currently visible MO2 download prompt."""
     if active_key is not None:

@@ -520,6 +520,12 @@ class stepInstallMods(QDialog):
 
             organizer = plugin_instance._organizer
             modlist = organizer.modList()
+            fomod_default_override = var.autoAdvanceFomodDefaultsOverride
+            var.autoAdvanceFomodDefaultsOverride = None
+            if fomod_default_override is None:
+                fomod_default_override = organizer.pluginSetting(
+                    plugin_instance.name(), "auto_advance_fomod_defaults"
+                )
 
             # Get all mods to install in order
             mods_to_install = var.essentialMods + var.chosenOptional
@@ -567,6 +573,9 @@ class stepInstallMods(QDialog):
                     organizer.pluginSetting(
                         plugin_instance.name(), "install_files_as_separate_mods"
                     )
+                ),
+                "auto_advance_fomod_defaults": coerceBoolSetting(
+                    fomod_default_override
                 ),
                 "next_index": 0,
             }
@@ -658,10 +667,9 @@ class stepInstallMods(QDialog):
                     )
                 ),
             )
-            if coerceBoolSetting(
-                organizer.pluginSetting(
-                    plugin_instance.name(), "auto_advance_fomod_defaults"
-                )
+            if context.get(
+                "auto_advance_fomod_defaults",
+                INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"],
             ):
                 max_steps = coerceIntSetting(
                     organizer.pluginSetting(

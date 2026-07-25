@@ -24,12 +24,14 @@ from .api import fetchRevisions, fetchInfo, fetchModInfo
 from . import __meta__
 from . import var
 from .collection_helpers import (
+    INSTALLER_SETTING_DEFAULTS,
     activeDownloadPromptKey,
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
     cleanupZeroByteUnfinishedDownloads,
     downloadCompletionPlan,
+    downloadProgressState,
     downloadedFileKeys,
     duplicateDownloadPromptActionLabel,
     hasPartialUnfinishedEntries,
@@ -52,6 +54,16 @@ def downloadDirectory():
     if not organizer:
         return None
     return Path(organizer.basePath()) / "downloads"
+
+
+def installerFomodDefaultSetting():
+    plugin_instance = getattr(__meta__, "_download_plugin", None)
+    organizer = getattr(plugin_instance, "_organizer", None)
+    if not plugin_instance or not organizer:
+        return INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"]
+    return coerceBoolSetting(
+        organizer.pluginSetting(plugin_instance.name(), "auto_advance_fomod_defaults")
+    )
 
 
 def selectLatestRevision():
@@ -659,6 +671,10 @@ class stepDownloadProgress(QDialog):
         close_on_success=False,
         success_close_delay_ms=0,
         decline_duplicate_prompts=True,
+        prompt_after_download=False,
+        fomod_defaults_default=INSTALLER_SETTING_DEFAULTS[
+            "auto_advance_fomod_defaults"
+        ],
     ):
         super().__init__(parent)
         self.setWindowTitle("NXM Collection Downloader - Download Progress")
@@ -673,6 +689,9 @@ class stepDownloadProgress(QDialog):
         self.close_on_success = close_on_success
         self.success_close_delay_ms = max(0, int(success_close_delay_ms or 0))
         self.decline_duplicate_prompts = bool(decline_duplicate_prompts)
+        self.prompt_after_download = bool(prompt_after_download)
+        self.fomod_defaults_default = bool(fomod_defaults_default)
+        self.completion_callback_started = False
         self.completed_count = 0
         self.failed_count = 0
         self.retry_count = 0
@@ -723,9 +742,26 @@ class stepDownloadProgress(QDialog):
         self.detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.detail_label)
 
+        self.fomod_defaults_check = QCheckBox("Use default FOMOD installer choices")
+        self.fomod_defaults_check.setChecked(self.fomod_defaults_default)
+        self.fomod_defaults_check.setVisible(False)
+        layout.addWidget(self.fomod_defaults_check)
+
+        button_row = QHBoxLayout()
+        self.retry_failed_btn = QPushButton("Retry Failed")
+        self.retry_failed_btn.clicked.connect(self.retry_failed_downloads)
+        self.retry_failed_btn.setVisible(False)
+        button_row.addWidget(self.retry_failed_btn)
+
+        self.install_available_btn = QPushButton("Install Available")
+        self.install_available_btn.clicked.connect(self.run_on_complete_from_user_choice)
+        self.install_available_btn.setVisible(False)
+        button_row.addWidget(self.install_available_btn)
+
         self.close_btn = QPushButton("Close")
         self.close_btn.clicked.connect(self.accept)
-        layout.addWidget(self.close_btn)
+        button_row.addWidget(self.close_btn)
+        layout.addLayout(button_row)
 
         self.setLayout(layout)
 
@@ -751,7 +787,7 @@ class stepDownloadProgress(QDialog):
     def mod_label(self, mod):
         return mod["file"]["mod"].get("name") or mod["file"].get("name") or "mod"
 
-    def queue_downloads(self):
+    def queue_downloads(self, only_keys=None):
         plugin_instance = getattr(__meta__, "_download_plugin", None)
         if not plugin_instance or not getattr(plugin_instance, "_organizer", None):
             self.detail_label.setText(
@@ -761,9 +797,12 @@ class stepDownloadProgress(QDialog):
             self.is_tracking = False
             return
 
+        retry_filter = set(only_keys or [])
         skipped = 0
         for mod in self.mods_to_download:
             key = self.mod_key(mod)
+            if retry_filter and key not in retry_filter:
+                continue
             if key in self.completed_keys or key in self.queued_keys:
                 continue
             if self.is_already_downloaded(key):
@@ -783,18 +822,42 @@ class stepDownloadProgress(QDialog):
             )
             self.update_progress()
 
-        if self.total_mods == 0:
+        state = self.refresh_progress_counts()
+        if self.total_mods == 0 or state["is_terminal"]:
             self.finish_if_complete()
-        elif self.completed_count >= self.total_mods:
-            self.finish_if_complete()
+
+    def progress_state(self):
+        return downloadProgressState(
+            self.total_mods,
+            self.completed_keys,
+            self.failed_keys,
+            self.key_counts,
+        )
+
+    def refresh_progress_counts(self):
+        state = self.progress_state()
+        self.completed_count = state["successful"]
+        self.failed_count = state["failed"]
+        return state
 
     def mark_key_completed(self, key, reason):
         """Count a collection entry as complete after its archive is on disk."""
+        if key in self.completed_keys:
+            return False
+
+        self.failed_keys.discard(key)
+        self.completed_keys.add(key)
+        self.refresh_progress_counts()
+        qDebug(f"[NXMColDL Progress] {reason}: ModID {key[0]}, FileID {key[1]}")
+        return True
+
+    def mark_key_failed(self, key, reason):
+        """Count a collection entry as failed without counting it as downloaded."""
         if key in self.completed_keys or key in self.failed_keys:
             return False
 
-        self.completed_keys.add(key)
-        self.completed_count += self.key_counts.get(key, 1)
+        self.failed_keys.add(key)
+        self.refresh_progress_counts()
         qDebug(f"[NXMColDL Progress] {reason}: ModID {key[0]}, FileID {key[1]}")
         return True
 
@@ -1028,15 +1091,9 @@ class stepDownloadProgress(QDialog):
             )
             return
 
-        self.failed_keys.add(key)
-        self.failed_count += 1
-        self.completed_count += self.key_counts.get(key, 1)
-        qDebug(
-            "[NXMColDL Progress] Failed to queue download after retries: "
-            f"ModID {key[0]}, FileID {key[1]}"
-        )
-        self.update_progress()
-        self.finish_if_complete()
+        if self.mark_key_failed(key, "Failed to queue download after retries"):
+            self.update_progress()
+            self.finish_if_complete()
 
     def requeue_mod(self, mod, key):
         """Requeue a download after clearing empty placeholders for the same file."""
@@ -1072,11 +1129,9 @@ class stepDownloadProgress(QDialog):
         if key is None or key in self.completed_keys:
             return
 
-        qDebug(f"[NXMColDL Progress] Download completed: ID {download_id}")
-        self.completed_keys.add(key)
-        self.completed_count += self.key_counts.get(key, 1)
-        self.update_progress()
-        self.finish_if_complete()
+        if self.mark_key_completed(key, f"Download completed: ID {download_id}"):
+            self.update_progress()
+            self.finish_if_complete()
 
     def on_download_failed(self, download_id):
         """Called when a download fails"""
@@ -1111,11 +1166,9 @@ class stepDownloadProgress(QDialog):
                 )
             return
 
-        self.failed_keys.add(key)
-        self.failed_count += 1
-        self.completed_count += self.key_counts.get(key, 1)
-        self.update_progress()
-        self.finish_if_complete()
+        if self.mark_key_failed(key, f"Download failed after retries: ID {download_id}"):
+            self.update_progress()
+            self.finish_if_complete()
 
     def on_download_paused(self, download_id):
         if not self.is_tracking:
@@ -1136,12 +1189,9 @@ class stepDownloadProgress(QDialog):
         if key is None or key in self.completed_keys or key in self.failed_keys:
             return
 
-        qDebug(f"[NXMColDL Progress] Download removed: ID {download_id}")
-        self.failed_keys.add(key)
-        self.failed_count += 1
-        self.completed_count += self.key_counts.get(key, 1)
-        self.update_progress()
-        self.finish_if_complete()
+        if self.mark_key_failed(key, f"Download removed: ID {download_id}"):
+            self.update_progress()
+            self.finish_if_complete()
 
     def reconcile_completed_downloads(self):
         """Credit downloads that MO2 completed without emitting a tracked callback."""
@@ -1193,17 +1243,13 @@ class stepDownloadProgress(QDialog):
                 and started_at
                 and now - started_at >= self.stale_unfinished_seconds
             ):
-                self.failed_keys.add(key)
-                self.failed_count += 1
-                self.completed_count += self.key_counts.get(key, 1)
                 self.queued_keys.discard(key)
                 self.waiting_partial_keys.discard(key)
                 self.already_started_keys.discard(key)
                 self.already_started_at.pop(key, None)
-                qDebug(
-                    "[NXMColDL Progress] Already-started download did not expose "
-                    "a resumable file before timeout: "
-                    f"ModID {key[0]}, FileID {key[1]}"
+                self.mark_key_failed(
+                    key,
+                    "Already-started download timed out without resumable file",
                 )
                 continue
 
@@ -1216,12 +1262,9 @@ class stepDownloadProgress(QDialog):
 
             attempts = self.retry_attempts.get(key, 0)
             if attempts >= self.max_retries:
-                self.failed_keys.add(key)
-                self.failed_count += 1
-                self.completed_count += self.key_counts.get(key, 1)
-                qDebug(
-                    "[NXMColDL Progress] Stale unfinished download exhausted retries: "
-                    f"ModID {key[0]}, FileID {key[1]}"
+                self.mark_key_failed(
+                    key,
+                    "Stale unfinished download exhausted retries",
                 )
                 continue
 
@@ -1260,18 +1303,104 @@ class stepDownloadProgress(QDialog):
         self.update_progress()
         self.finish_if_complete()
 
+    def show_completion_choices(self, state):
+        """Offer an explicit recovery or install decision when tracking ends."""
+        self.is_tracking = False
+        self.reconcile_timer.stop()
+        self.duplicate_prompt_timer.stop()
+        self.progress.setValue(state["processed"])
+        self.label.setText(
+            f"Downloading mods: {state['successful']}/{state['total']} completed"
+        )
+        if state["has_failures"]:
+            self.detail_label.setText(
+                f"{state['failed']} download(s) failed; "
+                f"{state['successful']} completed. Retry failed downloads or "
+                "install the available files."
+            )
+            self.detail_label.setStyleSheet("color: orange;")
+        else:
+            self.detail_label.setText("Downloads complete. Install collection now or close.")
+            self.detail_label.setStyleSheet("color: green;")
+        self.retry_failed_btn.setVisible(state["failed"] > 0)
+        self.install_available_btn.setVisible(
+            bool(self.on_complete) and state["successful"] > 0
+        )
+        self.install_available_btn.setText(
+            "Install Available" if state["has_failures"] else "Install Collection"
+        )
+        self.fomod_defaults_check.setVisible(bool(self.on_complete))
+        self.close_btn.setText("Close")
+        self.close_btn.setVisible(True)
+
+    def run_on_complete_from_user_choice(self):
+        """Start installation after the user accepts the download result."""
+        if self.completion_callback_started:
+            return
+        self.completion_callback_started = True
+        var.autoAdvanceFomodDefaultsOverride = self.fomod_defaults_check.isChecked()
+        self.accept()
+        if self.on_complete:
+            QTimer.singleShot(0, self.on_complete)
+
+    def retry_failed_downloads(self):
+        """Remove stale failed entries and try only the failed collection files."""
+        retry_keys = set(self.failed_keys) - set(self.completed_keys)
+        if not retry_keys:
+            return
+
+        entries_by_key = unfinishedDownloadEntries(downloadDirectory())
+        removed_files = 0
+        for key in retry_keys:
+            entries = entries_by_key.get(key)
+            if entries:
+                removed_files += removeUnfinishedEntries(entries)
+        if removed_files:
+            qDebug(
+                "[NXMColDL Progress] Removed unfinished downloads before retrying "
+                f"{len(retry_keys)} failed file(s); {removed_files} file(s) removed"
+            )
+
+        self.failed_keys.difference_update(retry_keys)
+        self.queued_keys.difference_update(retry_keys)
+        self.waiting_partial_keys.difference_update(retry_keys)
+        for key in retry_keys:
+            self.already_started_keys.discard(key)
+            self.already_started_at.pop(key, None)
+            self.retry_attempts[key] = 0
+
+        self.completion_callback_started = False
+        self.refresh_progress_counts()
+        self.retry_failed_btn.setVisible(False)
+        self.install_available_btn.setVisible(False)
+        self.fomod_defaults_check.setVisible(False)
+        self.is_tracking = True
+        self.detail_label.setText("Retrying failed downloads...")
+        self.detail_label.setStyleSheet("color: orange;")
+        self.reconcile_timer.start()
+        if self.decline_duplicate_prompts:
+            self.duplicate_prompt_timer.start()
+        QTimer.singleShot(0, lambda keys=retry_keys: self.queue_downloads(only_keys=keys))
+
     def finish_if_complete(self):
-        if self.completed_count < self.total_mods:
+        state = self.refresh_progress_counts()
+        if not state["is_terminal"]:
             return
 
         qDebug(
-            f"[NXMColDL Progress] Download tracking complete. {self.failed_count} failed."
+            "[NXMColDL Progress] Download tracking complete. "
+            f"{state['successful']} successful, {state['failed']} failed."
         )
         self.is_tracking = False
         self.reconcile_timer.stop()
         self.duplicate_prompt_timer.stop()
+        if state["has_failures"] or (self.on_complete and self.prompt_after_download):
+            self.show_completion_choices(state)
+            return
+
+        var.autoAdvanceFomodDefaultsOverride = None
         plan = downloadCompletionPlan(
-            self.failed_count,
+            state["failed"],
             self.on_complete is not None,
             self.close_on_success,
             self.success_close_delay_ms,
@@ -1279,23 +1408,25 @@ class stepDownloadProgress(QDialog):
         if plan["close_immediately"]:
             self.accept()
         if plan["run_complete"]:
+            self.completion_callback_started = True
             QTimer.singleShot(0, self.on_complete)
         if plan["close_delay_ms"]:
             QTimer.singleShot(plan["close_delay_ms"], self.accept)
 
     def update_progress(self):
-        """Update the progress display"""
-        self.progress.setValue(self.completed_count)
+        """Update the progress display."""
+        state = self.refresh_progress_counts()
+        self.progress.setValue(state["processed"])
         self.label.setText(
-            f"Downloading mods: {self.completed_count}/{self.total_mods} completed"
+            f"Downloading mods: {state['successful']}/{state['total']} completed"
         )
 
-        if self.failed_count > 0:
+        if state["has_failures"]:
             self.detail_label.setText(
-                f"{self.failed_count} download(s) failed. Check the Downloads tab for details."
+                f"{state['failed']} download(s) failed; {state['remaining']} remaining"
             )
             self.detail_label.setStyleSheet("color: orange;")
-        elif self.completed_count >= self.total_mods:
+        elif state["is_terminal"]:
             if self.retry_count:
                 self.detail_label.setText(
                     f"All downloads completed after {self.retry_count} retry attempt(s)!"
@@ -1304,9 +1435,7 @@ class stepDownloadProgress(QDialog):
                 self.detail_label.setText("All downloads completed!")
             self.detail_label.setStyleSheet("color: green;")
         else:
-            self.detail_label.setText(
-                f"Downloading... {self.total_mods - self.completed_count} remaining"
-            )
+            self.detail_label.setText(f"Downloading... {state['remaining']} remaining")
             self.detail_label.setStyleSheet("")
 
 
@@ -1399,6 +1528,8 @@ class stepDownload(QDialog):
                     stale_unfinished_seconds=stale_unfinished_seconds,
                     success_close_delay_ms=success_close_delay_ms,
                     decline_duplicate_prompts=decline_duplicate_prompts,
+                    prompt_after_download=self.on_complete is not None,
+                    fomod_defaults_default=installerFomodDefaultSetting(),
                 )
 
                 self.label.setText(f"Queued {len(mods_to_download)} downloads in MO2.")
@@ -1597,6 +1728,8 @@ class stepCollectionLinkFlow(QDialog):
             close_on_success=self.auto_install,
             success_close_delay_ms=success_close_delay_ms,
             decline_duplicate_prompts=decline_duplicate_prompts,
+            prompt_after_download=self.auto_install,
+            fomod_defaults_default=installerFomodDefaultSetting(),
         )
         self.hide()
         self.progress_dialog.exec()

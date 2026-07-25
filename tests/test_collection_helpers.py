@@ -12,6 +12,7 @@ from collection_helpers import (
     coerceIntSetting,
     duplicateDownloadPromptActionLabel,
     downloadCompletionPlan,
+    downloadProgressState,
     downloadedFileKeys,
     hasPartialUnfinishedEntries,
     installerDefaultActionLabel,
@@ -591,6 +592,46 @@ class InstallerSettingDefaultsTests(unittest.TestCase):
         self.assertTrue(INSTALLER_SETTING_DEFAULTS["activate_mods_after_install"])
         self.assertFalse(INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"])
         self.assertEqual(INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_max_steps"], 20)
+
+
+class DownloadProgressStateTests(unittest.TestCase):
+    def test_failures_do_not_count_as_successful(self):
+        state = downloadProgressState(
+            3,
+            {(1, 1)},
+            {(2, 2)},
+            {(1, 1): 1, (2, 2): 1, (3, 3): 1},
+        )
+
+        self.assertEqual(state["successful"], 1)
+        self.assertEqual(state["failed"], 1)
+        self.assertEqual(state["processed"], 2)
+        self.assertEqual(state["remaining"], 1)
+        self.assertFalse(state["is_terminal"])
+
+    def test_completed_key_overrides_previous_failure(self):
+        state = downloadProgressState(
+            2,
+            {(1, 1)},
+            {(1, 1)},
+            {(1, 1): 1, (2, 2): 1},
+        )
+
+        self.assertEqual(state["successful"], 1)
+        self.assertEqual(state["failed"], 0)
+        self.assertEqual(state["remaining"], 1)
+
+    def test_counts_duplicate_collection_entries_by_key_weight(self):
+        state = downloadProgressState(
+            3,
+            {(1, 1)},
+            set(),
+            {(1, 1): 2, (2, 2): 1},
+        )
+
+        self.assertEqual(state["successful"], 2)
+        self.assertEqual(state["processed"], 2)
+        self.assertEqual(state["remaining"], 1)
 
 
 if __name__ == "__main__":
