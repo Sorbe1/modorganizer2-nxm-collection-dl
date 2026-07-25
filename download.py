@@ -30,6 +30,7 @@ from .collection_helpers import (
     coerceDownloadId,
     coerceIntSetting,
     cleanupZeroByteUnfinishedDownloads,
+    collectionLinkCompletionPolicy,
     downloadCompletionChoices,
     downloadCompletionPlan,
     downloadProgressFormat,
@@ -1866,16 +1867,21 @@ class stepCollectionLinkFlow(QDialog):
                 plugin_instance.name(), "auto_decline_duplicate_download_prompts"
             )
         )
+        completion_policy = collectionLinkCompletionPolicy()
         self.progress_dialog = stepDownloadProgress(
             self.parent(),
             mods_to_download,
-            on_complete=self.install_after_download if self.auto_install else None,
+            on_complete=(
+                self.install_after_download
+                if completion_policy["attach_install_callback"]
+                else None
+            ),
             max_retries=max_retries,
             stale_unfinished_seconds=stale_unfinished_seconds,
-            close_on_success=self.auto_install,
+            close_on_success=completion_policy["close_on_success"],
             success_close_delay_ms=success_close_delay_ms,
             decline_duplicate_prompts=decline_duplicate_prompts,
-            prompt_after_download=self.auto_install,
+            prompt_after_download=completion_policy["prompt_after_download"],
             fomod_defaults_default=installerFomodDefaultSetting(),
         )
         self.hide()

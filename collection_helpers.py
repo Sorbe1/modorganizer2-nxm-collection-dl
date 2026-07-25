@@ -132,6 +132,20 @@ def downloadCompletionChoices(state, has_on_complete):
     }
 
 
+def collectionLinkCompletionPolicy():
+    """Return terminal download behavior for Nexus Add Collection links.
+
+    Add Collection should always leave the user with an explicit post-download
+    decision. This keeps partial download failures recoverable and prevents a
+    hidden setting from being the only way to start installation.
+    """
+    return {
+        "attach_install_callback": True,
+        "prompt_after_download": True,
+        "close_on_success": False,
+    }
+
+
 def downloadProgressFormat(state):
     """Return a QProgressBar format that does not hide partial failures."""
     successful = int(state.get("successful") or 0)

@@ -10,6 +10,7 @@ from collection_helpers import (
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
+    collectionLinkCompletionPolicy,
     duplicateDownloadPromptActionLabel,
     downloadCompletionChoices,
     downloadCompletionPlan,
@@ -544,6 +545,19 @@ class DownloadCompletionPlanTests(unittest.TestCase):
 
 
 class DownloadCompletionChoicesTests(unittest.TestCase):
+    def test_collection_links_keep_partial_install_choice_available(self):
+        policy = collectionLinkCompletionPolicy()
+        choices = downloadCompletionChoices(
+            {"successful": 552, "failed": 7, "has_failures": True},
+            has_on_complete=policy["attach_install_callback"],
+        )
+
+        self.assertTrue(policy["prompt_after_download"])
+        self.assertFalse(policy["close_on_success"])
+        self.assertTrue(choices["retry_visible"])
+        self.assertTrue(choices["install_visible"])
+        self.assertEqual(choices["install_label"], "Install Available")
+
     def test_failed_downloads_offer_retry_and_install_available(self):
         self.assertEqual(
             downloadCompletionChoices(
