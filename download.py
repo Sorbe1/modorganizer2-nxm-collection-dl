@@ -32,6 +32,7 @@ from .collection_helpers import (
     cleanupZeroByteUnfinishedDownloads,
     downloadCompletionChoices,
     downloadCompletionPlan,
+    downloadProgressFormat,
     downloadProgressState,
     downloadedFileKeys,
     duplicateDownloadPromptActionLabel,
@@ -738,6 +739,7 @@ class stepDownloadProgress(QDialog):
         self.progress = QProgressBar()
         self.progress.setMinimum(0)
         self.progress.setMaximum(self.total_mods)
+        self.progress.setFormat("%p%")
         self.progress.setValue(0)
         layout.addWidget(self.progress)
 
@@ -1443,6 +1445,7 @@ class stepDownloadProgress(QDialog):
         self.reconcile_timer.stop()
         self.duplicate_prompt_timer.stop()
         choices = downloadCompletionChoices(state, self.on_complete is not None)
+        self.progress.setFormat(downloadProgressFormat(state))
         self.progress.setValue(state["progress"])
         self.label.setText(
             f"Downloading mods: {state['successful']}/{state['total']} completed"
@@ -1559,6 +1562,7 @@ class stepDownloadProgress(QDialog):
     def update_progress(self):
         """Update the progress display."""
         state = self.refresh_progress_counts()
+        self.progress.setFormat(downloadProgressFormat(state))
         self.progress.setValue(state["progress"])
         self.label.setText(
             f"Downloading mods: {state['successful']}/{state['total']} completed"

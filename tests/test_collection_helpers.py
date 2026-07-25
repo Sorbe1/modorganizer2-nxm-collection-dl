@@ -13,6 +13,7 @@ from collection_helpers import (
     duplicateDownloadPromptActionLabel,
     downloadCompletionChoices,
     downloadCompletionPlan,
+    downloadProgressFormat,
     downloadProgressState,
     downloadedFileKeys,
     hasPartialUnfinishedEntries,
@@ -583,6 +584,24 @@ class DownloadCompletionChoicesTests(unittest.TestCase):
                 "install_label": "Install Collection",
                 "fomod_defaults_visible": True,
             },
+        )
+
+
+class DownloadProgressFormatTests(unittest.TestCase):
+    def test_failed_downloads_show_completed_count_instead_of_percent(self):
+        self.assertEqual(
+            downloadProgressFormat(
+                {"successful": 552, "total": 559, "has_failures": True}
+            ),
+            "552/559 downloaded",
+        )
+
+    def test_successful_downloads_use_default_percent_format(self):
+        self.assertEqual(
+            downloadProgressFormat(
+                {"successful": 75, "total": 75, "has_failures": False}
+            ),
+            "%p%",
         )
 
 

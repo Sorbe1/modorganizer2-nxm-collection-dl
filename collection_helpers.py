@@ -132,6 +132,15 @@ def downloadCompletionChoices(state, has_on_complete):
     }
 
 
+def downloadProgressFormat(state):
+    """Return a QProgressBar format that does not hide partial failures."""
+    successful = int(state.get("successful") or 0)
+    total = int(state.get("total") or 0)
+    if state.get("has_failures"):
+        return f"{successful}/{total} downloaded"
+    return "%p%"
+
+
 def downloadProgressState(total_mods, completed_keys, failed_keys, key_counts):
     """Return collection download progress without treating failures as success."""
     successful = sum(key_counts.get(key, 1) for key in completed_keys)
