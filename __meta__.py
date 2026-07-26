@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QMainWindow
 from .collection_helpers import (
     INSTALLER_SETTING_DEFAULTS,
     coerceBoolSetting,
+    collectionLinkCompletionPolicy,
     parseCollectionAddress,
 )
 from .download import stepCollectionLinkFlow, stepURL
@@ -63,7 +64,8 @@ def consumePendingCollectionLink(organizer: mobase.IOrganizer, parent):
         auto_install=coerceBoolSetting(
             organizer.pluginSetting(
                 "NXM Collection Link Handler", "auto_install_after_download"
-            )
+            ),
+            collectionLinkCompletionPolicy()["auto_install_after_download_default"],
         ),
     )
     _active_collection_link_flow.exec()
@@ -253,6 +255,11 @@ class InstallCollectionTool(mobase.IPluginTool):
                 INSTALLER_SETTING_DEFAULTS["auto_dismiss_known_post_install_errors"],
             ),
             mobase.PluginSetting(
+                "auto_cancel_invalid_install_content",
+                "Automatically accept invalid-content install warnings",
+                INSTALLER_SETTING_DEFAULTS["auto_cancel_invalid_install_content"],
+            ),
+            mobase.PluginSetting(
                 "auto_merge_existing_mods",
                 "Automatically merge duplicate MO2 mod names instead of keeping # suffixes",
                 INSTALLER_SETTING_DEFAULTS["auto_merge_existing_mods"],
@@ -276,6 +283,11 @@ class InstallCollectionTool(mobase.IPluginTool):
                 "activate_mods_after_install",
                 "Activate installed mods after the collection install pass completes",
                 INSTALLER_SETTING_DEFAULTS["activate_mods_after_install"],
+            ),
+            mobase.PluginSetting(
+                "activate_mods_during_install",
+                "Activate each installed mod before processing the next archive",
+                INSTALLER_SETTING_DEFAULTS["activate_mods_during_install"],
             ),
         ]
 
@@ -356,7 +368,8 @@ class CollectionModPage(mobase.IPluginModPage):
 
         qDebug(f"[NXMColDL] Handling collection link from Nexus: {url}")
         auto_install = coerceBoolSetting(
-            self._organizer.pluginSetting(self.name(), "auto_install_after_download")
+            self._organizer.pluginSetting(self.name(), "auto_install_after_download"),
+            collectionLinkCompletionPolicy()["auto_install_after_download_default"],
         )
         QTimer.singleShot(0, lambda: self.startCollectionFlow(url, auto_install))
         return True

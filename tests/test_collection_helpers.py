@@ -15,12 +15,19 @@ from collection_helpers import (
     duplicateDownloadPromptActionLabel,
     downloadCompletionChoices,
     downloadCompletionPlan,
+    downloadPromptKeyFromLabels,
     downloadProgressFormat,
     downloadProgressState,
     downloadedFileKeys,
+    fomodManualChoiceGuide,
     hasPartialUnfinishedEntries,
     inferModIdFromDownloadName,
+    invalidInstallContentDialogAction,
+    installNoResultReason,
     installerDefaultActionLabel,
+    isRequiredFomodGroupTitle,
+    isSafeSingletonFomodOption,
+    matchingPartialOrphanUnfinishedEntries,
     normalizedButtonLabel,
     orphanUnfinishedDownloadEntries,
     parseCollectionAddress,
@@ -29,9 +36,19 @@ from collection_helpers import (
     removeUnfinishedEntries,
     safeDisplayText,
     sanitizeModName,
+    shouldUseCollectionTargetModName,
+    shouldDelayTerminalDownloadFailure,
     staleOrphanUnfinishedDownloadEntries,
     staleUnfinishedEntries,
     staleZeroByteUnfinishedEntries,
+    steamAppShaderCacheSize,
+    steamDefaultLaunchOption,
+    steamAppInfoHasLaunchExecutable,
+    latestSteamLaunchCommand,
+    steamLaunchOptions,
+    steamMo2GuardAudit,
+    steamShaderCacheDisabled,
+    steamShaderProcessingQueue,
     unfinishedDownloadEntries,
     zeroByteUnfinishedEntries,
 )
@@ -273,6 +290,55 @@ class UnfinishedDownloadEntriesTests(unittest.TestCase):
             self.assertEqual(entries[0]["archive_size"], 0)
             self.assertEqual(entries[0]["mod_id"], 12358)
 
+    def test_matches_partial_orphan_when_only_remaining_key_for_mod(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            orphan = downloads / (
+                "Malacath No Vanilla Snow Shader ESL-63117-1-0-0-1644059503.zip.unfinished"
+            )
+            orphan.write_bytes(b"partial")
+
+            entries = matchingPartialOrphanUnfinishedEntries(
+                downloads,
+                (63117, 261882),
+                {(63117, 261882), (63117, 261878)},
+                completed_on_disk={(63117, 261878)},
+            )
+
+            self.assertEqual([entry["archive"] for entry in entries], [orphan])
+
+    def test_ignores_partial_orphan_with_ambiguous_pending_keys(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            orphan = downloads / (
+                "Malacath No Vanilla Snow Shader ESL-63117-1-0-0-1644059503.zip.unfinished"
+            )
+            orphan.write_bytes(b"partial")
+
+            entries = matchingPartialOrphanUnfinishedEntries(
+                downloads,
+                (63117, 261882),
+                {(63117, 261882), (63117, 261878)},
+            )
+
+            self.assertEqual(entries, [])
+
+    def test_ignores_zero_byte_orphan_for_partial_wait(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            orphan = downloads / (
+                "Azura No Snow Shader-52695-2-0-0-1652612215.zip.unfinished"
+            )
+            orphan.write_bytes(b"")
+
+            entries = matchingPartialOrphanUnfinishedEntries(
+                downloads,
+                (52695, 283925),
+                {(52695, 283925)},
+            )
+
+            self.assertEqual(entries, [])
+
     def test_identifies_stale_orphan_unfinished_entries(self):
         entries = [
             {
@@ -314,6 +380,21 @@ class UnfinishedDownloadEntriesTests(unittest.TestCase):
             self.assertTrue(non_empty.exists())
             self.assertTrue(other.exists())
             self.assertTrue(backed.exists())
+
+    def test_can_remove_nonzero_orphan_unfinished_after_failed_callback(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            target = downloads / (
+                "Trade Routes-12358-3-0-beta-3-1612588897.7z.unfinished"
+            )
+            target.write_bytes(b"partial")
+
+            removed = removeOrphanUnfinishedDownloadsForKeys(
+                downloads, {(12358, 1)}, include_nonzero=True
+            )
+
+            self.assertEqual(removed, 1)
+            self.assertFalse(target.exists())
 
     def test_identifies_stale_zero_byte_unfinished_entries(self):
         entries = [
@@ -528,6 +609,205 @@ class InstallerDefaultActionLabelTests(unittest.TestCase):
         )
 
 
+class RequiredFomodGroupTitleTests(unittest.TestCase):
+    def test_accepts_required_singleton_group_names_seen_in_logs(self):
+        for title in (
+            "Main File",
+            "Main Files (Required)",
+            "Required Mods",
+            "Base Plugin",
+            "Bases",
+            "Install",
+            "Select texture size",
+            "Texture Resolution",
+        ):
+            self.assertTrue(isRequiredFomodGroupTitle(title), title)
+
+    def test_rejects_optional_patch_group_names_seen_in_logs(self):
+        for title in (
+            "Bowl Ingredients",
+            "04 Option",
+            "Xtra Options - Ultra-Sized Textures Addon",
+            "Ropes 3D - Solitude Docks",
+        ):
+            self.assertFalse(isRequiredFomodGroupTitle(title), title)
+
+
+class SafeSingletonFomodOptionTests(unittest.TestCase):
+    def test_accepts_required_groups(self):
+        self.assertTrue(isSafeSingletonFomodOption("Main File", "Playable Sun Elves Race"))
+        self.assertTrue(isSafeSingletonFomodOption("Bases", "ESL Flagged Base"))
+
+    def test_accepts_informational_singleton_actions_seen_in_logs(self):
+        for group_title, option_label in (
+            ("Inform", "Thank you!"),
+            ("Note about config file", "Next"),
+            ("Finish Installation", "Dont forget to check config.txt"),
+            ("", "Start the installation"),
+            ("Welcome", "Next"),
+            ("Read first", "Proceed"),
+            ("Quick notice.", "Okay!"),
+            ("User information", "Ok"),
+        ):
+            self.assertTrue(
+                isSafeSingletonFomodOption(group_title, option_label),
+                (group_title, option_label),
+            )
+
+    def test_rejects_optional_patch_singletons_seen_in_logs(self):
+        for group_title, option_label in (
+            ("04 Option", "Wet Body (CMO) specular"),
+            (
+                "Axe - Warning! Missing Sounds! Replacer not XPMS(S)E style!",
+                "Axes on Back",
+            ),
+            ("Gravity config", "Install Gravity Config"),
+        ):
+            self.assertFalse(
+                isSafeSingletonFomodOption(group_title, option_label),
+                (group_title, option_label),
+            )
+
+
+class FomodManualChoiceGuideTests(unittest.TestCase):
+    def test_lists_required_groups_without_defaults(self):
+        guide = fomodManualChoiceGuide(
+            """
+            <config>
+              <installSteps>
+                <installStep name="Game">
+                  <optionalFileGroups>
+                    <group name="Game Version" type="SelectExactlyOne">
+                      <plugins>
+                        <plugin name="Skyrim Special Edition" />
+                        <plugin name="Skyrim VR" />
+                      </plugins>
+                    </group>
+                  </optionalFileGroups>
+                </installStep>
+              </installSteps>
+            </config>
+            """
+        )
+
+        self.assertIsNone(guide["parse_error"])
+        self.assertEqual(guide["safe_singleton_prompts"], [])
+        self.assertEqual(
+            guide["manual_choices"],
+            [
+                {
+                    "step": "Game",
+                    "group": "Game Version",
+                    "type": "SelectExactlyOne",
+                    "options": ["Skyrim Special Edition", "Skyrim VR"],
+                }
+            ],
+        )
+
+    def test_omits_groups_with_defaults(self):
+        guide = fomodManualChoiceGuide(
+            """
+            <config>
+              <installSteps>
+                <installStep name="Plugin">
+                  <optionalFileGroups>
+                    <group name="Plugin Type" type="SelectExactlyOne">
+                      <plugins>
+                        <plugin name="ESP" default="true" />
+                        <plugin name="ESL" />
+                      </plugins>
+                    </group>
+                  </optionalFileGroups>
+                </installStep>
+              </installSteps>
+            </config>
+            """
+        )
+
+        self.assertEqual(guide["manual_choices"], [])
+        self.assertEqual(guide["safe_singleton_prompts"], [])
+
+    def test_separates_safe_singleton_prompts_from_manual_choices(self):
+        guide = fomodManualChoiceGuide(
+            """
+            <config>
+              <installSteps>
+                <installStep name="Intro">
+                  <optionalFileGroups>
+                    <group name="Read first" type="SelectExactlyOne">
+                      <plugins>
+                        <plugin name="Proceed" />
+                      </plugins>
+                    </group>
+                  </optionalFileGroups>
+                </installStep>
+              </installSteps>
+            </config>
+            """
+        )
+
+        self.assertEqual(guide["manual_choices"], [])
+        self.assertEqual(
+            guide["safe_singleton_prompts"][0]["options"],
+            ["Proceed"],
+        )
+
+
+class InvalidInstallContentDialogActionTests(unittest.TestCase):
+    def test_accepts_mo2_invalid_content_dialog(self):
+        self.assertEqual(
+            invalidInstallContentDialogAction(
+                "Install Mods",
+                ["The content of <data> does not look valid."],
+                [("OK", True), ("Cancel", True)],
+            ),
+            "ok",
+        )
+
+    def test_ignores_valid_install_dialog(self):
+        self.assertIsNone(
+            invalidInstallContentDialogAction(
+                "Install Mods",
+                ["Looks good."],
+                [("OK", True), ("Cancel", True)],
+            )
+        )
+
+    def test_ignores_other_dialog_titles(self):
+        self.assertIsNone(
+            invalidInstallContentDialogAction(
+                "Quick Install",
+                ["The content of <data> does not look valid."],
+                [("OK", True), ("Cancel", True)],
+            )
+        )
+
+
+class InstallNoResultReasonTests(unittest.TestCase):
+    def test_classifies_invalid_content_cancellation_as_manual_root_install(self):
+        self.assertEqual(
+            installNoResultReason(True, []),
+            "invalid install content warning accepted, but MO2 returned no installed mod",
+        )
+
+    def test_classifies_fomod_warning_as_manual_fomod_install(self):
+        self.assertEqual(
+            installNoResultReason(
+                False,
+                [
+                    '[2026-07-25 W] [fomodinstallerdialog.cpp:967] Plugin "Main" requires selection'
+                ],
+            ),
+            "MO2 FOMOD installer returned no installed mod; likely needs manual choices or unsupported default automation",
+        )
+
+    def test_classifies_unknown_no_result_generically(self):
+        self.assertEqual(
+            installNoResultReason(False, ["Some other warning"]),
+            "MO2 installer returned no installed mod; likely cancelled, manual, or unsupported install",
+        )
+
+
 class DuplicateDownloadPromptActionLabelTests(unittest.TestCase):
     def test_declines_mo2_duplicate_download_prompt(self):
         self.assertEqual(
@@ -569,6 +849,32 @@ class DuplicateDownloadPromptActionLabelTests(unittest.TestCase):
         self.assertIsNone(
             duplicateDownloadPromptActionLabel("Error", [("OK", True)])
         )
+
+
+class DownloadPromptKeyFromLabelsTests(unittest.TestCase):
+    def test_extracts_key_from_mo2_already_started_prompt_text(self):
+        self.assertEqual(
+            downloadPromptKeyFromLabels(
+                [
+                    "There is already a download started for this file.\n\n"
+                    "Mod 68861:        NewFalmerStatueFixes\n"
+                    "File 288970:      NewFalmerStatueFixes-68861-1-0-0.zip"
+                ],
+                {(68861, 288970)},
+            ),
+            (68861, 288970),
+        )
+
+    def test_ignores_prompt_key_outside_collection(self):
+        self.assertIsNone(
+            downloadPromptKeyFromLabels(
+                ["Mod 68861: Name\nFile 288970: Archive.zip"],
+                {(1, 2)},
+            )
+        )
+
+    def test_ignores_prompt_without_mod_and_file_ids(self):
+        self.assertIsNone(downloadPromptKeyFromLabels(["No Nexus IDs here"]))
 
 
 class DownloadCompletionPlanTests(unittest.TestCase):
@@ -642,7 +948,8 @@ class DownloadCompletionChoicesTests(unittest.TestCase):
         )
 
         self.assertTrue(policy["prompt_after_download"])
-        self.assertFalse(policy["close_on_success"])
+        self.assertTrue(policy["close_on_success"])
+        self.assertTrue(policy["auto_install_after_download_default"])
         self.assertTrue(choices["retry_visible"])
         self.assertTrue(choices["install_visible"])
         self.assertEqual(choices["install_label"], "Install Available")
@@ -812,6 +1119,9 @@ class CoerceBoolSettingTests(unittest.TestCase):
         self.assertFalse(coerceBoolSetting(""))
         self.assertFalse(coerceBoolSetting(None))
 
+    def test_missing_value_uses_explicit_default(self):
+        self.assertTrue(coerceBoolSetting(None, default=True))
+
 
 class CoerceIntSettingTests(unittest.TestCase):
     def test_accepts_native_and_string_integer_values(self):
@@ -831,15 +1141,43 @@ class InstallerSettingDefaultsTests(unittest.TestCase):
     def test_duplicate_mod_merging_is_opt_in(self):
         self.assertFalse(INSTALLER_SETTING_DEFAULTS["auto_merge_existing_mods"])
 
-    def test_non_interactive_collection_defaults_match_verified_workflow(self):
+    def test_collection_install_defaults_match_verified_workflow(self):
         self.assertTrue(INSTALLER_SETTING_DEFAULTS["auto_accept_quick_install"])
         self.assertTrue(
             INSTALLER_SETTING_DEFAULTS["auto_dismiss_known_post_install_errors"]
         )
+        self.assertTrue(INSTALLER_SETTING_DEFAULTS["auto_cancel_invalid_install_content"])
         self.assertTrue(INSTALLER_SETTING_DEFAULTS["install_files_as_separate_mods"])
         self.assertTrue(INSTALLER_SETTING_DEFAULTS["activate_mods_after_install"])
-        self.assertFalse(INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"])
-        self.assertEqual(INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_max_steps"], 20)
+        self.assertFalse(INSTALLER_SETTING_DEFAULTS["activate_mods_during_install"])
+        self.assertTrue(INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"])
+        self.assertEqual(INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_max_steps"], 80)
+
+
+class ShouldUseCollectionTargetModNameTests(unittest.TestCase):
+    def test_separate_collection_install_forces_unique_target_names(self):
+        self.assertTrue(
+            shouldUseCollectionTargetModName(
+                separate_file_installs=True,
+                manual_install_pass=False,
+            )
+        )
+
+    def test_manual_retry_uses_normal_mo2_installer_naming(self):
+        self.assertFalse(
+            shouldUseCollectionTargetModName(
+                separate_file_installs=True,
+                manual_install_pass=True,
+            )
+        )
+
+    def test_merged_collection_install_uses_archive_default_naming(self):
+        self.assertFalse(
+            shouldUseCollectionTargetModName(
+                separate_file_installs=False,
+                manual_install_pass=False,
+            )
+        )
 
 
 class DownloadProgressStateTests(unittest.TestCase):
@@ -883,6 +1221,238 @@ class DownloadProgressStateTests(unittest.TestCase):
         self.assertEqual(state["progress"], 2)
         self.assertEqual(state["processed"], 2)
         self.assertEqual(state["remaining"], 1)
+
+
+class TerminalDownloadFailureDelayTests(unittest.TestCase):
+    def test_delays_failed_terminal_state_for_late_mo2_prompts(self):
+        self.assertTrue(
+            shouldDelayTerminalDownloadFailure(
+                has_failures=True,
+                attempts=0,
+                max_attempts=3,
+            )
+        )
+
+    def test_stops_delaying_after_budget_is_exhausted(self):
+        self.assertFalse(
+            shouldDelayTerminalDownloadFailure(
+                has_failures=True,
+                attempts=3,
+                max_attempts=3,
+            )
+        )
+
+    def test_successful_terminal_state_is_not_delayed(self):
+        self.assertFalse(
+            shouldDelayTerminalDownloadFailure(
+                has_failures=False,
+                attempts=0,
+                max_attempts=3,
+            )
+        )
+
+
+class SteamMo2GuardAuditTests(unittest.TestCase):
+    GOOD_LOCALCONFIG = """
+    "UserLocalConfigStore"
+    {
+        "Software"
+        {
+            "Valve"
+            {
+                "Steam"
+                {
+                    "apps"
+                    {
+                        "489830"
+                        {
+                            "LaunchOptions" ""
+                        }
+                    }
+                }
+            }
+        }
+        "apps"
+        {
+                    "489830"
+                    {
+                        "DefaultLaunchOption"
+                        {
+                            "c0cebdd0" "1"
+                        }
+                    }
+        }
+    }
+    """
+    GOOD_STEAM_CONFIG = """
+    "InstallConfigStore"
+    {
+        "Software"
+        {
+            "Valve"
+            {
+                "Steam"
+                {
+                    "DisableShaderCache" "1"
+                    "ShaderCacheManager"
+                    {
+                        "ProcessingQueue" "123;456;"
+                        "App"
+                        {
+                            "489830"
+                            {
+                                "ShaderCacheSize" "0"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    """
+    GOOD_LOCK = "----i---------e------- /path/file"
+
+    def guard(self, **overrides):
+        values = {
+            "localconfig_text": self.GOOD_LOCALCONFIG,
+            "steam_config_text": self.GOOD_STEAM_CONFIG,
+            "compat_text": '"489830" { "name" "Skyrim Special Edition" }',
+            "appinfo_text": "SkyrimSELauncher.exe\0mo2-redirector.exe\0OPTION3\0Mod Organizer",
+            "localconfig_lsattr": self.GOOD_LOCK,
+            "steam_config_lsattr": self.GOOD_LOCK,
+            "compat_lsattr": self.GOOD_LOCK,
+            "appinfo_lsattr": self.GOOD_LOCK,
+            "appmanifest_lsattr": self.GOOD_LOCK,
+            "shadercache_lsattr": self.GOOD_LOCK,
+            "mods_count": 0,
+            "downloads_count": 0,
+            "require_clean_mo2": True,
+        }
+        values.update(overrides)
+        return steamMo2GuardAudit(**values)
+
+    def test_parses_expected_steam_values(self):
+        self.assertEqual(steamLaunchOptions(self.GOOD_LOCALCONFIG), "")
+        self.assertEqual(steamDefaultLaunchOption(self.GOOD_LOCALCONFIG), "1")
+        self.assertEqual(steamShaderProcessingQueue(self.GOOD_STEAM_CONFIG), ["123", "456"])
+        self.assertTrue(steamShaderCacheDisabled(self.GOOD_STEAM_CONFIG))
+        self.assertEqual(steamAppShaderCacheSize(self.GOOD_STEAM_CONFIG), 0)
+        self.assertTrue(
+            steamAppInfoHasLaunchExecutable(
+                "SkyrimSELauncher.exe\0mo2-redirector.exe\0OPTION3\0Mod Organizer",
+                "mo2-redirector.exe",
+            )
+        )
+
+    def test_clean_guard_state_passes(self):
+        result = self.guard()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["problems"], [])
+
+    def test_user_command_launch_option_is_caught(self):
+        result = self.guard(
+            localconfig_text='"489830" { "LaunchOptions" "USER=tkb %command%" }'
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("bypasses MO2 redirector" in p for p in result["problems"]))
+
+    def test_redirector_launch_option_argument_is_caught(self):
+        result = self.guard(
+            localconfig_text=(
+                '"489830" { "LaunchOptions" "mo2-redirector.exe" } '
+                '"apps" { "489830" { "DefaultLaunchOption" { "c0cebdd0" "1" } } }'
+            )
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("launch option changed" in p for p in result["problems"]))
+
+    def test_wrong_default_launch_option_is_caught(self):
+        result = self.guard(
+            localconfig_text=(
+                '"489830" { "LaunchOptions" "" } '
+                '"apps" { "489830" { "DefaultLaunchOption" { "c0cebdd0" "3" } } }'
+            )
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("default launch option changed" in p for p in result["problems"]))
+
+    def test_missing_appinfo_redirector_is_caught(self):
+        result = self.guard(appinfo_text="SkyrimSELauncher.exe\0SkyrimSE.exe")
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("appinfo.vdf" in p for p in result["problems"]))
+
+    def test_latest_launch_log_uses_redirector_when_required(self):
+        command = (
+            '[2026-07-26 18:54:25] AppID 489830 adding PID 1 as a tracked process '
+            '"/steam-wrapper -- proton waitforexitandrun '
+            "'/mnt/STEAMNTFS/SteamLibrary/steamapps/common/Skyrim Special Edition/mo2-redirector.exe'\""
+        )
+        self.assertIn("mo2-redirector.exe", latestSteamLaunchCommand(command))
+
+        result = self.guard(gameprocess_log_text=command, require_latest_launch=True)
+
+        self.assertTrue(result["ok"])
+
+    def test_latest_launcher_plus_redirector_argument_is_caught(self):
+        command = (
+            '[2026-07-26 20:25:56] AppID 489830 adding PID 1 as a tracked process '
+            '"/steam-wrapper -- proton waitforexitandrun '
+            "'/mnt/STEAMNTFS/SteamLibrary/steamapps/common/Skyrim Special Edition/SkyrimSELauncher.exe' "
+            'mo2-redirector.exe"'
+        )
+        result = self.guard(gameprocess_log_text=command, require_latest_launch=True)
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("SkyrimSELauncher.exe" in p for p in result["problems"]))
+
+    def test_shader_processing_queue_requeue_is_caught(self):
+        result = self.guard(
+            steam_config_text='"DisableShaderCache" "1" "ProcessingQueue" "489830;123;"'
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("shader processing queue" in p for p in result["problems"]))
+
+    def test_enabled_shader_cache_is_caught(self):
+        result = self.guard(steam_config_text='"DisableShaderCache" "0"')
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("shader cache is not disabled" in p for p in result["problems"]))
+
+    def test_nonzero_shader_cache_size_is_caught(self):
+        result = self.guard(
+            steam_config_text=(
+                '"DisableShaderCache" "1" '
+                '"489830" { "ShaderCacheSize" "2147483648" }'
+            )
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("ShaderCacheSize" in p or "shader cache size" in p for p in result["problems"]))
+
+    def test_missing_immutable_lock_is_caught(self):
+        result = self.guard(localconfig_lsattr="--------------e------- /path/file")
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("localconfig.vdf is not immutable" in p for p in result["problems"]))
+
+    def test_unlocked_steam_config_is_caught(self):
+        result = self.guard(steam_config_lsattr="--------------e------- /path/config.vdf")
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("config.vdf is not immutable" in p for p in result["problems"]))
+
+    def test_unclean_mo2_state_is_caught_when_required(self):
+        result = self.guard(mods_count=75, downloads_count=75)
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("managed mods directory is not clean" in p for p in result["problems"]))
+        self.assertTrue(any("downloads directory is not clean" in p for p in result["problems"]))
 
 
 if __name__ == "__main__":
