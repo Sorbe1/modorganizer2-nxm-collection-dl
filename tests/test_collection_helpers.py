@@ -1287,7 +1287,7 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
                     {
                         "DefaultLaunchOption"
                         {
-                            "c0cebdd0" "1"
+                            "c0cebdd0" "3"
                         }
                     }
         }
@@ -1342,7 +1342,7 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
 
     def test_parses_expected_steam_values(self):
         self.assertEqual(steamLaunchOptions(self.GOOD_LOCALCONFIG), "")
-        self.assertEqual(steamDefaultLaunchOption(self.GOOD_LOCALCONFIG), "1")
+        self.assertEqual(steamDefaultLaunchOption(self.GOOD_LOCALCONFIG), "3")
         self.assertEqual(steamShaderProcessingQueue(self.GOOD_STEAM_CONFIG), ["123", "456"])
         self.assertTrue(steamShaderCacheDisabled(self.GOOD_STEAM_CONFIG))
         self.assertEqual(steamAppShaderCacheSize(self.GOOD_STEAM_CONFIG), 0)
@@ -1371,7 +1371,7 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
         result = self.guard(
             localconfig_text=(
                 '"489830" { "LaunchOptions" "mo2-redirector.exe" } '
-                '"apps" { "489830" { "DefaultLaunchOption" { "c0cebdd0" "1" } } }'
+                '"apps" { "489830" { "DefaultLaunchOption" { "c0cebdd0" "3" } } }'
             )
         )
 
@@ -1382,7 +1382,7 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
         result = self.guard(
             localconfig_text=(
                 '"489830" { "LaunchOptions" "" } '
-                '"apps" { "489830" { "DefaultLaunchOption" { "c0cebdd0" "3" } } }'
+                '"apps" { "489830" { "DefaultLaunchOption" { "c0cebdd0" "1" } } }'
             )
         )
 
