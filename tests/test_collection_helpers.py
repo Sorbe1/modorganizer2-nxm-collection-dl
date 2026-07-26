@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -6,11 +7,13 @@ from collection_helpers import (
     INSTALLER_SETTING_DEFAULTS,
     activeDownloadPromptKey,
     allocateUniqueModName,
+    archiveInspectionSubprocessKwargs,
     cleanupZeroByteUnfinishedDownloads,
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
     collectionLinkCompletionPolicy,
+    contentTreeWarningDialogAction,
     collectionDownloadExpectedSizes,
     duplicateDownloadPromptActionLabel,
     downloadCompletionChoices,
@@ -36,6 +39,7 @@ from collection_helpers import (
     removeUnfinishedEntries,
     safeDisplayText,
     sanitizeModName,
+    shouldUseArchiveDefaultForFomodCompatibility,
     shouldUseCollectionTargetModName,
     shouldDelayTerminalDownloadFailure,
     staleOrphanUnfinishedDownloadEntries,
@@ -646,6 +650,7 @@ class SafeSingletonFomodOptionTests(unittest.TestCase):
             ("", "Start the installation"),
             ("Welcome", "Next"),
             ("Read first", "Proceed"),
+            ("Do you know what you're doing?", "Proceed"),
             ("Quick notice.", "Okay!"),
             ("User information", "Ok"),
         ):
@@ -667,6 +672,23 @@ class SafeSingletonFomodOptionTests(unittest.TestCase):
                 isSafeSingletonFomodOption(group_title, option_label),
                 (group_title, option_label),
             )
+
+
+class ArchiveInspectionSubprocessKwargsTests(unittest.TestCase):
+    def test_redirects_all_standard_handles_for_gui_processes(self):
+        kwargs = archiveInspectionSubprocessKwargs(timeout=12)
+
+        self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(kwargs["stdout"], subprocess.PIPE)
+        self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
+        self.assertEqual(kwargs["timeout"], 12)
+
+    def test_can_keep_extracted_xml_stdout_clean(self):
+        kwargs = archiveInspectionSubprocessKwargs(stderr_to_stdout=False)
+
+        self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(kwargs["stdout"], subprocess.PIPE)
+        self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)
 
 
 class FomodManualChoiceGuideTests(unittest.TestCase):
@@ -779,6 +801,43 @@ class InvalidInstallContentDialogActionTests(unittest.TestCase):
                 "Quick Install",
                 ["The content of <data> does not look valid."],
                 [("OK", True), ("Cancel", True)],
+            )
+        )
+
+
+class ContentTreeWarningDialogActionTests(unittest.TestCase):
+    def test_accepts_mo2_content_tree_warning_dialog(self):
+        self.assertEqual(
+            contentTreeWarningDialogAction(
+                "Continue?",
+                [
+                    "This mod was probably NOT set up correctly, most likely it will "
+                    "NOT work. You should first correct the directory layout using "
+                    "the content-tree."
+                ],
+                [("Ignore", True), ("Cancel", True)],
+            ),
+            "ignore",
+        )
+
+    def test_ignores_unrelated_continue_dialog(self):
+        self.assertIsNone(
+            contentTreeWarningDialogAction(
+                "Continue?",
+                ["Do you want to continue?"],
+                [("Ignore", True), ("Cancel", True)],
+            )
+        )
+
+    def test_requires_enabled_ignore_button(self):
+        self.assertIsNone(
+            contentTreeWarningDialogAction(
+                "Continue?",
+                [
+                    "This mod was probably NOT set up correctly. Correct the "
+                    "directory layout using the content-tree."
+                ],
+                [("Ignore", False), ("Cancel", True)],
             )
         )
 
@@ -1185,6 +1244,53 @@ class ShouldUseCollectionTargetModNameTests(unittest.TestCase):
             shouldUseCollectionTargetModName(
                 separate_file_installs=False,
                 manual_install_pass=False,
+            )
+        )
+
+
+class ShouldUseArchiveDefaultForFomodCompatibilityTests(unittest.TestCase):
+    def test_confirmed_fomod_uses_archive_default_for_compatibility(self):
+        self.assertTrue(
+            shouldUseArchiveDefaultForFomodCompatibility(
+                separate_file_installs=True,
+                manual_install_pass=False,
+                fomod_state=True,
+            )
+        )
+
+    def test_unknown_fomod_state_uses_collection_target_name_first(self):
+        self.assertFalse(
+            shouldUseArchiveDefaultForFomodCompatibility(
+                separate_file_installs=True,
+                manual_install_pass=False,
+                fomod_state=None,
+            )
+        )
+
+    def test_non_fomod_uses_collection_target_name(self):
+        self.assertFalse(
+            shouldUseArchiveDefaultForFomodCompatibility(
+                separate_file_installs=True,
+                manual_install_pass=False,
+                fomod_state=False,
+            )
+        )
+
+    def test_manual_retry_uses_normal_mo2_naming(self):
+        self.assertFalse(
+            shouldUseArchiveDefaultForFomodCompatibility(
+                separate_file_installs=True,
+                manual_install_pass=True,
+                fomod_state=True,
+            )
+        )
+
+    def test_merged_collection_install_uses_normal_mo2_naming(self):
+        self.assertFalse(
+            shouldUseArchiveDefaultForFomodCompatibility(
+                separate_file_installs=False,
+                manual_install_pass=False,
+                fomod_state=True,
             )
         )
 

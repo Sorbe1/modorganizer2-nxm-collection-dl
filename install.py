@@ -34,8 +34,10 @@ from .collection_helpers import (
     FOMOD_ADVANCE_EXCLUDED_TITLES,
     INSTALLER_SETTING_DEFAULTS,
     allocateUniqueModName,
+    archiveInspectionSubprocessKwargs,
     coerceBoolSetting,
     coerceIntSetting,
+    contentTreeWarningDialogAction,
     fomodManualChoiceGuide,
     invalidInstallContentDialogAction,
     installNoResultReason,
@@ -44,6 +46,7 @@ from .collection_helpers import (
     isSafeSingletonFomodOption,
     normalizedButtonLabel,
     safeDisplayText,
+    shouldUseArchiveDefaultForFomodCompatibility,
     shouldUseCollectionTargetModName,
 )
 
@@ -231,6 +234,30 @@ def cancelInvalidInstallContentDialog():
             return
 
 
+def acceptContentTreeWarningDialog():
+    for widget in QApplication.topLevelWidgets():
+        if not widget.isVisible() or widget.windowTitle() != "Continue?":
+            continue
+
+        action = contentTreeWarningDialogAction(
+            widget.windowTitle(),
+            (label.text() for label in widget.findChildren(QLabel)),
+            (
+                (button.text(), button.isEnabled())
+                for button in widget.findChildren(QPushButton)
+            ),
+        )
+        if action is None:
+            continue
+
+        if clickButtonByText(widget, (action,)):
+            qDebug(
+                "[NXMColDL Install] Accepting MO2 content-tree warning "
+                "to match manual install flow"
+            )
+            return
+
+
 def installerDefaultAction(widget):
     """Return the safest default-action button for a visible FOMOD installer."""
     if not widget.isVisible():
@@ -370,6 +397,10 @@ def scheduleInstallDialogHandlers(
                 lambda handler=cancelInvalidInstallContentDialog: run_if_current(
                     handler
                 ),
+            )
+            QTimer.singleShot(
+                delay,
+                lambda handler=acceptContentTreeWarningDialog: run_if_current(handler),
             )
         if existing_mod_action:
             QTimer.singleShot(
@@ -1007,9 +1038,7 @@ class stepInstallMods(QDialog):
         try:
             listing = subprocess.run(
                 [executable, "l", "-slt", str(archive_path)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=30,
+                **archiveInspectionSubprocessKwargs(timeout=30),
             )
         except (OSError, subprocess.SubprocessError) as e:
             return None, None, f"Could not list archive with 7z: {e}"
@@ -1028,9 +1057,9 @@ class stepInstallMods(QDialog):
         try:
             extraction = subprocess.run(
                 [executable, "x", "-so", str(archive_path), module_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                timeout=30,
+                **archiveInspectionSubprocessKwargs(
+                    timeout=30, stderr_to_stdout=False
+                ),
             )
         except (OSError, subprocess.SubprocessError) as e:
             return None, None, f"Could not extract FOMOD XML with 7z: {e}"
@@ -1398,14 +1427,18 @@ class stepInstallMods(QDialog):
                         download_path
                     )
                 fomod_state = fomod_archive_cache[archive_key]
-            has_fomod_installer = fomod_state is True
             unknown_fomod_state = fomod_state is None
+            use_archive_default_for_fomod = (
+                shouldUseArchiveDefaultForFomodCompatibility(
+                    context["separate_file_installs"],
+                    manual_install_pass,
+                    fomod_state,
+                )
+            )
 
             existing_mod_action = None
             if not manual_install_pass:
-                if context["separate_file_installs"] and (
-                    has_fomod_installer or unknown_fomod_state
-                ):
+                if use_archive_default_for_fomod:
                     existing_mod_action = "cancel"
                 elif (
                     not context["separate_file_installs"]
@@ -1449,26 +1482,24 @@ class stepInstallMods(QDialog):
             use_target_mod_name = shouldUseCollectionTargetModName(
                 context["separate_file_installs"], manual_install_pass
             )
-            if use_target_mod_name:
+            if use_target_mod_name and not use_archive_default_for_fomod:
                 target_mod_name = self.allocateCollectionModName(
                     mod_name, used_mod_names, mod_name_counts
                 )
+                if unknown_fomod_state:
+                    self.log(
+                        "  FOMOD status unknown; trying collection target name first",
+                        "note",
+                    )
                 self.log(f"  Target MO2 name: {target_mod_name}")
                 installed_mod = organizer.installMod(
                     str(download_path), target_mod_name
                 )
             else:
-                if (
-                    context["separate_file_installs"]
-                    and not manual_install_pass
-                    and (has_fomod_installer or unknown_fomod_state)
-                ):
-                    reason = (
-                        "FOMOD compatibility"
-                        if has_fomod_installer
-                        else "unknown FOMOD status"
+                if use_archive_default_for_fomod:
+                    self.log(
+                        "  Target MO2 name: using archive default for FOMOD compatibility"
                     )
-                    self.log(f"  Target MO2 name: using archive default for {reason}")
                 installed_mod = organizer.installMod(str(download_path))
             warning_count = self.collectInterfaceLogWarnings(
                 log_path, log_offset, mod_name, file_name
@@ -1526,6 +1557,12 @@ class stepInstallMods(QDialog):
                                 "file_id": int(file_id),
                                 "archive": str(download_path),
                                 "reason": reason,
+                                **self.fomodInstallDiagnostics(
+                                    fomod_state,
+                                    use_archive_default_for_fomod,
+                                    target_mod_name,
+                                    dialog_handler_generation,
+                                ),
                             }
                         )
                         self.log("")
@@ -1627,6 +1664,13 @@ class stepInstallMods(QDialog):
                                     "fallback installer returned no installed mod "
                                     f"after automatic failure: {reason}"
                                 ),
+                                **self.fomodInstallDiagnostics(
+                                    fomod_state,
+                                    use_archive_default_for_fomod,
+                                    target_mod_name,
+                                    dialog_handler_generation,
+                                    fallback_generation,
+                                ),
                             }
                         )
                         self.logInstallIssue(
@@ -1646,6 +1690,12 @@ class stepInstallMods(QDialog):
                         "file_id": int(file_id),
                         "archive": str(download_path),
                         "reason": reason,
+                        **self.fomodInstallDiagnostics(
+                            fomod_state,
+                            use_archive_default_for_fomod,
+                            target_mod_name,
+                            dialog_handler_generation,
+                        ),
                     }
                 )
                 self.logInstallIssue(reason, expected=True)
@@ -1717,6 +1767,7 @@ class stepInstallMods(QDialog):
             advanced += 1
             self.fomod_auto_advances.append(
                 {
+                    "generation": generation,
                     "mod": mod_name,
                     "dialog": title,
                     "action": button_label,
@@ -1736,6 +1787,49 @@ class stepInstallMods(QDialog):
                 advanced,
             ),
         )
+
+    def fomodInstallDiagnostics(
+        self,
+        fomod_state,
+        use_archive_default_for_fomod,
+        target_mod_name,
+        initial_generation,
+        fallback_generation=None,
+    ):
+        def state_label(value):
+            if value is True:
+                return "true"
+            if value is False:
+                return "false"
+            return "unknown"
+
+        def actions_for(generation):
+            if generation is None:
+                return []
+            return [
+                {
+                    "dialog": action.get("dialog"),
+                    "action": action.get("action"),
+                }
+                for action in self.fomod_auto_advances
+                if action.get("generation") == generation
+            ]
+
+        return {
+            "fomod_state": state_label(fomod_state),
+            "used_archive_default_for_fomod": bool(use_archive_default_for_fomod),
+            "target_mod_name": target_mod_name,
+            "initial_auto_actions": actions_for(initial_generation),
+            "initial_auto_stalled": (
+                initial_generation in self.fomod_auto_stalled_generations
+            ),
+            "fallback_auto_actions": actions_for(fallback_generation),
+            "fallback_auto_stalled": (
+                fallback_generation in self.fomod_auto_stalled_generations
+                if fallback_generation is not None
+                else False
+            ),
+        }
 
     def activateModDuringInstall(self, internal_name):
         if not self.install_context:

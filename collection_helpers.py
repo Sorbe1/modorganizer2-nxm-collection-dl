@@ -1,4 +1,5 @@
 import re
+import subprocess
 import unicodedata
 from configparser import ConfigParser
 from pathlib import Path
@@ -25,6 +26,39 @@ INSTALLER_SETTING_DEFAULTS = {
     "activate_mods_after_install": True,
     "activate_mods_during_install": False,
 }
+
+
+def archiveInspectionSubprocessKwargs(
+    timeout=30, capture_stdout=True, stderr_to_stdout=True
+):
+    """Return subprocess options safe for archive inspection from MO2's GUI process.
+
+    MO2 runs plugin Python inside a GUI/Wine process where standard handles can be
+    invalid. Explicitly redirect every standard stream so launching 7z/7zz does
+    not inherit bad handles and fail with WinError 6.
+    """
+    kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stderr": subprocess.STDOUT if stderr_to_stdout else subprocess.DEVNULL,
+        "timeout": timeout,
+    }
+    if capture_stdout:
+        kwargs["stdout"] = subprocess.PIPE
+    else:
+        kwargs["stdout"] = subprocess.DEVNULL
+
+    startupinfo_type = getattr(subprocess, "STARTUPINFO", None)
+    startf_use_show_window = getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    if startupinfo_type and startf_use_show_window:
+        startupinfo = startupinfo_type()
+        startupinfo.dwFlags |= startf_use_show_window
+        kwargs["startupinfo"] = startupinfo
+
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if creationflags:
+        kwargs["creationflags"] = creationflags
+
+    return kwargs
 
 
 def normalizedButtonLabel(label):
@@ -91,6 +125,7 @@ def isSafeSingletonFomodOption(group_title, option_label):
     normalized_option = normalizedButtonLabel(option_label)
     informational_groups = {
         "",
+        "do you know what you're doing?",
         "finish installation",
         "inform",
         "note about config file",
@@ -228,6 +263,19 @@ def shouldUseCollectionTargetModName(separate_file_installs, manual_install_pass
     return bool(separate_file_installs) and not bool(manual_install_pass)
 
 
+def shouldUseArchiveDefaultForFomodCompatibility(
+    separate_file_installs,
+    manual_install_pass,
+    fomod_state,
+):
+    """Return True only for confirmed FOMODs that need MO2's default naming."""
+    return (
+        bool(separate_file_installs)
+        and not bool(manual_install_pass)
+        and fomod_state is True
+    )
+
+
 def invalidInstallContentDialogAction(window_title, labels, buttons):
     """Return the action for MO2's invalid-content install dialog, if present."""
     if window_title != "Install Mods":
@@ -245,6 +293,30 @@ def invalidInstallContentDialogAction(window_title, labels, buttons):
         return "ok"
     if enabled_by_label.get("cancel"):
         return "cancel"
+
+    return None
+
+
+def contentTreeWarningDialogAction(window_title, labels, buttons):
+    """Return the action for MO2's content-tree warning dialog, if present."""
+    if window_title != "Continue?":
+        return None
+
+    text = "\n".join(str(label).lower() for label in labels)
+    if (
+        "probably not set up correctly" not in text
+        or "directory layout" not in text
+        or "content-tree" not in text
+    ):
+        return None
+
+    enabled_by_label = {
+        normalizedButtonLabel(label): bool(enabled)
+        for label, enabled in buttons
+        if normalizedButtonLabel(label)
+    }
+    if enabled_by_label.get("ignore"):
+        return "ignore"
 
     return None
 
