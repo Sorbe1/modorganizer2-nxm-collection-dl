@@ -818,6 +818,15 @@ class DuplicateDownloadPromptActionLabelTests(unittest.TestCase):
             "no",
         )
 
+    def test_declines_mo2_duplicate_download_prompt_without_cancel_button(self):
+        self.assertEqual(
+            duplicateDownloadPromptActionLabel(
+                "Download again?",
+                [("&Yes", True), ("&No", True)],
+            ),
+            "no",
+        )
+
     def test_ignores_fomod_dialog_with_no_button(self):
         self.assertIsNone(
             duplicateDownloadPromptActionLabel(
@@ -826,7 +835,7 @@ class DuplicateDownloadPromptActionLabelTests(unittest.TestCase):
             )
         )
 
-    def test_requires_complete_confirmation_button_set(self):
+    def test_requires_yes_and_no_confirmation_buttons(self):
         self.assertIsNone(
             duplicateDownloadPromptActionLabel(
                 "Download again?",

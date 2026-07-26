@@ -288,7 +288,7 @@ def duplicateDownloadPromptActionLabel(window_title, buttons):
     }
 
     if window_title == "Download again?":
-        if not {"yes", "no", "cancel"}.issubset(labels):
+        if not {"yes", "no"}.issubset(labels):
             return None
         if labels.get("no"):
             return "no"
