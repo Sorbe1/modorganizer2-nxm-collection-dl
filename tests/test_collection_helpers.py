@@ -1285,10 +1285,6 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
         {
                     "489830"
                     {
-                        "DefaultLaunchOption"
-                        {
-                            "c0cebdd0" "3"
-                        }
                     }
         }
     }
@@ -1342,7 +1338,7 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
 
     def test_parses_expected_steam_values(self):
         self.assertEqual(steamLaunchOptions(self.GOOD_LOCALCONFIG), "")
-        self.assertEqual(steamDefaultLaunchOption(self.GOOD_LOCALCONFIG), "3")
+        self.assertIsNone(steamDefaultLaunchOption(self.GOOD_LOCALCONFIG))
         self.assertEqual(steamShaderProcessingQueue(self.GOOD_STEAM_CONFIG), ["123", "456"])
         self.assertTrue(steamShaderCacheDisabled(self.GOOD_STEAM_CONFIG))
         self.assertEqual(steamAppShaderCacheSize(self.GOOD_STEAM_CONFIG), 0)
@@ -1378,16 +1374,27 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(any("launch option changed" in p for p in result["problems"]))
 
-    def test_wrong_default_launch_option_is_caught(self):
+    def test_persisted_default_launch_option_is_caught(self):
         result = self.guard(
             localconfig_text=(
                 '"489830" { "LaunchOptions" "" } '
-                '"apps" { "489830" { "DefaultLaunchOption" { "c0cebdd0" "1" } } }'
+                '"apps" { "489830" { "DefaultLaunchOption" { "c0cebdd0" "3" } } }'
             )
         )
 
         self.assertFalse(result["ok"])
         self.assertTrue(any("default launch option changed" in p for p in result["problems"]))
+
+    def test_expected_default_launch_option_can_be_required_explicitly(self):
+        result = self.guard(
+            localconfig_text=(
+                '"489830" { "LaunchOptions" "" } '
+                '"apps" { "489830" { "DefaultLaunchOption" { "c0cebdd0" "3" } } }'
+            ),
+            expected_default_launch_option="3",
+        )
+
+        self.assertTrue(result["ok"])
 
     def test_missing_appinfo_redirector_is_caught(self):
         result = self.guard(appinfo_text="SkyrimSELauncher.exe\0SkyrimSE.exe")

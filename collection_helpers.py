@@ -1005,7 +1005,7 @@ def steamMo2GuardAudit(
     downloads_count=None,
     app_id="489830",
     expected_launch_options="",
-    expected_default_launch_option="3",
+    expected_default_launch_option=None,
     expected_launch_executable="mo2-redirector.exe",
     require_clean_mo2=False,
     require_latest_launch=False,

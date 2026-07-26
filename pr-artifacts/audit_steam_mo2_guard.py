@@ -107,8 +107,11 @@ def main():
     )
     parser.add_argument(
         "--expected-default-launch-option",
-        default="3",
-        help="Steam DefaultLaunchOption value that selects the MO2 redirector entry.",
+        default=None,
+        help=(
+            "Steam DefaultLaunchOption value required for the test. Omit this "
+            "to require interactive launch selection with no persisted default."
+        ),
     )
     parser.add_argument(
         "--expected-launch-executable",
