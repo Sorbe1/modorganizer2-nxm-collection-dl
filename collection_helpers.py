@@ -1,7 +1,12 @@
+import json
+import os
 import re
+import shutil
 import subprocess
 import unicodedata
+import zipfile
 from configparser import ConfigParser
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -19,12 +24,59 @@ INSTALLER_SETTING_DEFAULTS = {
     "auto_accept_quick_install": True,
     "auto_dismiss_known_post_install_errors": True,
     "auto_cancel_invalid_install_content": True,
+    "headless_archive_installs": True,
+    "headless_zip_installs": True,
     "auto_merge_existing_mods": False,
     "auto_advance_fomod_defaults": True,
     "auto_advance_fomod_max_steps": 80,
     "install_files_as_separate_mods": True,
     "activate_mods_after_install": True,
     "activate_mods_during_install": False,
+    "trace_install_diagnostics": False,
+}
+
+DIRECT_INSTALL_MARKER_DIRS = {
+    "animations",
+    "bodyslide",
+    "calientetools",
+    "grass",
+    "interface",
+    "meshes",
+    "mcm",
+    "music",
+    "scripts",
+    "seq",
+    "skse",
+    "sound",
+    "strings",
+    "textures",
+}
+
+DIRECT_INSTALL_MARKER_FILES = {
+    "meta.ini",
+}
+
+DIRECT_INSTALL_PLUGIN_EXTENSIONS = {
+    ".esp",
+    ".esm",
+    ".esl",
+}
+
+KNOWN_GAME_ROOT_FILE_EVIDENCE = {
+    # SSE Engine Fixes Part 2 installs beside SkyrimSE.exe rather than into an
+    # MO2 mod container. A replay should treat the collection entry as complete
+    # when the expected preloader DLL is already present in the game directory.
+    (17230, 658442): ("d3dx9_42.dll",),
+}
+
+AUTOMATED_INSTALL_CADENCE_DEFAULTS = {
+    "next_mod_delay_ms": 50,
+    "dialog_poll_initial_delay_ms": 50,
+    "dialog_poll_interval_ms": 50,
+    "fomod_advance_interval_ms": 50,
+    "restore_install_dialog_focus": False,
+    "raise_mo2_for_native_install": False,
+    "hide_progress_for_native_install": False,
 }
 
 
@@ -59,6 +111,651 @@ def archiveInspectionSubprocessKwargs(
         kwargs["creationflags"] = creationflags
 
     return kwargs
+
+
+def sevenZipModuleConfigPathFromListing(listing_text):
+    """Return the FOMOD ModuleConfig path from a 7z ``l -slt`` listing."""
+    if isinstance(listing_text, bytes):
+        listing_text = listing_text.decode("utf-8", errors="replace")
+    for raw_line in str(listing_text).splitlines():
+        if not raw_line.startswith("Path = "):
+            continue
+        candidate = raw_line[7:].replace("\\", "/")
+        if candidate.lower().endswith("fomod/moduleconfig.xml"):
+            return candidate
+    return None
+
+
+def normalizedArchiveMemberPath(member_name):
+    """Return a safe normalized archive member path, or ``None`` if unsafe."""
+    raw = str(member_name or "").replace("\\", "/")
+    if raw.startswith("/"):
+        return None
+    normalized = raw
+    normalized = re.sub(r"/+", "/", normalized).strip("/")
+    if not normalized:
+        return None
+    parts = normalized.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        return None
+    if re.match(r"^[A-Za-z]:", parts[0]):
+        return None
+    return "/".join(parts)
+
+
+def safeArchiveMemberTarget(base_dir, member_name):
+    """Return the extraction target for an archive member, rejecting zip-slip."""
+    normalized = normalizedArchiveMemberPath(member_name)
+    if not normalized:
+        return None
+    base_path = Path(base_dir).resolve()
+    target_path = (base_path / normalized).resolve()
+    try:
+        target_path.relative_to(base_path)
+    except ValueError:
+        return None
+    return target_path
+
+
+HEADLESS_ARCHIVE_EXTENSIONS = {
+    ".7z",
+    ".rar",
+    ".zip",
+}
+
+
+def sevenZipArchiveMemberPaths(listing_text):
+    """Return file/member paths from a ``7z l -slt`` listing."""
+    if isinstance(listing_text, bytes):
+        listing_text = listing_text.decode("utf-8", errors="replace")
+    in_entries = False
+    paths = []
+    for raw_line in str(listing_text).splitlines():
+        line = raw_line.strip("\r")
+        if line.startswith("----------"):
+            in_entries = True
+            continue
+        if not in_entries or not line.startswith("Path = "):
+            continue
+        paths.append(line[7:].replace("\\", "/"))
+    return paths
+
+
+def moveHeadlessArchivePayload(extract_root, target_dir, layout_plan):
+    """Move a preflighted extracted archive tree into ``target_dir``."""
+    strip_prefix = str((layout_plan or {}).get("strip_prefix") or "")
+    extracted = 0
+    extract_root = Path(extract_root)
+    target_dir = Path(target_dir)
+    for source_path in extract_root.rglob("*"):
+        if not source_path.is_file():
+            continue
+        try:
+            relative_name = source_path.relative_to(extract_root).as_posix()
+        except ValueError:
+            continue
+        if strip_prefix and not relative_name.startswith(strip_prefix):
+            continue
+        output_name = (
+            relative_name[len(strip_prefix) :] if strip_prefix else relative_name
+        )
+        target_path = safeArchiveMemberTarget(target_dir, output_name)
+        if target_path is None:
+            raise RuntimeError(f"Unsafe archive member path: {relative_name}")
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source_path), str(target_path))
+        extracted += 1
+    if extracted <= 0:
+        raise RuntimeError("Archive contained no installable files.")
+    return extracted
+
+
+def extractHeadlessZipArchive(archive_path, target_dir, layout_plan):
+    """Extract a preflighted ZIP archive into ``target_dir`` and return file count."""
+    strip_prefix = str((layout_plan or {}).get("strip_prefix") or "")
+    extracted = 0
+    with zipfile.ZipFile(archive_path) as archive:
+        for member in archive.infolist():
+            member_name = member.filename.replace("\\", "/")
+            if member.is_dir():
+                continue
+            if strip_prefix and not member_name.startswith(strip_prefix):
+                continue
+            output_name = (
+                member_name[len(strip_prefix) :] if strip_prefix else member_name
+            )
+            target_path = safeArchiveMemberTarget(target_dir, output_name)
+            if target_path is None:
+                raise RuntimeError(f"Unsafe archive member path: {member.filename}")
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member, "r") as source, open(target_path, "wb") as dest:
+                shutil.copyfileobj(source, dest)
+            extracted += 1
+    if extracted <= 0:
+        raise RuntimeError("Archive contained no installable files.")
+    return extracted
+
+
+def headlessInstallMetaIni(
+    mod_id,
+    file_id,
+    archive_name,
+    mod_name,
+    file_name,
+    timestamp,
+    file_version="",
+    mod_version="",
+    nexus_category=0,
+):
+    """Return MO2 metadata for an already-extracted collection mod."""
+    version = str(file_version or mod_version or "")
+    newest_version = str(mod_version or file_version or "")
+    try:
+        nexus_category_value = int(nexus_category or 0)
+    except (TypeError, ValueError):
+        nexus_category_value = 0
+    return "\n".join(
+        [
+            "[General]",
+            "gameName=SkyrimSE",
+            f"modid={int(mod_id)}",
+            "ignoredVersion=",
+            f"version={version}",
+            f"newestVersion={newest_version}",
+            'category="-1,"',
+            "nexusFileStatus=1",
+            f"installationFile={archive_name}",
+            "repository=Nexus",
+            "comments=",
+            "notes=",
+            "nexusDescription=",
+            "url=",
+            "hasCustomURL=false",
+            f"lastNexusQuery={timestamp}",
+            f"lastNexusUpdate={timestamp}",
+            f"nexusLastModified={timestamp}",
+            f"nexusCategory={nexus_category_value}",
+            "converted=false",
+            "validated=false",
+            r"color=@Variant(\0\0\0\x43\0\xff\xff\0\0\0\0\0\0\0\0)",
+            "tracked=0",
+            "",
+            "[installedFiles]",
+            "size=1",
+            f"1\\modid={int(mod_id)}",
+            f"1\\fileid={int(file_id)}",
+            "",
+            "[NXMCollectionDL]",
+            "installedBy=headless-archive",
+            f"modName={mod_name}",
+            f"fileName={file_name}",
+            "",
+        ]
+    )
+
+
+def collectionEntryMetadataFields(mod_info):
+    """Return deterministic MO2 ``meta.ini`` fields available from a manifest entry."""
+    file_data = (mod_info or {}).get("file") or {}
+    nexus_mod = file_data.get("mod") or {}
+    fields = {}
+
+    file_version = str(file_data.get("version") or "")
+    mod_version = str(nexus_mod.get("version") or "")
+    if file_version:
+        fields["version"] = file_version
+    if mod_version:
+        fields["newestVersion"] = mod_version
+    elif file_version:
+        fields["newestVersion"] = file_version
+
+    try:
+        fields["nexusCategory"] = str(int(nexus_mod.get("category") or 0))
+    except (TypeError, ValueError):
+        pass
+    return fields
+
+
+def updateMetaIniGeneralFields(metadata_file, fields):
+    """Update selected ``[General]`` keys in-place without reserializing meta.ini."""
+    fields = {str(k): str(v) for k, v in (fields or {}).items() if v is not None}
+    if not fields:
+        return False
+
+    metadata_file = Path(metadata_file)
+    try:
+        lines = metadata_file.read_text(encoding="utf-8", errors="replace").splitlines(
+            keepends=True
+        )
+    except OSError:
+        return False
+
+    changed = False
+    in_general = False
+    seen = set()
+    output = []
+    insert_at = None
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_general and insert_at is None:
+                insert_at = len(output)
+            in_general = stripped.casefold() == "[general]"
+        if in_general and "=" in line and not stripped.startswith(("#", ";")):
+            key, _value = line.split("=", 1)
+            key = key.strip()
+            if key in fields:
+                replacement = f"{key}={fields[key]}\n"
+                if line != replacement:
+                    line = replacement
+                    changed = True
+                seen.add(key)
+        output.append(line)
+
+    if in_general and insert_at is None:
+        insert_at = len(output)
+    if insert_at is not None:
+        missing = [key for key in fields if key not in seen]
+        if missing:
+            output[insert_at:insert_at] = [f"{key}={fields[key]}\n" for key in missing]
+            changed = True
+
+    if changed:
+        try:
+            metadata_file.write_text("".join(output), encoding="utf-8")
+        except OSError:
+            return False
+    return changed
+
+
+def repairInstalledCollectionModMetadata(mods_dir, installed_records, mods_by_key):
+    """Repair deterministic Nexus metadata fields for installed collection mods."""
+    result = {"checked": 0, "repaired": 0, "failed": 0}
+    mods_dir = Path(mods_dir)
+    for nexus_key, mod_names in (installed_records or {}).items():
+        fields = collectionEntryMetadataFields((mods_by_key or {}).get(nexus_key))
+        if not fields:
+            continue
+        for mod_name in mod_names:
+            metadata_file = mods_dir / mod_name / "meta.ini"
+            if not metadata_file.exists():
+                result["failed"] += 1
+                continue
+            result["checked"] += 1
+            repaired = updateMetaIniGeneralFields(metadata_file, fields)
+            if repaired:
+                result["repaired"] += 1
+    return result
+
+
+def _hasDirectInstallMarkers(paths):
+    for path in paths:
+        parts = path.split("/")
+        if not parts:
+            continue
+        first = parts[0].casefold()
+        suffix = Path(parts[-1]).suffix.casefold()
+        if first in DIRECT_INSTALL_MARKER_DIRS:
+            return True
+        if first in DIRECT_INSTALL_MARKER_FILES:
+            return True
+        if suffix in DIRECT_INSTALL_PLUGIN_EXTENSIONS:
+            return True
+    return False
+
+
+def headlessArchiveInstallLayout(member_names):
+    """Return a conservative root-stripping plan for direct archive extraction."""
+    payload_paths = []
+    for name in member_names:
+        normalized = normalizedArchiveMemberPath(name)
+        if not normalized or str(name).replace("\\", "/").endswith("/"):
+            continue
+        payload_paths.append(normalized)
+
+    if not payload_paths:
+        return {"installable": False, "reason": "empty archive", "strip_prefix": ""}
+
+    if any(
+        path.casefold().endswith("fomod/moduleconfig.xml") for path in payload_paths
+    ):
+        return {
+            "installable": False,
+            "reason": "FOMOD installer present",
+            "strip_prefix": "",
+        }
+
+    data_prefix = None
+    data_rooted = []
+    for path in payload_paths:
+        if not path.casefold().startswith("data/"):
+            continue
+        prefix = path[: len("Data/")]
+        if data_prefix is None:
+            data_prefix = prefix
+        data_rooted.append(path[len(prefix) :])
+    if len(data_rooted) == len(payload_paths) and _hasDirectInstallMarkers(data_rooted):
+        return {
+            "installable": True,
+            "reason": "data root layout",
+            "strip_prefix": data_prefix or "Data/",
+        }
+
+    if _hasDirectInstallMarkers(payload_paths):
+        return {
+            "installable": True,
+            "reason": "mod root layout",
+            "strip_prefix": "",
+        }
+
+    roots = {path.split("/", 1)[0] for path in payload_paths}
+    if len(roots) == 1:
+        root = next(iter(roots))
+        rooted = [path.split("/", 1)[1] for path in payload_paths if "/" in path]
+        if rooted and _hasDirectInstallMarkers(rooted):
+            return {
+                "installable": True,
+                "reason": "single wrapper folder",
+                "strip_prefix": root + "/",
+            }
+        data_prefix = root + "/Data/"
+        data_rooted = [
+            path[len(data_prefix) :]
+            for path in payload_paths
+            if path.startswith(data_prefix)
+        ]
+        if len(data_rooted) == len(payload_paths) and _hasDirectInstallMarkers(
+            data_rooted
+        ):
+            return {
+                "installable": True,
+                "reason": "single wrapper Data folder",
+                "strip_prefix": data_prefix,
+            }
+
+    return {
+        "installable": False,
+        "reason": "ambiguous archive layout",
+        "strip_prefix": "",
+    }
+
+
+def headlessZipInstallLayout(member_names):
+    """Backward-compatible alias for older ZIP-only callers."""
+    return headlessArchiveInstallLayout(member_names)
+
+
+def collectionInstallRoute(
+    archive_path,
+    fomod_state,
+    separate_file_installs=True,
+    manual_install_pass=False,
+    normal_dialog_retry_pass=False,
+    headless_archive_installs=True,
+    headless_zip_installs=None,
+):
+    """Return the preferred installer route before the batch opens dialogs."""
+    if headless_zip_installs is not None:
+        headless_archive_installs = headless_zip_installs
+    if not headless_archive_installs:
+        return "mo2"
+    if not separate_file_installs or manual_install_pass or normal_dialog_retry_pass:
+        return "mo2"
+    if fomod_state is True:
+        return "mo2"
+    if Path(str(archive_path)).suffix.casefold() not in HEADLESS_ARCHIVE_EXTENSIONS:
+        return "mo2"
+    return "headless-archive"
+
+
+def headlessArchivePreflightFallback(layout_plan):
+    """Return the next route when a candidate archive is not headless-safe."""
+    reason = str((layout_plan or {}).get("reason") or "").casefold()
+    if "fomod installer present" in reason:
+        return "mo2"
+    # Unknown, ambiguous, or adapter-failed archives should be reported for
+    # manual review instead of falling back into focus-stealing Quick Install UI.
+    return "manual"
+
+
+def nativePathForArchiveInspection(path_text, wineprefix=None):
+    """Convert Wine drive paths to native host paths for external 7z/7zz."""
+    text = str(path_text)
+    if len(text) < 3 or text[1] != ":" or text[2] not in ("\\", "/"):
+        return text.replace("\\", "/") if text.startswith("\\") else text
+
+    drive = text[0].lower()
+    tail = text[3:].replace("\\", "/")
+    if drive == "z":
+        return "/" + tail.lstrip("/")
+
+    prefix = wineprefix or os.environ.get("WINEPREFIX")
+    if not prefix and os.environ.get("STEAM_COMPAT_DATA_PATH"):
+        prefix = str(Path(os.environ["STEAM_COMPAT_DATA_PATH"]) / "pfx")
+    if drive == "c" and prefix:
+        native_prefix = nativePathForArchiveInspection(prefix, wineprefix="")
+        return native_prefix.rstrip("/\\").replace("\\", "/") + "/drive_c/" + tail
+
+    return text
+
+
+def preferredCanonicalDownloadArchive(download_path):
+    """Prefer MO2's original archive over numbered duplicate downloads."""
+    path = Path(download_path)
+    canonical_name = re.sub(r"^\d+_", "", path.name)
+    if canonical_name == path.name:
+        return path
+
+    canonical_path = path.with_name(canonical_name)
+    try:
+        if (
+            canonical_path.exists()
+            and canonical_path.is_file()
+            and canonical_path.stat().st_size == path.stat().st_size
+        ):
+            return canonical_path
+    except OSError:
+        return path
+
+    return path
+
+
+def isQuotaLimitText(text):
+    """Return True when text looks like a Nexus quota/rate-limit stop."""
+    normalized = " ".join(str(text or "").casefold().split())
+    if not normalized:
+        return False
+
+    if re.search(r"\b(?:http|status|code|response)\s*[:=]?\s*429\b", normalized):
+        return True
+
+    quota_patterns = (
+        "too many requests",
+        "rate limit",
+        "rate-limit",
+        "rate limited",
+        "ratelimit",
+        "quota exhausted",
+        "quota exceeded",
+        "quota limit",
+        "daily limit reached",
+        "daily api limit reached",
+        "hourly limit reached",
+        "hourly api limit reached",
+        "download limit reached",
+        "request limit reached",
+        "api usage limit",
+    )
+    return any(pattern in normalized for pattern in quota_patterns)
+
+
+def nexusQuotaRemainingFromText(text):
+    """Parse MO2's visible Nexus quota status text when available."""
+    normalized = str(text or "")
+    match = re.search(
+        r"\bDaily:\s*([0-9]+)\s*\|\s*Hourly:\s*([0-9]+)\b",
+        normalized,
+        re.IGNORECASE,
+    )
+    if not match:
+        return {}
+    return {"hourly": int(match.group(2)), "daily": int(match.group(1))}
+
+
+def retryAfterSeconds(value, now=None):
+    """Parse an HTTP Retry-After value into seconds."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return max(0, int(float(text)))
+    except ValueError:
+        pass
+
+    try:
+        retry_at = parsedate_to_datetime(text)
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if retry_at is None:
+        return None
+
+    try:
+        import datetime as _datetime
+
+        now_dt = now or _datetime.datetime.now(retry_at.tzinfo)
+        return max(0, int((retry_at - now_dt).total_seconds()))
+    except Exception:
+        return None
+
+
+def _intHeaderValue(headers, *names):
+    for name in names:
+        value = headers.get(name)
+        if value is None:
+            continue
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def nexusQuotaStateFromHeaders(headers, status=None, now=None):
+    """Return normalized Nexus quota state from response headers, if present."""
+    import time as _time
+
+    try:
+        header_items = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
+    except AttributeError:
+        return None
+
+    interesting_names = {
+        "x-ratelimit-hourly-remaining",
+        "x-ratelimit-daily-remaining",
+        "x-ratelimit-remaining",
+        "x-ratelimit-reset",
+        "x-rate-limit-reset",
+        "retry-after",
+    }
+    interesting_headers = {
+        key: value for key, value in header_items.items() if key in interesting_names
+    }
+    if not interesting_headers:
+        return None
+
+    remaining = {}
+    hourly = _intHeaderValue(header_items, "x-ratelimit-hourly-remaining")
+    daily = _intHeaderValue(header_items, "x-ratelimit-daily-remaining")
+    generic = _intHeaderValue(header_items, "x-ratelimit-remaining")
+    if hourly is not None:
+        remaining["hourly"] = hourly
+    if daily is not None:
+        remaining["daily"] = daily
+    if generic is not None and not remaining:
+        remaining["generic"] = generic
+
+    reset_epoch = _intHeaderValue(
+        header_items, "x-ratelimit-reset", "x-rate-limit-reset"
+    )
+    retry_after = retryAfterSeconds(header_items.get("retry-after"), now=None)
+    if retry_after is None and reset_epoch is not None:
+        retry_after = max(
+            0, reset_epoch - int(now if now is not None else _time.time())
+        )
+
+    return {
+        "observed_at": int(now if now is not None else _time.time()),
+        "status": status,
+        "remaining": remaining,
+        "retry_after_seconds": retry_after,
+        "reset_epoch": reset_epoch,
+        "headers": interesting_headers,
+    }
+
+
+def quotaLimitMessage(status=None, headers=None, body=""):
+    """Return a user-facing quota message when HTTP/details indicate a limit."""
+    header_items = {}
+    if headers:
+        try:
+            header_items = {str(k).lower(): str(v) for k, v in headers.items()}
+        except AttributeError:
+            header_items = {}
+
+    retry_after = retryAfterSeconds(header_items.get("retry-after"))
+    reset_value = header_items.get("x-ratelimit-reset") or header_items.get(
+        "x-rate-limit-reset"
+    )
+    if retry_after is None and reset_value:
+        try:
+            import time as _time
+
+            retry_after = max(0, int(float(reset_value) - _time.time()))
+        except ValueError:
+            retry_after = None
+
+    limited = status == 429 or isQuotaLimitText(body)
+    if not limited:
+        limited = any(isQuotaLimitText(f"{k}: {v}") for k, v in header_items.items())
+    if not limited:
+        return None
+
+    if retry_after is not None:
+        return (
+            f"Nexus quota/rate limit reached; retry after about {retry_after} seconds."
+        )
+    return "Nexus quota/rate limit reached; pause downloads and retry later."
+
+
+def quotaResumeDelaySeconds(message, default_seconds=3600, attempt=0, max_seconds=7200):
+    """Return bounded automatic retry delay for a quota stop message."""
+    retry_match = re.search(r"retry after about\s+([0-9]+)\s+seconds", str(message))
+    if retry_match:
+        delay = int(retry_match.group(1))
+    else:
+        delay = int(default_seconds) * (2 ** max(0, int(attempt)))
+    return max(0, min(int(max_seconds), delay))
+
+
+def proactiveQuotaStopMessage(remaining, hourly_floor=50, daily_floor=50):
+    """Return a proactive pause message when remaining quota is near a floor."""
+    remaining = remaining or {}
+    hourly = remaining.get("hourly")
+    daily = remaining.get("daily")
+    if hourly is not None and int(hourly) <= int(hourly_floor):
+        return (
+            "Nexus hourly API quota is near the safety floor "
+            f"({int(hourly)} remaining); downloads will resume automatically after reset."
+        )
+    if daily is not None and int(daily) <= int(daily_floor):
+        return (
+            "Nexus daily API quota is near the safety floor "
+            f"({int(daily)} remaining); downloads will resume automatically after reset."
+        )
+    return None
 
 
 def normalizedButtonLabel(label):
@@ -200,9 +897,7 @@ def fomodManualChoiceGuide(module_config_xml):
             if selected:
                 continue
 
-            option_names = [
-                plugin.attrib.get("name", "").strip() for plugin in plugins
-            ]
+            option_names = [plugin.attrib.get("name", "").strip() for plugin in plugins]
             group_name = group.attrib.get("name", "")
             prompt = {
                 "step": step_name,
@@ -268,11 +963,26 @@ def shouldUseArchiveDefaultForFomodCompatibility(
     manual_install_pass,
     fomod_state,
 ):
-    """Return True only for confirmed FOMODs that need MO2's default naming."""
+    """Return True when MO2's native installer path is safer than forced naming."""
     return (
         bool(separate_file_installs)
         and not bool(manual_install_pass)
         and fomod_state is True
+    )
+
+
+def shouldPassTargetNameToInstallMod(
+    separate_file_installs,
+    manual_install_pass,
+    normal_dialog_retry_pass,
+    use_archive_default_for_fomod,
+):
+    """Return True when bulk install should use MO2's target-name overload."""
+    return (
+        bool(separate_file_installs)
+        and not bool(manual_install_pass)
+        and not bool(normal_dialog_retry_pass)
+        and not bool(use_archive_default_for_fomod)
     )
 
 
@@ -302,12 +1012,15 @@ def contentTreeWarningDialogAction(window_title, labels, buttons):
     if window_title != "Continue?":
         return None
 
-    text = "\n".join(str(label).lower() for label in labels)
-    if (
-        "probably not set up correctly" not in text
-        or "directory layout" not in text
-        or "content-tree" not in text
-    ):
+    text = " ".join(str(label) for label in labels).casefold()
+    warning_markers = (
+        "content-tree",
+        "probably not set up correctly",
+        "missing requirement",
+        "should be active, but was missing",
+        "plugin not found",
+    )
+    if not any(marker in text for marker in warning_markers):
         return None
 
     enabled_by_label = {
@@ -329,7 +1042,9 @@ def installNoResultReason(invalid_content_cancelled, warning_messages):
             "installed mod"
         )
 
-    if any("[fomodinstallerdialog.cpp:" in str(message) for message in warning_messages):
+    if any(
+        "[fomodinstallerdialog.cpp:" in str(message) for message in warning_messages
+    ):
         return (
             "MO2 FOMOD installer returned no installed mod; likely needs "
             "manual choices or unsupported default automation"
@@ -349,9 +1064,10 @@ def duplicateDownloadPromptActionLabel(window_title, buttons):
     the least surprising non-interactive choice: keep the existing archive and
     let the collection tracker reconcile the item from disk.
 
-    MO2 can also show ``Already Started`` when its download manager already has
-    an entry for the Nexus file. That dialog has no useful choice for the batch
-    flow, so acknowledging it lets the tracker wait for MO2's existing entry.
+    MO2 can also show ``Already Started`` or ``Already Queued`` when its
+    download manager already has an entry for the Nexus file. Those dialogs
+    have no useful choice for the batch flow, so acknowledging them lets the
+    tracker wait for MO2's existing entry.
     """
     labels = {
         normalizedButtonLabel(label): bool(enabled)
@@ -365,7 +1081,7 @@ def duplicateDownloadPromptActionLabel(window_title, buttons):
         if labels.get("no"):
             return "no"
 
-    if window_title == "Already Started" and labels.get("ok"):
+    if window_title in {"Already Started", "Already Queued"} and labels.get("ok"):
         return "ok"
 
     return None
@@ -385,6 +1101,61 @@ def downloadPromptKeyFromLabels(labels, valid_keys=None):
     return key
 
 
+def downloadPromptKeyFromArchiveLabels(labels, downloads_dir, valid_keys=None):
+    """Extract a Nexus key from MO2 duplicate prompts that only name an archive."""
+    valid_keys = set(valid_keys or [])
+    if not downloads_dir:
+        return None
+
+    downloads_dir = Path(downloads_dir)
+    text = "\n".join(str(label) for label in labels)
+    archive_names = re.findall(r'"([^"]+\.(?:7z|zip|rar))"', text, re.I)
+    for archive_name in archive_names:
+        metadata_file = downloads_dir / f"{archive_name}.meta"
+        key = readDownloadMetaKey(metadata_file)
+        if key is None:
+            continue
+        if valid_keys and key not in valid_keys:
+            continue
+        return key
+
+    return None
+
+
+def duplicateDownloadPromptArchiveAction(labels, downloads_dir):
+    """Return yes/no for archive-only duplicate prompts from the downloads dir."""
+    if not downloads_dir:
+        return None
+
+    downloads_dir = Path(downloads_dir)
+    text = "\n".join(str(label) for label in labels)
+    archive_names = re.findall(r'"([^"]+\.(?:7z|zip|rar))"', text, re.I)
+    for archive_name in archive_names:
+        candidates = [archive_name]
+        unprefixed = re.sub(r"^\d+_", "", archive_name)
+        if unprefixed != archive_name:
+            candidates.append(unprefixed)
+
+        for candidate in candidates:
+            archive_file = downloads_dir / candidate
+            unfinished_archive = Path(str(archive_file) + ".unfinished")
+            unfinished_metadata = Path(str(archive_file) + ".unfinished.meta")
+            try:
+                if (
+                    archive_file.exists()
+                    and archive_file.stat().st_size > 0
+                    and not unfinished_archive.exists()
+                    and not unfinished_metadata.exists()
+                ):
+                    return "no"
+            except OSError:
+                continue
+
+    if archive_names:
+        return "yes"
+    return None
+
+
 def downloadCompletionPlan(failed_count, has_on_complete, close_on_success, delay_ms):
     """Return terminal actions for a successful download progress dialog."""
     if failed_count:
@@ -402,18 +1173,56 @@ def downloadCompletionPlan(failed_count, has_on_complete, close_on_success, dela
     }
 
 
-def downloadCompletionChoices(state, has_on_complete):
+def shouldAutoCloseInstallSummary(auto_close_on_success, cancelled, failed_count):
+    """Return True when a successful automatic install summary can close itself."""
+    return bool(auto_close_on_success) and not cancelled and int(failed_count or 0) == 0
+
+
+def installPlanExecutionAction(fast_finish):
+    """Return the next execution step for a prepared collection install plan."""
+    return "fast-finish" if fast_finish else "install-next"
+
+
+def fastFinishMetadataRepairKeys(plan_entries):
+    """Return Nexus keys that need metadata repair during a no-op replay.
+
+    Installed mod entries are repaired by the normal postcondition sweep in one
+    batch. Root/game-directory entries have no MO2 mod container, so they need
+    their download metadata marked explicitly here.
+    """
+    keys = set()
+    for entry in plan_entries or []:
+        if entry.get("status") != "root":
+            continue
+        key = entry.get("install_key")
+        if isinstance(key, tuple) and len(key) == 2:
+            try:
+                keys.add((int(key[0]), int(key[1])))
+            except (TypeError, ValueError):
+                continue
+    return keys
+
+
+def downloadCompletionChoices(
+    state,
+    has_on_complete,
+    restart_required=False,
+    quota_limited=False,
+):
     """Return the visible terminal choices for a completed download pass."""
     successful = int(state.get("successful") or 0)
     failed = int(state.get("failed") or 0)
     has_failures = bool(state.get("has_failures"))
-    install_visible = bool(has_on_complete) and successful > 0
+    blocked_until_resume = bool(restart_required) or bool(quota_limited)
+    install_visible = (
+        bool(has_on_complete) and successful > 0 and not blocked_until_resume
+    )
 
     return {
-        "retry_visible": failed > 0,
+        "retry_visible": failed > 0 and not blocked_until_resume,
         "install_visible": install_visible,
         "install_label": "Install Available" if has_failures else "Install Collection",
-        "fomod_defaults_visible": bool(has_on_complete),
+        "fomod_defaults_visible": bool(has_on_complete) and not blocked_until_resume,
     }
 
 
@@ -425,7 +1234,7 @@ def collectionLinkCompletionPolicy():
     """
     return {
         "attach_install_callback": True,
-        "prompt_after_download": True,
+        "prompt_after_download": False,
         "close_on_success": True,
         "auto_install_after_download_default": True,
     }
@@ -480,6 +1289,7 @@ def activeDownloadPromptKey(active_key, context_key, context_expires_at, now):
 def sanitizeModName(mod_name):
     clean_name = str(mod_name).replace("/", "-").replace("\\", "-")
     clean_name = " ".join(clean_name.split())
+    clean_name = clean_name.rstrip(" .")
     return clean_name or "Collection Mod"
 
 
@@ -545,6 +1355,15 @@ def allocateUniqueModName(mod_name, used_mod_names, mod_name_counts):
         next_index += 1
 
 
+def detachedInstallCacheKeyFromPath(path):
+    """Recover a Nexus identity from detached install cache archive names."""
+    filename = Path(str(path).replace("\\", "/")).name
+    match = re.match(r"^([0-9]+)-([0-9]+)-.+$", filename)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
 def parseCollectionAddress(address):
     """Parse supported Nexus collection web and nxm:// addresses."""
     normalized = address.strip()
@@ -596,17 +1415,195 @@ def collectionDownloadExpectedSizes(mods_to_download):
     """Return expected archive sizes keyed by Nexus (mod_id, file_id)."""
     sizes = {}
     for mod in mods_to_download or []:
+        nexus_key = collectionEntryNexusKey(mod)
+        if nexus_key is None:
+            continue
+        try:
+            expected_size = int(mod["file"]["sizeInBytes"])
+        except (TypeError, KeyError, ValueError):
+            continue
+
+        if expected_size > 0:
+            sizes[nexus_key] = expected_size
+
+    return sizes
+
+
+def collectionEntryNexusKey(mod):
+    """Return the Nexus (mod_id, file_id) identity for one collection entry."""
+    try:
+        return (int(mod["file"]["mod"]["modId"]), int(mod["file"]["fileId"]))
+    except (TypeError, KeyError, ValueError):
+        return None
+
+
+def collectionExpectedNexusKeys(mods_to_download):
+    """Return all valid Nexus file identities from a collection manifest."""
+    keys = set()
+    for mod in mods_to_download or []:
+        nexus_key = collectionEntryNexusKey(mod)
+        if nexus_key is not None:
+            keys.add(nexus_key)
+    return keys
+
+
+def collectionExpectedFileNames(mods_to_download):
+    """Return collection file display names keyed by Nexus file identity."""
+    names = {}
+    for mod in mods_to_download or []:
+        nexus_key = collectionEntryNexusKey(mod)
+        if nexus_key is None:
+            continue
+        try:
+            file_name = mod["file"]["name"]
+        except (TypeError, KeyError):
+            continue
+        if file_name:
+            names[nexus_key] = str(file_name)
+
+    return names
+
+
+def collectionEntriesFromMetadata(metadata):
+    """Return installable collection entries from saved collection metadata."""
+    if not isinstance(metadata, dict):
+        return []
+    entries = []
+    for key in ("essentialMods", "chosenOptional"):
+        value = metadata.get(key)
+        if isinstance(value, list):
+            entries.extend(value)
+    return entries
+
+
+def collectionMetadataFromFile(collection_file):
+    """Load one saved collection metadata file."""
+    try:
+        return json.loads(Path(collection_file).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def collectionMetadataFiles(base_path, game="skyrimspecialedition"):
+    """Return saved collection metadata files from an MO2 instance."""
+    collection_dir = Path(base_path) / "collections" / str(game)
+    if not collection_dir.exists():
+        return []
+    return sorted(collection_dir.glob("*.json"))
+
+
+def collectionExpectedStateFromMetadataFiles(collection_files):
+    """Return expected Nexus keys and file names from saved collection metadata."""
+    expected_keys = set()
+    expected_file_names = {}
+    loaded_collections = []
+    for collection_file in collection_files or []:
+        metadata = collectionMetadataFromFile(collection_file)
+        if not metadata:
+            continue
+        entries = collectionEntriesFromMetadata(metadata)
+        expected_keys.update(collectionExpectedNexusKeys(entries))
+        expected_file_names.update(collectionExpectedFileNames(entries))
+        loaded_collections.append(
+            {
+                "path": str(collection_file),
+                "name": metadata.get("name") or Path(collection_file).stem,
+                "entries": len(entries),
+            }
+        )
+    return {
+        "collections": loaded_collections,
+        "expected_keys": expected_keys,
+        "expected_file_names": expected_file_names,
+    }
+
+
+def collectionRecoveryTargets(installed_records, expected_keys=None):
+    """Return local recovery targets for already-installed collection files.
+
+    ``installed_records`` maps Nexus ``(mod_id, file_id)`` identities to MO2
+    mod container names. Recovery is intentionally conservative: it only returns
+    downloads and mod containers for exact expected Nexus files that are already
+    installed locally.
+    """
+    installed_records = installed_records or {}
+    installed_keys = set(installed_records)
+    expected_keys = set(expected_keys or installed_keys)
+    recoverable_keys = expected_keys & installed_keys
+    mod_names = []
+    seen_names = set()
+    for nexus_key in sorted(recoverable_keys):
+        for mod_name in installed_records.get(nexus_key, []):
+            if mod_name in seen_names:
+                continue
+            mod_names.append(mod_name)
+            seen_names.add(mod_name)
+    return {
+        "installed_keys": recoverable_keys,
+        "missing_keys": expected_keys - installed_keys,
+        "mod_names": mod_names,
+    }
+
+
+def downloadedArchiveNameKeys(downloads_dir, mods_to_download):
+    """Return completed archive keys inferred from names and manifest sizes.
+
+    This covers MO2 download archives whose `.meta` sidecar was lost or stale.
+    The match is intentionally conservative: the archive filename must contain
+    the Nexus mod id, its byte size must match the collection manifest, and the
+    `(mod_id, size)` pair must identify exactly one collection file.
+    """
+    keys = set()
+    if not downloads_dir or not downloads_dir.exists():
+        return keys
+
+    candidates_by_mod_size = {}
+    manifest_mod_ids = set()
+    for mod in mods_to_download or []:
         try:
             mod_id = int(mod["file"]["mod"]["modId"])
             file_id = int(mod["file"]["fileId"])
             expected_size = int(mod["file"]["sizeInBytes"])
         except (TypeError, KeyError, ValueError):
             continue
-
+        manifest_mod_ids.add(mod_id)
         if expected_size > 0:
-            sizes[(mod_id, file_id)] = expected_size
+            candidates_by_mod_size.setdefault((mod_id, expected_size), set()).add(
+                (mod_id, file_id)
+            )
 
-    return sizes
+    for archive_file in downloads_dir.iterdir():
+        if not archive_file.is_file():
+            continue
+        name = archive_file.name
+        lower_name = name.casefold()
+        if lower_name.endswith(".meta") or ".unfinished" in lower_name:
+            continue
+        if not lower_name.endswith((".7z", ".zip", ".rar")):
+            continue
+
+        unprefixed_name = re.sub(r"^\d+_", "", name)
+        matched_mod_ids = {
+            int(match.group(1))
+            for match in re.finditer(r"-(\d+)(?=[-.])", unprefixed_name)
+            if int(match.group(1)) in manifest_mod_ids
+        }
+        if len(matched_mod_ids) != 1:
+            continue
+        mod_id = next(iter(matched_mod_ids))
+
+        try:
+            archive_size = archive_file.stat().st_size
+        except OSError:
+            continue
+        if archive_size <= 0:
+            continue
+
+        matches = candidates_by_mod_size.get((mod_id, archive_size), set())
+        if len(matches) == 1:
+            keys.update(matches)
+
+    return keys
 
 
 def downloadedFileKeys(downloads_dir, expected_sizes=None):
@@ -661,6 +1658,411 @@ def readDownloadMetaKey(metadata_file):
         return (int(general["modID"]), int(general["fileID"]))
     except (OSError, KeyError, ValueError):
         return None
+
+
+def downloadMetaInstalledValue(metadata_file):
+    """Return the installed= value from an MO2 download metadata file."""
+    try:
+        for line in metadata_file.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines():
+            if line.strip().lower().startswith("installed="):
+                return line.split("=", 1)[1].strip().lower()
+    except OSError:
+        return None
+    return None
+
+
+def setDownloadMetaInstalledFlag(metadata_file, installed):
+    """Set installed=true/false in an MO2 download metadata file without reserializing it."""
+    desired = "true" if installed else "false"
+    try:
+        lines = metadata_file.read_text(encoding="utf-8", errors="replace").splitlines(
+            keepends=True
+        )
+    except OSError:
+        return False
+
+    installed_index = None
+    for index, line in enumerate(lines):
+        if line.strip().lower().startswith("installed="):
+            installed_index = index
+            break
+
+    if installed_index is None:
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            lines[-1] = lines[-1] + "\n"
+        lines.append(f"installed={desired}\n")
+    else:
+        old_line = lines[installed_index]
+        newline = ""
+        if old_line.endswith("\r\n"):
+            newline = "\r\n"
+        elif old_line.endswith("\n"):
+            newline = "\n"
+        lines[installed_index] = f"installed={desired}{newline}"
+
+    try:
+        metadata_file.write_text("".join(lines), encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def repairDownloadMetadataInstalledFlags(
+    downloads_dir,
+    installed_keys,
+    desired_installed=True,
+    backup_dir=None,
+):
+    """Repair MO2 download metadata install flags for exact Nexus keys.
+
+    Only completed downloads with an existing archive are touched. The caller
+    supplies the authoritative installed Nexus key set.
+    """
+    result = {
+        "checked": 0,
+        "repaired": 0,
+        "failed": 0,
+        "skipped": 0,
+        "metadata": [],
+    }
+    downloads_dir = Path(downloads_dir)
+    installed_keys = set(installed_keys or set())
+    if not downloads_dir.exists():
+        return result
+
+    desired_value = "true" if desired_installed else "false"
+    for metadata_file in sorted(downloads_dir.glob("*.meta")):
+        if metadata_file.name.endswith(".unfinished.meta"):
+            result["skipped"] += 1
+            continue
+
+        key = readDownloadMetaKey(metadata_file)
+        if key not in installed_keys:
+            result["skipped"] += 1
+            continue
+
+        archive_file = metadata_file.with_suffix("")
+        if not archive_file.exists() or archive_file.is_dir():
+            result["skipped"] += 1
+            continue
+
+        result["checked"] += 1
+        if downloadMetaInstalledValue(metadata_file) == desired_value:
+            continue
+
+        if backup_dir is not None:
+            try:
+                backup_dir = Path(backup_dir)
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                backup_file = backup_dir / metadata_file.name
+                backup_file.write_bytes(metadata_file.read_bytes())
+            except OSError:
+                result["failed"] += 1
+                continue
+
+        if setDownloadMetaInstalledFlag(metadata_file, desired_installed):
+            result["repaired"] += 1
+            result["metadata"].append(str(metadata_file))
+        else:
+            result["failed"] += 1
+
+    return result
+
+
+def _normalizeArchiveIdentityText(value):
+    text = Path(str(value or "").replace("\\", "/")).name.casefold()
+    text = re.sub(r"\.(7z|zip|rar)(\.meta)?$", "", text)
+    text = re.sub(r"^\d+[-_]\d+[-_]", "", text)
+    return re.sub(r"[^a-z0-9]+", " ", text).strip()
+
+
+def installedModRecordsFromDirectory(
+    mods_dir, downloads_dir=None, expected_file_names=None
+):
+    """Return installed Nexus file records from MO2 mod container metadata.
+
+    The result maps ``(mod_id, file_id)`` to the MO2 internal mod names that
+    record that Nexus file in ``meta.ini``. This is the authoritative filesystem
+    evidence that an archive was installed into a mod container.
+    """
+    records = {}
+    download_key_by_archive = {}
+    if downloads_dir is not None:
+        downloads_dir = Path(downloads_dir)
+        if downloads_dir.exists():
+            for download_metadata in downloads_dir.glob("*.meta"):
+                key = readDownloadMetaKey(download_metadata)
+                if key is not None:
+                    archive_name = download_metadata.name[: -len(".meta")]
+                    download_key_by_archive[archive_name] = key
+
+    expected_file_names = expected_file_names or {}
+    expected_by_mod_id = {}
+    for key, file_name in expected_file_names.items():
+        try:
+            mod_id, file_id = int(key[0]), int(key[1])
+        except (TypeError, ValueError):
+            continue
+        expected_by_mod_id.setdefault(mod_id, []).append(
+            ((mod_id, file_id), _normalizeArchiveIdentityText(file_name))
+        )
+
+    mods_dir = Path(mods_dir)
+    if not mods_dir.exists():
+        return records
+
+    for metadata_file in sorted(mods_dir.glob("*/meta.ini")):
+        parser = ConfigParser(strict=False)
+        parser.optionxform = str
+        try:
+            parser.read(metadata_file, encoding="utf-8")
+        except OSError:
+            continue
+
+        installation_file = None
+        if parser.has_section("General"):
+            installation_file = parser.get("General", "installationFile", fallback=None)
+
+        if parser.has_section("installedFiles"):
+            for key, value in parser.items("installedFiles"):
+                if not key.endswith("\\modid"):
+                    continue
+                index = key.split("\\", 1)[0]
+                file_id = parser.get(
+                    "installedFiles", f"{index}\\fileid", fallback=None
+                )
+                try:
+                    nexus_key = (int(value), int(file_id))
+                except (TypeError, ValueError):
+                    continue
+                if nexus_key != (0, 0):
+                    records.setdefault(nexus_key, []).append(metadata_file.parent.name)
+
+        archive_name = Path(str(installation_file or "").replace("\\", "/")).name
+        if archive_name in download_key_by_archive:
+            records.setdefault(download_key_by_archive[archive_name], []).append(
+                metadata_file.parent.name
+            )
+            continue
+
+        try:
+            general_mod_id = int(parser.get("General", "modid", fallback="0"))
+        except ValueError:
+            general_mod_id = 0
+        normalized_archive = _normalizeArchiveIdentityText(archive_name)
+        for expected_key, normalized_name in expected_by_mod_id.get(general_mod_id, []):
+            if normalized_name and normalized_archive.startswith(normalized_name):
+                records.setdefault(expected_key, []).append(metadata_file.parent.name)
+                break
+
+    return records
+
+
+def gameRootFileEvidenceForCollectionEntry(nexus_key, game_root):
+    """Return present game-root files proving a root-level collection install."""
+    try:
+        normalized_key = (int(nexus_key[0]), int(nexus_key[1]))
+    except (TypeError, ValueError, IndexError):
+        return []
+
+    expected_files = KNOWN_GAME_ROOT_FILE_EVIDENCE.get(normalized_key, ())
+    if not expected_files:
+        return []
+
+    game_root = Path(game_root)
+    present = []
+    for relative_file in expected_files:
+        candidate = game_root / relative_file
+        if candidate.is_file():
+            present.append(relative_file)
+    return present
+
+
+def nativeGameRootPathCandidate(path_value):
+    """Return a native host ``Path`` candidate for an MO2 game path value."""
+    if not path_value:
+        return None
+    text = str(path_value)
+
+    for method_name in ("absolutePath", "path", "toString"):
+        method = getattr(path_value, method_name, None)
+        if not method:
+            continue
+        try:
+            method_value = method()
+        except Exception:
+            continue
+        if method_value:
+            text = str(method_value)
+            break
+
+    native_text = nativePathForArchiveInspection(text)
+    if not native_text:
+        return None
+    return Path(native_text)
+
+
+def steamGameRootFromMo2BasePath(base_path, game_name="Skyrim Special Edition"):
+    """Infer a Steam game directory from an MO2 instance inside compatdata."""
+    native_base = nativeGameRootPathCandidate(base_path)
+    if native_base is None:
+        return None
+
+    parts = native_base.parts
+    try:
+        steamapps_index = parts.index("steamapps")
+    except ValueError:
+        return None
+
+    steamapps = Path(*parts[: steamapps_index + 1])
+    candidate = steamapps / "common" / game_name
+    if candidate.exists():
+        return candidate
+    return None
+
+
+def modlistEntryStates(modlist_text):
+    """Return MO2 profile modlist states by internal mod name.
+
+    Values are ``"+"`` for enabled, ``"-"`` for disabled, and ``""`` for bare
+    lines. Comments and blank lines are ignored.
+    """
+    states = {}
+    for raw_line in str(modlist_text or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line[0] in "+-":
+            states[line[1:]] = line[0]
+        else:
+            states[line] = ""
+    return states
+
+
+def collectionInstallPostconditionAudit(
+    downloads_dir,
+    mods_dir,
+    modlist_text,
+    expected_keys=None,
+    expected_file_names=None,
+):
+    """Audit collection install postconditions across MO2 filesystem state."""
+    installed_records = installedModRecordsFromDirectory(
+        mods_dir, downloads_dir, expected_file_names=expected_file_names
+    )
+    installed_keys = set(installed_records)
+    expected_keys = set(expected_keys or installed_keys)
+    expected_installed_keys = expected_keys & installed_keys
+    modlist_states = modlistEntryStates(modlist_text)
+
+    missing_installs = sorted(expected_keys - installed_keys)
+    disabled_mods = []
+    missing_modlist_entries = []
+    for key in sorted(expected_installed_keys):
+        for mod_name in installed_records.get(key, []):
+            state = modlist_states.get(mod_name)
+            if state == "-":
+                disabled_mods.append(mod_name)
+            elif state is None:
+                missing_modlist_entries.append(mod_name)
+
+    download_mismatches = []
+    download_checked = 0
+    downloads_dir = Path(downloads_dir)
+    if downloads_dir.exists():
+        for metadata_file in sorted(downloads_dir.glob("*.meta")):
+            key = readDownloadMetaKey(metadata_file)
+            if key not in expected_installed_keys:
+                continue
+            archive_file = metadata_file.with_suffix("")
+            if not archive_file.exists() or archive_file.is_dir():
+                continue
+            download_checked += 1
+            if downloadMetaInstalledValue(metadata_file) != "true":
+                download_mismatches.append(str(metadata_file))
+
+    return {
+        "ok": not missing_installs
+        and not disabled_mods
+        and not missing_modlist_entries
+        and not download_mismatches,
+        "expected_keys": len(expected_keys),
+        "installed_keys": len(installed_keys),
+        "expected_installed_keys": len(expected_installed_keys),
+        "missing_installs": missing_installs,
+        "disabled_mods": disabled_mods,
+        "missing_modlist_entries": missing_modlist_entries,
+        "download_metadata_checked": download_checked,
+        "download_metadata_mismatches": download_mismatches,
+    }
+
+
+def repairModlistEnabledStates(modlist_path, mod_names, backup_dir=None):
+    """Enable matching MO2 profile modlist entries while preserving order."""
+    result = {
+        "checked": 0,
+        "enabled": 0,
+        "already_enabled": 0,
+        "missing": [],
+        "failed": 0,
+    }
+    mod_names = set(mod_names or [])
+    if not mod_names:
+        return result
+
+    modlist_path = Path(modlist_path)
+    try:
+        lines = modlist_path.read_text(encoding="utf-8", errors="replace").splitlines(
+            keepends=True
+        )
+    except OSError:
+        result["failed"] += 1
+        result["missing"] = sorted(mod_names)
+        return result
+
+    seen = set()
+    changed = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped[0] in "+-":
+            mod_name = stripped[1:]
+            if mod_name not in mod_names:
+                continue
+            result["checked"] += 1
+            seen.add(mod_name)
+            if stripped[0] == "+":
+                result["already_enabled"] += 1
+                continue
+            newline = (
+                "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+            )
+            lines[index] = f"+{mod_name}{newline}"
+            result["enabled"] += 1
+            changed = True
+
+    result["missing"] = sorted(mod_names - seen)
+    if not changed:
+        return result
+
+    if backup_dir is not None:
+        try:
+            backup_dir = Path(backup_dir)
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / modlist_path.name).write_bytes(modlist_path.read_bytes())
+        except OSError:
+            result["failed"] += 1
+            return result
+
+    try:
+        modlist_path.write_text("".join(lines), encoding="utf-8")
+    except OSError:
+        result["failed"] += 1
+
+    return result
 
 
 def inferModIdFromDownloadName(name):
@@ -800,8 +2202,9 @@ def removeUnfinishedEntries(entries):
         for path_key in ("archive", "metadata"):
             path = entry[path_key]
             try:
-                path.unlink(missing_ok=True)
-                removed += 1
+                if path.exists():
+                    path.unlink()
+                    removed += 1
             except OSError:
                 continue
 
@@ -816,9 +2219,29 @@ def staleOrphanUnfinishedDownloadEntries(entries, now, stale_seconds):
     return [entry for entry in entries or [] if now - entry["mtime"] >= stale_seconds]
 
 
-def removeOrphanUnfinishedDownloadsForKeys(
-    downloads_dir, keys, include_nonzero=False
-):
+def removeOrphanUnfinishedEntries(entries):
+    """Remove exact orphan unfinished archive entries and return file count."""
+    removed = 0
+    seen = set()
+    for entry in entries or []:
+        archive = entry.get("archive") if isinstance(entry, dict) else None
+        if not archive:
+            continue
+        archive = Path(archive)
+        if archive in seen:
+            continue
+        seen.add(archive)
+        try:
+            if archive.exists():
+                archive.unlink()
+                removed += 1
+        except OSError:
+            continue
+
+    return removed
+
+
+def removeOrphanUnfinishedDownloadsForKeys(downloads_dir, keys, include_nonzero=False):
     """Remove zero-byte orphan unfinished archives inferred to belong to keys."""
     mod_ids = {int(key[0]) for key in keys}
     removed = 0
@@ -830,8 +2253,9 @@ def removeOrphanUnfinishedDownloadsForKeys(
             continue
 
         try:
-            entry["archive"].unlink(missing_ok=True)
-            removed += 1
+            if entry["archive"].exists():
+                entry["archive"].unlink()
+                removed += 1
         except OSError:
             continue
 
@@ -844,6 +2268,9 @@ def cleanupZeroByteUnfinishedDownloads(downloads_dir, pending_keys):
     MO2 prompts before queueing if a same-named ``.unfinished`` placeholder is
     still present. This preflight only removes entries whose matching archive is
     still zero bytes, preserving real partial downloads for normal MO2 resume.
+    MO2 can also leave zero-byte orphan placeholders before it writes a
+    ``.unfinished.meta`` sidecar; those carry no resumable data, so remove them
+    as well before a collection retry.
     """
     entries_by_key = unfinishedDownloadEntries(downloads_dir)
     cleaned_keys = set()
@@ -858,6 +2285,23 @@ def cleanupZeroByteUnfinishedDownloads(downloads_dir, pending_keys):
         if removed:
             cleaned_keys.add(key)
             removed_files += removed
+
+    orphan_entries = [
+        entry
+        for entry in orphanUnfinishedDownloadEntries(downloads_dir)
+        if entry.get("archive_size", 0) <= 0
+    ]
+    orphan_removed = removeOrphanUnfinishedEntries(orphan_entries)
+    if orphan_removed:
+        removed_files += orphan_removed
+        orphan_mod_ids = {
+            entry.get("mod_id")
+            for entry in orphan_entries
+            if entry.get("mod_id") is not None
+        }
+        cleaned_keys.update(
+            key for key in pending_keys if int(key[0]) in orphan_mod_ids
+        )
 
     return {
         "cleaned_keys": cleaned_keys,
@@ -906,6 +2350,27 @@ def staleUnfinishedEntries(entries, now, stale_seconds):
     return list(entries)
 
 
+def staleDownloadStartAction(attempts, max_retries):
+    """Return the next action for a download start that never produced bytes."""
+    try:
+        attempts = int(attempts or 0)
+    except (TypeError, ValueError):
+        attempts = 0
+    try:
+        max_retries = int(max_retries or 0)
+    except (TypeError, ValueError):
+        max_retries = 0
+
+    if attempts < max(0, max_retries):
+        return "retry"
+    return "restart_required"
+
+
+def staleAlreadyStartedAction(has_metadata_entry):
+    """Return the action for an expired MO2 Already Started prompt."""
+    return "wait" if has_metadata_entry else "restart_required"
+
+
 def coerceDownloadId(download_id):
     """Return a usable MO2 download id, or None for failed queue-start values."""
     try:
@@ -944,7 +2409,9 @@ def _steamVdfBlock(text, key, start=0):
         return None
 
     source = str(text)
-    key_match = re.search(r'"' + re.escape(str(key)) + r'"\s*\{', source[max(0, int(start or 0)) :])
+    key_match = re.search(
+        r'"' + re.escape(str(key)) + r'"\s*\{', source[max(0, int(start or 0)) :]
+    )
     if not key_match:
         return None
 
@@ -1031,8 +2498,12 @@ def steamShaderCacheDisabled(config_text):
 def steamAppShaderCacheSize(config_text, app_id="489830"):
     """Return the recorded shader cache size for an app, if present."""
     shader_block = _steamVdfBlock(config_text, "ShaderCacheManager")
-    app_block = _steamVdfBlock(shader_block, app_id) if shader_block is not None else None
-    value = steamVdfScalar(app_block, "ShaderCacheSize") if app_block is not None else None
+    app_block = (
+        _steamVdfBlock(shader_block, app_id) if shader_block is not None else None
+    )
+    value = (
+        steamVdfScalar(app_block, "ShaderCacheSize") if app_block is not None else None
+    )
     if value is None:
         pattern = re.compile(
             r'"'
@@ -1088,7 +2559,7 @@ def steamMo2GuardAudit(
 
     launch_options = steamLaunchOptions(localconfig_text, app_id)
     if launch_options != expected_launch_options:
-        if launch_options == "USER=tkb %command%":
+        if launch_options == "USER=steamuser %command%":
             problems.append(
                 "Steam launch option bypasses MO2 redirector; expected "
                 f"{expected_launch_options!r}, found {launch_options!r}."
@@ -1109,7 +2580,9 @@ def steamMo2GuardAudit(
     latest_launch_command = latestSteamLaunchCommand(gameprocess_log_text, app_id)
     if require_latest_launch:
         if not latest_launch_command:
-            problems.append(f"No Steam gameprocess launch command found for app {app_id}.")
+            problems.append(
+                f"No Steam gameprocess launch command found for app {app_id}."
+            )
         elif expected_launch_executable not in latest_launch_command:
             problems.append(
                 "Latest Steam launch command did not execute MO2 redirector; "
@@ -1156,7 +2629,9 @@ def steamMo2GuardAudit(
 
     if require_clean_mo2:
         if mods_count not in (None, 0):
-            problems.append(f"MO2 managed mods directory is not clean: {mods_count} entries.")
+            problems.append(
+                f"MO2 managed mods directory is not clean: {mods_count} entries."
+            )
         if downloads_count not in (None, 0):
             problems.append(
                 f"MO2 downloads directory is not clean: {downloads_count} entries."

@@ -1,9 +1,14 @@
 from pathlib import Path
+import json
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
+import zipfile
 
 from collection_helpers import (
+    AUTOMATED_INSTALL_CADENCE_DEFAULTS,
     INSTALLER_SETTING_DEFAULTS,
     activeDownloadPromptKey,
     allocateUniqueModName,
@@ -12,39 +17,84 @@ from collection_helpers import (
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
+    collectionEntryNexusKey,
+    collectionEntriesFromMetadata,
+    collectionExpectedFileNames,
+    collectionExpectedNexusKeys,
+    collectionExpectedStateFromMetadataFiles,
+    collectionInstallPostconditionAudit,
+    collectionInstallRoute,
     collectionLinkCompletionPolicy,
+    collectionMetadataFiles,
+    collectionMetadataFromFile,
+    collectionRecoveryTargets,
     contentTreeWarningDialogAction,
     collectionDownloadExpectedSizes,
+    detachedInstallCacheKeyFromPath,
+    downloadedArchiveNameKeys,
+    duplicateDownloadPromptArchiveAction,
     duplicateDownloadPromptActionLabel,
     downloadCompletionChoices,
     downloadCompletionPlan,
     downloadPromptKeyFromLabels,
+    downloadPromptKeyFromArchiveLabels,
     downloadProgressFormat,
     downloadProgressState,
     downloadedFileKeys,
+    extractHeadlessZipArchive,
+    fastFinishMetadataRepairKeys,
     fomodManualChoiceGuide,
+    gameRootFileEvidenceForCollectionEntry,
+    headlessArchivePreflightFallback,
     hasPartialUnfinishedEntries,
+    headlessInstallMetaIni,
+    headlessZipInstallLayout,
     inferModIdFromDownloadName,
+    installedModRecordsFromDirectory,
+    installPlanExecutionAction,
     invalidInstallContentDialogAction,
     installNoResultReason,
     installerDefaultActionLabel,
     isRequiredFomodGroupTitle,
+    isQuotaLimitText,
     isSafeSingletonFomodOption,
     matchingPartialOrphanUnfinishedEntries,
+    moveHeadlessArchivePayload,
+    nativeGameRootPathCandidate,
+    nativePathForArchiveInspection,
+    nexusQuotaRemainingFromText,
+    nexusQuotaStateFromHeaders,
     normalizedButtonLabel,
     orphanUnfinishedDownloadEntries,
     parseCollectionAddress,
     popDownloadKey,
+    preferredCanonicalDownloadArchive,
+    removeOrphanUnfinishedEntries,
     removeOrphanUnfinishedDownloadsForKeys,
     removeUnfinishedEntries,
+    repairDownloadMetadataInstalledFlags,
+    repairInstalledCollectionModMetadata,
+    repairModlistEnabledStates,
+    retryAfterSeconds,
+    quotaLimitMessage,
+    quotaResumeDelaySeconds,
+    proactiveQuotaStopMessage,
+    safeArchiveMemberTarget,
     safeDisplayText,
     sanitizeModName,
+    sevenZipModuleConfigPathFromListing,
+    sevenZipArchiveMemberPaths,
+    shouldAutoCloseInstallSummary,
+    shouldPassTargetNameToInstallMod,
     shouldUseArchiveDefaultForFomodCompatibility,
     shouldUseCollectionTargetModName,
     shouldDelayTerminalDownloadFailure,
+    staleAlreadyStartedAction,
     staleOrphanUnfinishedDownloadEntries,
+    staleDownloadStartAction,
     staleUnfinishedEntries,
     staleZeroByteUnfinishedEntries,
+    steamGameRootFromMo2BasePath,
     steamAppShaderCacheSize,
     steamDefaultLaunchOption,
     steamAppInfoHasLaunchExecutable,
@@ -192,7 +242,573 @@ class DownloadedFileKeysTests(unittest.TestCase):
             self.assertEqual(downloadedFileKeys(downloads), {(123, 456)})
 
 
+class DownloadedArchiveNameKeysTests(unittest.TestCase):
+    def test_accepts_unique_archive_matching_mod_id_and_size(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            (
+                downloads / "Starting Outfit Suppressed-43967-1-20-1628312587.7z"
+            ).write_bytes(b"x" * 1198)
+            mods = [
+                {
+                    "file": {
+                        "fileId": "219398",
+                        "sizeInBytes": "1198",
+                        "mod": {"modId": "43967"},
+                    }
+                }
+            ]
+
+            self.assertEqual(
+                downloadedArchiveNameKeys(downloads, mods), {(43967, 219398)}
+            )
+
+    def test_accepts_archive_name_match_with_unfinished_sibling(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "SMIM SE 2-08-659-2-08.7z"
+            archive.write_bytes(b"x" * 7)
+            Path(str(archive) + ".unfinished").write_bytes(b"partial")
+            mods = [
+                {
+                    "file": {
+                        "fileId": "59069",
+                        "sizeInBytes": "7",
+                        "mod": {"modId": "659"},
+                    }
+                }
+            ]
+
+            self.assertEqual(downloadedArchiveNameKeys(downloads, mods), {(659, 59069)})
+
+    def test_rejects_ambiguous_same_mod_and_size(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            (downloads / "Example-1234-1.7z").write_bytes(b"x" * 7)
+            mods = [
+                {
+                    "file": {
+                        "fileId": "10",
+                        "sizeInBytes": "7",
+                        "mod": {"modId": "1234"},
+                    }
+                },
+                {
+                    "file": {
+                        "fileId": "11",
+                        "sizeInBytes": "7",
+                        "mod": {"modId": "1234"},
+                    }
+                },
+            ]
+
+            self.assertEqual(downloadedArchiveNameKeys(downloads, mods), set())
+
+
+class PreferredCanonicalDownloadArchiveTests(unittest.TestCase):
+    def test_prefers_unprefixed_archive_when_duplicate_size_matches(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            canonical = downloads / "Blended Roads-8834-1-7.7z"
+            duplicate = downloads / "3_Blended Roads-8834-1-7.7z"
+            canonical.write_bytes(b"archive")
+            duplicate.write_bytes(b"archive")
+
+            self.assertEqual(preferredCanonicalDownloadArchive(duplicate), canonical)
+
+    def test_keeps_numbered_archive_when_canonical_size_differs(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            canonical = downloads / "Blended Roads-8834-1-7.7z"
+            duplicate = downloads / "3_Blended Roads-8834-1-7.7z"
+            canonical.write_bytes(b"old")
+            duplicate.write_bytes(b"archive")
+
+            self.assertEqual(preferredCanonicalDownloadArchive(duplicate), duplicate)
+
+
+class RepairDownloadMetadataInstalledFlagsTests(unittest.TestCase):
+    def test_sets_installed_true_for_matching_completed_download(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Example Mod-123-456.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / "Example Mod-123-456.7z.meta"
+            metadata.write_text(
+                "[General]\nmodID=123\nfileID=456\ninstalled=false\n",
+                encoding="utf-8",
+            )
+
+            result = repairDownloadMetadataInstalledFlags(
+                downloads, {(123, 456)}, desired_installed=True
+            )
+
+            self.assertEqual(result["repaired"], 1)
+            self.assertIn("installed=true", metadata.read_text(encoding="utf-8"))
+
+    def test_skips_non_matching_download_metadata(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Example Mod-123-456.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / "Example Mod-123-456.7z.meta"
+            metadata.write_text(
+                "[General]\nmodID=123\nfileID=456\ninstalled=false\n",
+                encoding="utf-8",
+            )
+
+            result = repairDownloadMetadataInstalledFlags(
+                downloads, {(999, 456)}, desired_installed=True
+            )
+
+            self.assertEqual(result["repaired"], 0)
+            self.assertIn("installed=false", metadata.read_text(encoding="utf-8"))
+
+    def test_backs_up_changed_metadata(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            downloads = root / "downloads"
+            backups = root / "backups"
+            downloads.mkdir()
+            archive = downloads / "Example Mod-123-456.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / "Example Mod-123-456.7z.meta"
+            metadata.write_text(
+                "[General]\nmodID=123\nfileID=456\ninstalled=false\n",
+                encoding="utf-8",
+            )
+
+            result = repairDownloadMetadataInstalledFlags(
+                downloads, {(123, 456)}, backup_dir=backups
+            )
+
+            self.assertEqual(result["repaired"], 1)
+            self.assertIn(
+                "installed=false",
+                (backups / metadata.name).read_text(encoding="utf-8"),
+            )
+
+
+class InstalledCollectionMetadataRepairTests(unittest.TestCase):
+    def test_repairs_manifest_version_and_nexus_category_without_local_category(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            mod_dir = mods / "Example Mod"
+            mod_dir.mkdir(parents=True)
+            metadata = mod_dir / "meta.ini"
+            metadata.write_text(
+                "[General]\n"
+                "modid=123\n"
+                "version=\n"
+                "newestVersion=\n"
+                'category="7,"\n'
+                "nexusCategory=0\n"
+                "installationFile=Example-123-456.7z\n"
+                "\n"
+                "[installedFiles]\n"
+                "size=1\n"
+                "1\\modid=123\n"
+                "1\\fileid=456\n",
+                encoding="utf-8",
+            )
+
+            result = repairInstalledCollectionModMetadata(
+                mods,
+                {(123, 456): ["Example Mod"]},
+                {
+                    (123, 456): {
+                        "file": {
+                            "version": "1.2.3",
+                            "mod": {"version": "1.2", "category": 42},
+                        }
+                    }
+                },
+            )
+
+            repaired = metadata.read_text(encoding="utf-8")
+            self.assertEqual(result["repaired"], 1)
+            self.assertIn("version=1.2.3", repaired)
+            self.assertIn("newestVersion=1.2", repaired)
+            self.assertIn("nexusCategory=42", repaired)
+            self.assertIn('category="7,"', repaired)
+
+
+class CollectionInstallPostconditionAuditTests(unittest.TestCase):
+    def write_mod_metadata(self, mods, name, mod_id=123, file_id=456):
+        mod_dir = mods / name
+        mod_dir.mkdir(parents=True)
+        (mod_dir / "meta.ini").write_text(
+            "[General]\n"
+            f"modid={mod_id}\n"
+            f"installationFile={mod_id}-{file_id}-Example.7z\n"
+            "\n"
+            "[installedFiles]\n"
+            "size=1\n"
+            f"1\\modid={mod_id}\n"
+            f"1\\fileid={file_id}\n",
+            encoding="utf-8",
+        )
+
+    def write_download_metadata(self, downloads, installed="true"):
+        archive = downloads / "Example-123-456.7z"
+        archive.write_bytes(b"archive")
+        (downloads / "Example-123-456.7z.meta").write_text(
+            f"[General]\nmodID=123\nfileID=456\ninstalled={installed}\n",
+            encoding="utf-8",
+        )
+
+    def test_fails_when_installed_mod_is_disabled_in_profile(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            self.write_mod_metadata(mods, "Example Mod")
+            self.write_download_metadata(downloads, installed="true")
+
+            result = collectionInstallPostconditionAudit(
+                downloads,
+                mods,
+                "# generated\n-Example Mod\n",
+                expected_keys={(123, 456)},
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["disabled_mods"], ["Example Mod"])
+
+    def test_fails_when_download_metadata_still_says_not_installed(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            self.write_mod_metadata(mods, "Example Mod")
+            self.write_download_metadata(downloads, installed="false")
+
+            result = collectionInstallPostconditionAudit(
+                downloads,
+                mods,
+                "# generated\n+Example Mod\n",
+                expected_keys={(123, 456)},
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(len(result["download_metadata_mismatches"]), 1)
+
+    def test_passes_when_metadata_container_and_profile_agree(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            self.write_mod_metadata(mods, "Example Mod")
+            self.write_download_metadata(downloads, installed="true")
+
+            result = collectionInstallPostconditionAudit(
+                downloads,
+                mods,
+                "# generated\n+Example Mod\n",
+                expected_keys={(123, 456)},
+            )
+
+            self.assertTrue(result["ok"])
+
+    def test_reads_installed_records_from_mo2_metadata(self):
+        with TemporaryDirectory() as tmp:
+            mods = Path(tmp) / "mods"
+            mods.mkdir()
+            self.write_mod_metadata(mods, "Example Mod")
+
+            self.assertEqual(
+                installedModRecordsFromDirectory(mods),
+                {(123, 456): ["Example Mod"]},
+            )
+
+    def test_reads_installed_record_from_installation_file_download_metadata(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            mod_dir = mods / "Example Mod"
+            mod_dir.mkdir()
+            (mod_dir / "meta.ini").write_text(
+                "[General]\n"
+                "modid=123\n"
+                "installationFile=Example-123-456.7z\n"
+                "\n"
+                "[installedFiles]\n"
+                "size=1\n"
+                "1\\modid=0\n"
+                "1\\fileid=0\n",
+                encoding="utf-8",
+            )
+            self.write_download_metadata(downloads, installed="true")
+
+            self.assertEqual(
+                installedModRecordsFromDirectory(mods, downloads),
+                {(123, 456): ["Example Mod"]},
+            )
+
+    def test_reads_installed_record_from_collection_file_name_when_mo2_key_is_zero(
+        self,
+    ):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            mod_dir = mods / "Example Mod"
+            mod_dir.mkdir()
+            (mod_dir / "meta.ini").write_text(
+                "[General]\n"
+                "modid=123\n"
+                "installationFile=Example Payload-123-1-0.7z\n"
+                "\n"
+                "[installedFiles]\n"
+                "size=1\n"
+                "1\\modid=0\n"
+                "1\\fileid=0\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                installedModRecordsFromDirectory(
+                    mods,
+                    downloads,
+                    expected_file_names={(123, 456): "Example Payload"},
+                ),
+                {(123, 456): ["Example Mod"]},
+            )
+
+    def test_reads_live_style_installed_record_from_collection_file_name(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            mod_dir = mods / "Faster HDT-SMP"
+            mod_dir.mkdir()
+            (mod_dir / "meta.ini").write_text(
+                "[General]\n"
+                "modid=57339\n"
+                "installationFile=Faster HDT-SMP-57339-2-5-1-1728377043.7z\n"
+                "\n"
+                "[installedFiles]\n"
+                "size=1\n"
+                "1\\modid=0\n"
+                "1\\fileid=0\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                installedModRecordsFromDirectory(
+                    mods,
+                    downloads,
+                    expected_file_names={(57339, 550156): "Faster HDT-SMP"},
+                ),
+                {(57339, 550156): ["Faster HDT-SMP"]},
+            )
+
+    def test_detects_known_game_root_install_evidence(self):
+        with TemporaryDirectory() as tmp:
+            game_root = Path(tmp)
+            (game_root / "d3dx9_42.dll").write_bytes(b"preloader")
+
+            self.assertEqual(
+                gameRootFileEvidenceForCollectionEntry((17230, 658442), game_root),
+                ["d3dx9_42.dll"],
+            )
+
+    def test_ignores_missing_or_unknown_game_root_install_evidence(self):
+        with TemporaryDirectory() as tmp:
+            game_root = Path(tmp)
+
+            self.assertEqual(
+                gameRootFileEvidenceForCollectionEntry((17230, 658442), game_root),
+                [],
+            )
+            self.assertEqual(
+                gameRootFileEvidenceForCollectionEntry((57339, 550156), game_root),
+                [],
+            )
+
+
+class GameRootPathResolutionTests(unittest.TestCase):
+    def test_maps_wine_z_game_root_to_host_path(self):
+        self.assertEqual(
+            nativeGameRootPathCandidate(
+                r"Z:\mnt\steam-library\SteamLibrary\steamapps\common\Skyrim Special Edition"
+            ),
+            Path(
+                "/mnt/steam-library/SteamLibrary/steamapps/common/Skyrim Special Edition"
+            ),
+        )
+
+    def test_infers_steam_game_root_from_mo2_compatdata_path(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            common = root / "SteamLibrary" / "steamapps" / "common"
+            game_root = common / "Skyrim Special Edition"
+            game_root.mkdir(parents=True)
+            mo2_base = (
+                root
+                / "SteamLibrary"
+                / "steamapps"
+                / "compatdata"
+                / "489830"
+                / "pfx"
+                / "drive_c"
+                / "users"
+                / "steamuser"
+                / "AppData"
+                / "Local"
+                / "ModOrganizer"
+                / "Skyrim Special Edition - Test"
+            )
+
+            self.assertEqual(
+                steamGameRootFromMo2BasePath(mo2_base),
+                game_root,
+            )
+
+
+class RepairModlistEnabledStatesTests(unittest.TestCase):
+    def test_enables_matching_disabled_entries_without_touching_others(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            modlist = root / "modlist.txt"
+            modlist.write_text(
+                "# This file was automatically generated by Mod Organizer.\n"
+                "-Example Mod\n"
+                "-Other Mod\n"
+                "+Already Enabled\n",
+                encoding="utf-8",
+            )
+
+            result = repairModlistEnabledStates(
+                modlist, {"Example Mod", "Already Enabled"}
+            )
+
+            self.assertEqual(result["enabled"], 1)
+            self.assertEqual(result["already_enabled"], 1)
+            self.assertIn("+Example Mod", modlist.read_text(encoding="utf-8"))
+            self.assertIn("-Other Mod", modlist.read_text(encoding="utf-8"))
+
+    def test_backs_up_changed_modlist(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backup = root / "backup"
+            modlist = root / "modlist.txt"
+            modlist.write_text("-Example Mod\n", encoding="utf-8")
+
+            result = repairModlistEnabledStates(
+                modlist, {"Example Mod"}, backup_dir=backup
+            )
+
+            self.assertEqual(result["enabled"], 1)
+            self.assertEqual(
+                (backup / "modlist.txt").read_text(encoding="utf-8"),
+                "-Example Mod\n",
+            )
+
+
 class CollectionDownloadExpectedSizesTests(unittest.TestCase):
+    def test_extracts_collection_nexus_identity(self):
+        mod = {
+            "file": {
+                "fileId": "456",
+                "name": "Example File",
+                "mod": {"modId": "123"},
+            }
+        }
+
+        self.assertEqual(collectionEntryNexusKey(mod), (123, 456))
+
+    def test_ignores_invalid_collection_nexus_identity(self):
+        self.assertIsNone(collectionEntryNexusKey({"file": {"fileId": "bad"}}))
+
+    def test_extracts_collection_expected_keys_and_file_names(self):
+        mods = [
+            {
+                "file": {
+                    "fileId": "456",
+                    "name": "Example File",
+                    "mod": {"modId": "123"},
+                }
+            },
+            {"file": {"fileId": "bad", "name": "Broken", "mod": {"modId": "123"}}},
+        ]
+
+        self.assertEqual(collectionExpectedNexusKeys(mods), {(123, 456)})
+        self.assertEqual(
+            collectionExpectedFileNames(mods), {(123, 456): "Example File"}
+        )
+
+    def test_reads_saved_collection_metadata_entries(self):
+        metadata = {
+            "essentialMods": [{"file": {"fileId": 456, "mod": {"modId": 123}}}],
+            "chosenOptional": [{"file": {"fileId": 654, "mod": {"modId": 321}}}],
+        }
+
+        self.assertEqual(len(collectionEntriesFromMetadata(metadata)), 2)
+
+    def test_loads_saved_collection_files_and_expected_state(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            collection_dir = root / "collections" / "skyrimspecialedition"
+            collection_dir.mkdir(parents=True)
+            collection_file = collection_dir / "example_1.json"
+            collection_file.write_text(
+                json.dumps(
+                    {
+                        "name": "Example Collection",
+                        "essentialMods": [
+                            {
+                                "file": {
+                                    "fileId": 456,
+                                    "name": "Example File",
+                                    "mod": {"modId": 123},
+                                }
+                            }
+                        ],
+                        "chosenOptional": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(collectionMetadataFiles(root), [collection_file])
+            self.assertEqual(
+                collectionMetadataFromFile(collection_file)["name"],
+                "Example Collection",
+            )
+            state = collectionExpectedStateFromMetadataFiles([collection_file])
+
+            self.assertEqual(state["expected_keys"], {(123, 456)})
+            self.assertEqual(state["expected_file_names"], {(123, 456): "Example File"})
+            self.assertEqual(state["collections"][0]["entries"], 1)
+
+    def test_collection_recovery_targets_only_exact_installed_expected_files(self):
+        result = collectionRecoveryTargets(
+            {
+                (123, 456): ["Example Mod"],
+                (321, 654): ["Other Mod"],
+            },
+            expected_keys={(123, 456), (999, 111)},
+        )
+
+        self.assertEqual(result["installed_keys"], {(123, 456)})
+        self.assertEqual(result["missing_keys"], {(999, 111)})
+        self.assertEqual(result["mod_names"], ["Example Mod"])
+
     def test_extracts_expected_download_sizes(self):
         mods = [
             {
@@ -310,6 +926,22 @@ class UnfinishedDownloadEntriesTests(unittest.TestCase):
             )
 
             self.assertEqual([entry["archive"] for entry in entries], [orphan])
+
+    def test_removes_exact_orphan_unfinished_entries(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            first = downloads / "First-1234-1.zip.unfinished"
+            second = downloads / "Second-1234-2.zip.unfinished"
+            first.write_bytes(b"partial")
+            second.write_bytes(b"partial")
+
+            removed = removeOrphanUnfinishedEntries(
+                [{"archive": first}, {"archive": first}]
+            )
+
+            self.assertEqual(removed, 1)
+            self.assertFalse(first.exists())
+            self.assertTrue(second.exists())
 
     def test_ignores_partial_orphan_with_ambiguous_pending_keys(self):
         with TemporaryDirectory() as tmp:
@@ -535,6 +1167,27 @@ class UnfinishedDownloadEntriesTests(unittest.TestCase):
             self.assertTrue(metadata.exists())
 
 
+class StaleDownloadStartActionTests(unittest.TestCase):
+    def test_retries_stale_zero_byte_start_before_restart_boundary(self):
+        self.assertEqual(staleDownloadStartAction(0, 20), "retry")
+        self.assertEqual(staleDownloadStartAction(19, 20), "retry")
+
+    def test_retries_stale_already_started_before_restart_boundary(self):
+        self.assertEqual(staleDownloadStartAction("2", "20"), "retry")
+
+    def test_escalates_after_retry_budget_is_exhausted(self):
+        self.assertEqual(staleDownloadStartAction(20, 20), "restart_required")
+        self.assertEqual(staleDownloadStartAction(21, 20), "restart_required")
+
+
+class StaleAlreadyStartedActionTests(unittest.TestCase):
+    def test_waits_when_mo2_has_metadata_backed_unfinished_entry(self):
+        self.assertEqual(staleAlreadyStartedAction(True), "wait")
+
+    def test_restart_boundary_when_already_started_has_no_metadata_entry(self):
+        self.assertEqual(staleAlreadyStartedAction(False), "restart_required")
+
+
 class CoerceDownloadIdTests(unittest.TestCase):
     def test_accepts_non_negative_integer_values(self):
         self.assertEqual(coerceDownloadId(0), 0)
@@ -639,7 +1292,9 @@ class RequiredFomodGroupTitleTests(unittest.TestCase):
 
 class SafeSingletonFomodOptionTests(unittest.TestCase):
     def test_accepts_required_groups(self):
-        self.assertTrue(isSafeSingletonFomodOption("Main File", "Playable Sun Elves Race"))
+        self.assertTrue(
+            isSafeSingletonFomodOption("Main File", "Playable Sun Elves Race")
+        )
         self.assertTrue(isSafeSingletonFomodOption("Bases", "ESL Flagged Base"))
 
     def test_accepts_informational_singleton_actions_seen_in_logs(self):
@@ -689,6 +1344,164 @@ class ArchiveInspectionSubprocessKwargsTests(unittest.TestCase):
         self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
         self.assertEqual(kwargs["stdout"], subprocess.PIPE)
         self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)
+
+
+class SevenZipModuleConfigPathFromListingTests(unittest.TestCase):
+    def test_finds_module_config_with_forward_slashes(self):
+        listing = "\n".join(
+            [
+                "Path = docs/readme.txt",
+                "Path = fomod/ModuleConfig.xml",
+                "Size = 42",
+            ]
+        )
+
+        self.assertEqual(
+            sevenZipModuleConfigPathFromListing(listing),
+            "fomod/ModuleConfig.xml",
+        )
+
+    def test_finds_module_config_with_backslashes_and_case(self):
+        listing = "\n".join(
+            [
+                "Path = archive root",
+                "Path = FOMOD\\MODULECONFIG.XML",
+            ]
+        )
+
+        self.assertEqual(
+            sevenZipModuleConfigPathFromListing(listing),
+            "FOMOD/MODULECONFIG.XML",
+        )
+
+    def test_finds_module_config_from_subprocess_bytes(self):
+        listing = b"Path = docs/readme.txt\nPath = fomod/ModuleConfig.xml\n"
+
+        self.assertEqual(
+            sevenZipModuleConfigPathFromListing(listing),
+            "fomod/ModuleConfig.xml",
+        )
+
+    def test_returns_none_when_no_module_config_exists(self):
+        self.assertIsNone(
+            sevenZipModuleConfigPathFromListing("Path = textures/example.dds")
+        )
+
+
+class SevenZipArchiveMemberPathsTests(unittest.TestCase):
+    def test_reads_member_paths_after_listing_separator(self):
+        listing = "\n".join(
+            [
+                "Path = Example.7z",
+                "Type = 7z",
+                "----------",
+                "Path = Example/meshes/road.nif",
+                "Size = 4",
+                "Path = Example/textures/road.dds",
+                "Size = 7",
+            ]
+        )
+
+        self.assertEqual(
+            sevenZipArchiveMemberPaths(listing),
+            ["Example/meshes/road.nif", "Example/textures/road.dds"],
+        )
+
+    def test_ignores_archive_header_path(self):
+        self.assertEqual(
+            sevenZipArchiveMemberPaths("Path = Archive.7z\nType = 7z\n"),
+            [],
+        )
+
+
+class NativeArchiveWorkerTests(unittest.TestCase):
+    def test_reports_missing_archive_path(self):
+        from scripts.native_archive_worker import handle_request
+
+        self.assertEqual(
+            handle_request({"action": "list"}),
+            {"ok": False, "error": "Request missing archive path."},
+        )
+
+    def test_processes_one_json_request(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            request_dir = tmp_path / "requests"
+            result_path = tmp_path / "result.json"
+            request_dir.mkdir()
+            request_path = request_dir / "one.request.json"
+            request_path.write_text(
+                json.dumps(
+                    {
+                        "action": "bad-action",
+                        "archive": str(tmp_path / "archive.7z"),
+                        "result_path": str(result_path),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/native_archive_worker.py",
+                    str(request_dir),
+                    "--once",
+                ],
+                cwd=Path(__file__).resolve().parent.parent,
+                check=True,
+            )
+
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            self.assertFalse(result["ok"])
+            self.assertIn("Unsupported action", result["error"])
+            self.assertFalse(request_path.exists())
+
+
+class NativePathForArchiveInspectionTests(unittest.TestCase):
+    def test_leaves_native_paths_unchanged(self):
+        self.assertEqual(
+            nativePathForArchiveInspection("/tmp/archive.7z"),
+            "/tmp/archive.7z",
+        )
+
+    def test_maps_z_drive_to_native_root(self):
+        self.assertEqual(
+            nativePathForArchiveInspection(r"Z:\mnt\steam-library\archive.7z"),
+            "/mnt/steam-library/archive.7z",
+        )
+
+    def test_maps_c_drive_through_wineprefix(self):
+        self.assertEqual(
+            nativePathForArchiveInspection(
+                r"C:\users\steamuser\Downloads\archive.7z",
+                wineprefix="/tmp/pfx",
+            ),
+            "/tmp/pfx/drive_c/users/steamuser/Downloads/archive.7z",
+        )
+
+    def test_maps_c_drive_through_wine_z_prefix(self):
+        self.assertEqual(
+            nativePathForArchiveInspection(
+                r"C:\users\steamuser\Downloads\archive.7z",
+                wineprefix=r"Z:\mnt\steam-library\SteamLibrary\steamapps\compatdata\489830\pfx",
+            ),
+            "/mnt/steam-library/SteamLibrary/steamapps/compatdata/489830/pfx/"
+            "drive_c/users/steamuser/Downloads/archive.7z",
+        )
+
+    def test_maps_c_drive_through_steam_compat_data_path(self):
+        with mock.patch.dict(
+            "os.environ",
+            {"STEAM_COMPAT_DATA_PATH": "/tmp/compatdata/489830"},
+            clear=True,
+        ):
+            self.assertEqual(
+                nativePathForArchiveInspection(
+                    r"C:\users\steamuser\Downloads\archive.7z"
+                ),
+                "/tmp/compatdata/489830/pfx/drive_c/users/steamuser/Downloads/archive.7z",
+            )
 
 
 class FomodManualChoiceGuideTests(unittest.TestCase):
@@ -908,14 +1721,136 @@ class DuplicateDownloadPromptActionLabelTests(unittest.TestCase):
             "ok",
         )
 
+    def test_acknowledges_already_queued_download_prompt(self):
+        self.assertEqual(
+            duplicateDownloadPromptActionLabel("Already Queued", [("OK", True)]),
+            "ok",
+        )
+
     def test_ignores_disabled_already_started_prompt(self):
         self.assertIsNone(
             duplicateDownloadPromptActionLabel("Already Started", [("OK", False)])
         )
 
     def test_ignores_unrelated_ok_prompt(self):
+        self.assertIsNone(duplicateDownloadPromptActionLabel("Error", [("OK", True)]))
+
+
+class QuotaLimitTests(unittest.TestCase):
+    def test_detects_common_quota_and_rate_limit_text(self):
+        self.assertTrue(isQuotaLimitText("HTTP 429 Too Many Requests"))
+        self.assertTrue(isQuotaLimitText("Nexus download limit reached"))
+        self.assertTrue(isQuotaLimitText("daily quota exhausted"))
+
+    def test_ignores_unrelated_failure_text(self):
+        self.assertFalse(isQuotaLimitText("The requested file was not found"))
+        self.assertFalse(
+            isQuotaLimitText("API: Queued: 0 | Daily: 12939 | Hourly: 1657")
+        )
+        self.assertFalse(
+            isQuotaLimitText(
+                "Already Started\nThere is already a download started for this "
+                "file.\nMod 2429:\tLanterns of Skyrim SE"
+            )
+        )
+
+    def test_parses_visible_mo2_quota_status_counts(self):
+        self.assertEqual(
+            nexusQuotaRemainingFromText("API: Queued: 0 | Daily: 12939 | Hourly: 87"),
+            {"hourly": 87, "daily": 12939},
+        )
+
+    def test_parses_quota_state_from_response_headers(self):
+        self.assertEqual(
+            nexusQuotaStateFromHeaders(
+                {
+                    "X-RateLimit-Hourly-Remaining": "49",
+                    "X-RateLimit-Daily-Remaining": "1200",
+                    "X-RateLimit-Reset": "1780000000",
+                    "Retry-After": "90",
+                    "Content-Type": "application/json",
+                },
+                status=429,
+                now=1779999900,
+            ),
+            {
+                "observed_at": 1779999900,
+                "status": 429,
+                "remaining": {"hourly": 49, "daily": 1200},
+                "retry_after_seconds": 90,
+                "reset_epoch": 1780000000,
+                "headers": {
+                    "x-ratelimit-hourly-remaining": "49",
+                    "x-ratelimit-daily-remaining": "1200",
+                    "x-ratelimit-reset": "1780000000",
+                    "retry-after": "90",
+                },
+            },
+        )
+
+    def test_generic_quota_header_is_not_assumed_to_be_hourly(self):
+        self.assertEqual(
+            nexusQuotaStateFromHeaders(
+                {"X-RateLimit-Remaining": "7"},
+                status=200,
+                now=1779999900,
+            )["remaining"],
+            {"generic": 7},
+        )
+
+    def test_proactive_quota_floor_pauses_before_exhaustion(self):
+        self.assertEqual(
+            proactiveQuotaStopMessage({"hourly": 87, "daily": 12939}, 100, 100),
+            "Nexus hourly API quota is near the safety floor (87 remaining); "
+            "downloads will resume automatically after reset.",
+        )
         self.assertIsNone(
-            duplicateDownloadPromptActionLabel("Error", [("OK", True)])
+            proactiveQuotaStopMessage({"hourly": 1657, "daily": 12939}, 100, 100)
+        )
+
+    def test_parses_numeric_retry_after_seconds(self):
+        self.assertEqual(retryAfterSeconds("120"), 120)
+
+    def test_quota_message_uses_retry_after_header(self):
+        self.assertEqual(
+            quotaLimitMessage(
+                429,
+                {"Retry-After": "90"},
+                "Too Many Requests",
+            ),
+            "Nexus quota/rate limit reached; retry after about 90 seconds.",
+        )
+
+    def test_quota_message_detects_limit_body_without_status(self):
+        self.assertEqual(
+            quotaLimitMessage(403, {}, "Hourly API usage limit reached."),
+            "Nexus quota/rate limit reached; pause downloads and retry later.",
+        )
+
+    def test_quota_resume_delay_uses_retry_after_but_stays_bounded(self):
+        self.assertEqual(
+            quotaResumeDelaySeconds(
+                "Nexus quota/rate limit reached; retry after about 90 seconds.",
+                default_seconds=3600,
+            ),
+            90,
+        )
+        self.assertEqual(
+            quotaResumeDelaySeconds("quota stop", default_seconds=3600),
+            3600,
+        )
+        self.assertEqual(
+            quotaResumeDelaySeconds(
+                "quota stop",
+                default_seconds=300,
+                attempt=2,
+                max_seconds=1800,
+            ),
+            1200,
+        )
+        self.assertEqual(
+            quotaResumeDelaySeconds("retry after about 7200 seconds", 300, 0, 1800),
+            1800,
         )
 
 
@@ -943,6 +1878,136 @@ class DownloadPromptKeyFromLabelsTests(unittest.TestCase):
 
     def test_ignores_prompt_without_mod_and_file_ids(self):
         self.assertIsNone(downloadPromptKeyFromLabels(["No Nexus IDs here"]))
+
+
+class DownloadPromptKeyFromArchiveLabelsTests(unittest.TestCase):
+    def test_extracts_key_from_duplicate_prompt_archive_name(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            metadata = downloads / "Royal Armory V2.2-6994-2-2.7z.meta"
+            metadata.write_text(
+                "[General]\nmodID=6994\nfileID=46583\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                downloadPromptKeyFromArchiveLabels(
+                    [
+                        'A file with the same name "Royal Armory V2.2-6994-2-2.7z" '
+                        "has already been downloaded. Do you want to download it again?"
+                    ],
+                    downloads,
+                    {(6994, 46583)},
+                ),
+                (6994, 46583),
+            )
+
+    def test_ignores_archive_prompt_key_outside_collection(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            metadata = downloads / "Royal Armory V2.2-6994-2-2.7z.meta"
+            metadata.write_text(
+                "[General]\nmodID=6994\nfileID=46583\n",
+                encoding="utf-8",
+            )
+
+            self.assertIsNone(
+                downloadPromptKeyFromArchiveLabels(
+                    [
+                        'A file with the same name "Royal Armory V2.2-6994-2-2.7z" exists.'
+                    ],
+                    downloads,
+                    {(1, 2)},
+                )
+            )
+
+    def test_ignores_archive_prompt_without_metadata(self):
+        with TemporaryDirectory() as tmp:
+            self.assertIsNone(
+                downloadPromptKeyFromArchiveLabels(
+                    ['A file with the same name "Missing-1-2.7z" exists.'],
+                    Path(tmp),
+                    {(1, 2)},
+                )
+            )
+
+
+class DuplicateDownloadPromptArchiveActionTests(unittest.TestCase):
+    def test_declines_when_named_archive_is_complete(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            (
+                downloads / "Relationship Dialogue Overhaul - RDO Final-1187-Final.7z"
+            ).write_bytes(b"archive")
+
+            self.assertEqual(
+                duplicateDownloadPromptArchiveAction(
+                    [
+                        'A file with the same name "Relationship Dialogue Overhaul - RDO Final-1187-Final.7z" '
+                        "has already been downloaded."
+                    ],
+                    downloads,
+                ),
+                "no",
+            )
+
+    def test_accepts_when_named_archive_is_missing(self):
+        with TemporaryDirectory() as tmp:
+            self.assertEqual(
+                duplicateDownloadPromptArchiveAction(
+                    [
+                        'A file with the same name "Missing-1-2.7z" has already been downloaded.'
+                    ],
+                    Path(tmp),
+                ),
+                "yes",
+            )
+
+    def test_declines_prefixed_duplicate_when_base_archive_is_complete(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            (
+                downloads / "Starting Outfit Suppressed-43967-1-20-1628312587.7z"
+            ).write_bytes(b"archive")
+            (
+                downloads / "3_Starting Outfit Suppressed-43967-1-20-1628312587.7z"
+            ).write_bytes(b"")
+
+            self.assertEqual(
+                duplicateDownloadPromptArchiveAction(
+                    [
+                        'A file with the same name "3_Starting Outfit Suppressed-43967-1-20-1628312587.7z" '
+                        "has already been downloaded."
+                    ],
+                    downloads,
+                ),
+                "no",
+            )
+
+    def test_accepts_when_named_archive_has_unfinished_sibling(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Partial-1-2.7z"
+            archive.write_bytes(b"archive")
+            Path(str(archive) + ".unfinished").write_bytes(b"partial")
+
+            self.assertEqual(
+                duplicateDownloadPromptArchiveAction(
+                    [
+                        'A file with the same name "Partial-1-2.7z" has already been downloaded.'
+                    ],
+                    downloads,
+                ),
+                "yes",
+            )
+
+    def test_ignores_labels_without_archive_name(self):
+        with TemporaryDirectory() as tmp:
+            self.assertIsNone(
+                duplicateDownloadPromptArchiveAction(
+                    ["No archive name here"], Path(tmp)
+                )
+            )
 
 
 class DownloadCompletionPlanTests(unittest.TestCase):
@@ -1007,6 +2072,50 @@ class DownloadCompletionPlanTests(unittest.TestCase):
         )
 
 
+class InstallSummaryAutoCloseTests(unittest.TestCase):
+    def test_auto_closes_successful_automatic_install_summary(self):
+        self.assertTrue(shouldAutoCloseInstallSummary(True, False, 0))
+
+    def test_keeps_manual_install_summary_visible(self):
+        self.assertFalse(shouldAutoCloseInstallSummary(False, False, 0))
+
+    def test_keeps_failed_install_summary_visible_for_review(self):
+        self.assertFalse(shouldAutoCloseInstallSummary(True, False, 1))
+
+    def test_keeps_cancelled_install_summary_visible(self):
+        self.assertFalse(shouldAutoCloseInstallSummary(True, True, 0))
+
+
+class InstallPlanExecutionActionTests(unittest.TestCase):
+    def test_already_complete_plan_fast_finishes_immediately(self):
+        self.assertEqual(installPlanExecutionAction(True), "fast-finish")
+
+    def test_plan_with_remaining_work_uses_normal_install_loop(self):
+        self.assertEqual(installPlanExecutionAction(False), "install-next")
+
+
+class FastFinishMetadataRepairKeysTests(unittest.TestCase):
+    def test_excludes_installed_entries_repaired_by_postcondition_sweep(self):
+        self.assertEqual(
+            fastFinishMetadataRepairKeys(
+                [{"status": "installed", "install_key": (123, 456)}]
+            ),
+            set(),
+        )
+
+    def test_returns_root_entries_without_mo2_mod_containers(self):
+        self.assertEqual(
+            fastFinishMetadataRepairKeys(
+                [
+                    {"status": "installed", "install_key": (123, 456)},
+                    {"status": "root", "install_key": (321, 654)},
+                    {"status": "failed", "install_key": (999, 111)},
+                ]
+            ),
+            {(321, 654)},
+        )
+
+
 class DownloadCompletionChoicesTests(unittest.TestCase):
     def test_collection_links_keep_partial_install_choice_available(self):
         policy = collectionLinkCompletionPolicy()
@@ -1015,12 +2124,42 @@ class DownloadCompletionChoicesTests(unittest.TestCase):
             has_on_complete=policy["attach_install_callback"],
         )
 
-        self.assertTrue(policy["prompt_after_download"])
+        self.assertFalse(policy["prompt_after_download"])
         self.assertTrue(policy["close_on_success"])
         self.assertTrue(policy["auto_install_after_download_default"])
         self.assertTrue(choices["retry_visible"])
         self.assertTrue(choices["install_visible"])
         self.assertEqual(choices["install_label"], "Install Available")
+
+    def test_restart_required_boundary_blocks_in_process_choices(self):
+        self.assertEqual(
+            downloadCompletionChoices(
+                {"successful": 552, "failed": 7, "has_failures": True},
+                has_on_complete=True,
+                restart_required=True,
+            ),
+            {
+                "retry_visible": False,
+                "install_visible": False,
+                "install_label": "Install Available",
+                "fomod_defaults_visible": False,
+            },
+        )
+
+    def test_quota_boundary_blocks_in_process_choices(self):
+        self.assertEqual(
+            downloadCompletionChoices(
+                {"successful": 552, "failed": 7, "has_failures": True},
+                has_on_complete=True,
+                quota_limited=True,
+            ),
+            {
+                "retry_visible": False,
+                "install_visible": False,
+                "install_label": "Install Available",
+                "fomod_defaults_visible": False,
+            },
+        )
 
     def test_failed_downloads_offer_retry_and_install_available(self):
         self.assertEqual(
@@ -1120,6 +2259,7 @@ class ActiveDownloadPromptKeyTests(unittest.TestCase):
 class AllocateUniqueModNameTests(unittest.TestCase):
     def test_sanitizes_path_separators_and_empty_names(self):
         self.assertEqual(sanitizeModName(" A/B\\C  "), "A-B-C")
+        self.assertEqual(sanitizeModName("New Statue. "), "New Statue")
         self.assertEqual(sanitizeModName("   "), "Collection Mod")
 
     def test_uses_base_name_when_available(self):
@@ -1154,6 +2294,28 @@ class AllocateUniqueModNameTests(unittest.TestCase):
             allocateUniqueModName("New Statue", used, counts), "New Statue #3"
         )
         self.assertEqual(counts, {"New Statue": 4})
+
+
+class DetachedInstallCacheKeyFromPathTests(unittest.TestCase):
+    def test_parses_windows_detached_cache_path(self):
+        self.assertEqual(
+            detachedInstallCacheKeyFromPath(
+                "C:/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Test/"
+                "nxm-collection-dl-install-cache/52648-216332-JK MistveilKeep Sexframeworks Patch.rar"
+            ),
+            (52648, 216332),
+        )
+
+    def test_parses_backslash_path(self):
+        self.assertEqual(
+            detachedInstallCacheKeyFromPath(
+                r"C:\MO2\nxm-collection-dl-install-cache\8834-133231-Blended Roads.7z"
+            ),
+            (8834, 133231),
+        )
+
+    def test_ignores_non_cache_names(self):
+        self.assertIsNone(detachedInstallCacheKeyFromPath("Blended Roads.7z"))
 
 
 class SafeDisplayTextTests(unittest.TestCase):
@@ -1211,15 +2373,331 @@ class InstallerSettingDefaultsTests(unittest.TestCase):
 
     def test_collection_install_defaults_match_verified_workflow(self):
         self.assertTrue(INSTALLER_SETTING_DEFAULTS["auto_accept_quick_install"])
+        self.assertTrue(INSTALLER_SETTING_DEFAULTS["headless_archive_installs"])
+        self.assertTrue(INSTALLER_SETTING_DEFAULTS["headless_zip_installs"])
         self.assertTrue(
             INSTALLER_SETTING_DEFAULTS["auto_dismiss_known_post_install_errors"]
         )
-        self.assertTrue(INSTALLER_SETTING_DEFAULTS["auto_cancel_invalid_install_content"])
+        self.assertTrue(
+            INSTALLER_SETTING_DEFAULTS["auto_cancel_invalid_install_content"]
+        )
         self.assertTrue(INSTALLER_SETTING_DEFAULTS["install_files_as_separate_mods"])
         self.assertTrue(INSTALLER_SETTING_DEFAULTS["activate_mods_after_install"])
         self.assertFalse(INSTALLER_SETTING_DEFAULTS["activate_mods_during_install"])
         self.assertTrue(INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"])
         self.assertEqual(INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_max_steps"], 80)
+        self.assertFalse(INSTALLER_SETTING_DEFAULTS["trace_install_diagnostics"])
+
+
+class CollectionInstallRouteTests(unittest.TestCase):
+    def test_simple_zip_prefers_headless_install_route(self):
+        self.assertEqual(
+            collectionInstallRoute(
+                "Example-1-2.zip",
+                fomod_state=False,
+                separate_file_installs=True,
+            ),
+            "headless-archive",
+        )
+
+    def test_unknown_archive_can_try_headless_after_layout_preflight(self):
+        self.assertEqual(
+            collectionInstallRoute(
+                "Example-1-2.7z",
+                fomod_state=None,
+                separate_file_installs=True,
+            ),
+            "headless-archive",
+        )
+
+    def test_rar_can_try_headless_after_layout_preflight(self):
+        self.assertEqual(
+            collectionInstallRoute(
+                "Example-1-2.rar",
+                fomod_state=False,
+                separate_file_installs=True,
+            ),
+            "headless-archive",
+        )
+
+    def test_confirmed_fomod_uses_mo2_installer(self):
+        self.assertEqual(
+            collectionInstallRoute(
+                "Example-1-2.zip",
+                fomod_state=True,
+                separate_file_installs=True,
+            ),
+            "mo2",
+        )
+
+    def test_unsupported_extension_uses_mo2_installer(self):
+        self.assertEqual(
+            collectionInstallRoute(
+                "Example-1-2.txt",
+                fomod_state=False,
+                separate_file_installs=True,
+            ),
+            "mo2",
+        )
+
+    def test_manual_retry_uses_mo2_installer(self):
+        self.assertEqual(
+            collectionInstallRoute(
+                "Example-1-2.zip",
+                fomod_state=False,
+                separate_file_installs=True,
+                manual_install_pass=True,
+            ),
+            "mo2",
+        )
+
+    def test_disabled_headless_archive_setting_uses_mo2_installer(self):
+        self.assertEqual(
+            collectionInstallRoute(
+                "Example-1-2.7z",
+                fomod_state=False,
+                separate_file_installs=True,
+                headless_archive_installs=False,
+            ),
+            "mo2",
+        )
+
+    def test_legacy_headless_zip_setting_still_disables_archive_route(self):
+        self.assertEqual(
+            collectionInstallRoute(
+                "Example-1-2.7z",
+                fomod_state=False,
+                separate_file_installs=True,
+                headless_archive_installs=True,
+                headless_zip_installs=False,
+            ),
+            "mo2",
+        )
+
+
+class HeadlessArchivePreflightFallbackTests(unittest.TestCase):
+    # These cases guard the main release invariant: safe archives install
+    # headlessly, real FOMODs use MO2, and unknown failures do not open Quick
+    # Install as accidental recovery.
+    def test_confirmed_fomod_uses_mo2_installer(self):
+        self.assertEqual(
+            headlessArchivePreflightFallback(
+                {"installable": False, "reason": "FOMOD installer present"}
+            ),
+            "mo2",
+        )
+
+    def test_ambiguous_layout_is_manual_not_quick_install(self):
+        self.assertEqual(
+            headlessArchivePreflightFallback(
+                {"installable": False, "reason": "ambiguous archive layout"}
+            ),
+            "manual",
+        )
+
+    def test_missing_worker_is_manual_not_gui_fallback(self):
+        self.assertEqual(
+            headlessArchivePreflightFallback(
+                {
+                    "installable": False,
+                    "reason": (
+                        "Native archive worker timed out; start "
+                        "scripts/native_archive_worker.py"
+                    ),
+                }
+            ),
+            "manual",
+        )
+
+
+class HeadlessZipInstallLayoutTests(unittest.TestCase):
+    def test_accepts_direct_mod_root_layout(self):
+        plan = headlessZipInstallLayout(
+            ["meshes/road.nif", "textures/road.dds", "plugin.esp"]
+        )
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["strip_prefix"], "")
+
+    def test_strips_single_wrapper_folder(self):
+        plan = headlessZipInstallLayout(
+            ["Example Mod/meshes/road.nif", "Example Mod/textures/road.dds"]
+        )
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["strip_prefix"], "Example Mod/")
+
+    def test_strips_data_folder_wrapper(self):
+        plan = headlessZipInstallLayout(
+            ["Data/meshes/road.nif", "Data/textures/road.dds"]
+        )
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["strip_prefix"], "Data/")
+
+    def test_strips_lowercase_data_folder_wrapper(self):
+        plan = headlessZipInstallLayout(
+            ["data/meshes/road.nif", "data/textures/road.dds"]
+        )
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["strip_prefix"], "data/")
+
+    def test_rejects_fomod_installer_zip(self):
+        plan = headlessZipInstallLayout(["fomod/ModuleConfig.xml", "meshes/road.nif"])
+        self.assertFalse(plan["installable"])
+        self.assertEqual(plan["reason"], "FOMOD installer present")
+
+    def test_rejects_ambiguous_zip_without_mod_markers(self):
+        plan = headlessZipInstallLayout(["readme.txt", "screenshots/shot.png"])
+        self.assertFalse(plan["installable"])
+        self.assertEqual(plan["reason"], "ambiguous archive layout")
+
+    def test_rejects_zip_slip_member_targets(self):
+        with TemporaryDirectory() as tmp:
+            self.assertIsNone(safeArchiveMemberTarget(Path(tmp), "../escape.txt"))
+            self.assertIsNone(safeArchiveMemberTarget(Path(tmp), "/escape.txt"))
+            self.assertIsNotNone(safeArchiveMemberTarget(Path(tmp), "meshes/safe.nif"))
+
+
+class ExtractHeadlessZipArchiveTests(unittest.TestCase):
+    def test_extracts_zip_with_wrapper_folder_stripped(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            archive_path = tmp_path / "Example.zip"
+            target_dir = tmp_path / "mod"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("Example/meshes/road.nif", b"mesh")
+                archive.writestr("Example/textures/road.dds", b"texture")
+
+            count = extractHeadlessZipArchive(
+                archive_path,
+                target_dir,
+                {"strip_prefix": "Example/"},
+            )
+
+            self.assertEqual(count, 2)
+            self.assertEqual((target_dir / "meshes/road.nif").read_bytes(), b"mesh")
+            self.assertEqual(
+                (target_dir / "textures/road.dds").read_bytes(), b"texture"
+            )
+            self.assertFalse((target_dir / "Example").exists())
+
+    def test_rejects_unsafe_zip_member_during_extract(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            archive_path = tmp_path / "Unsafe.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("../escape.txt", b"bad")
+
+            with self.assertRaisesRegex(RuntimeError, "Unsafe archive member path"):
+                extractHeadlessZipArchive(archive_path, tmp_path / "mod", {})
+
+    def test_rejects_empty_zip_during_extract(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            archive_path = tmp_path / "Empty.zip"
+            with zipfile.ZipFile(archive_path, "w"):
+                pass
+
+            with self.assertRaisesRegex(RuntimeError, "no installable files"):
+                extractHeadlessZipArchive(archive_path, tmp_path / "mod", {})
+
+    def test_malformed_zip_raises_without_creating_output(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            archive_path = tmp_path / "Broken.zip"
+            archive_path.write_bytes(b"not a zip")
+            target_dir = tmp_path / "mod"
+
+            with self.assertRaises(zipfile.BadZipFile):
+                extractHeadlessZipArchive(archive_path, target_dir, {})
+            self.assertFalse(target_dir.exists())
+
+
+class MoveHeadlessArchivePayloadTests(unittest.TestCase):
+    def test_moves_preflighted_payload_without_wrapper_folder(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            extract_root = tmp_path / "extract"
+            target_dir = tmp_path / "mod"
+            (extract_root / "Example" / "meshes").mkdir(parents=True)
+            (extract_root / "Example" / "textures").mkdir(parents=True)
+            (extract_root / "Example" / "meshes" / "road.nif").write_bytes(b"mesh")
+            (extract_root / "Example" / "textures" / "road.dds").write_bytes(b"texture")
+
+            count = moveHeadlessArchivePayload(
+                extract_root,
+                target_dir,
+                {"strip_prefix": "Example/"},
+            )
+
+            self.assertEqual(count, 2)
+            self.assertEqual((target_dir / "meshes" / "road.nif").read_bytes(), b"mesh")
+            self.assertEqual(
+                (target_dir / "textures" / "road.dds").read_bytes(), b"texture"
+            )
+            self.assertFalse((target_dir / "Example").exists())
+
+
+class HeadlessInstallMetaIniTests(unittest.TestCase):
+    def test_writes_resumable_local_nexus_identity_without_tracking(self):
+        metadata = headlessInstallMetaIni(
+            123,
+            456,
+            "Example-123-456.zip",
+            "Example Mod",
+            "Example File",
+            "2026-07-28T12:00:00Z",
+        )
+
+        self.assertIn("modid=123", metadata)
+        self.assertIn("installationFile=Example-123-456.zip", metadata)
+        self.assertIn("tracked=0", metadata)
+        self.assertIn("lastNexusQuery=2026-07-28T12:00:00Z", metadata)
+        self.assertIn("1\\fileid=456", metadata)
+        self.assertIn("installedBy=headless-archive", metadata)
+
+    def test_preserves_collection_version_and_nexus_category(self):
+        metadata = headlessInstallMetaIni(
+            123,
+            456,
+            "Example-123-456.zip",
+            "Example Mod",
+            "Example File",
+            "2026-07-28T12:00:00Z",
+            file_version="1.2.3",
+            mod_version="1.2",
+            nexus_category=42,
+        )
+
+        self.assertIn("version=1.2.3", metadata)
+        self.assertIn("newestVersion=1.2", metadata)
+        self.assertIn("nexusCategory=42", metadata)
+        self.assertIn('category="-1,"', metadata)
+
+
+class AutomatedInstallCadenceDefaultsTests(unittest.TestCase):
+    def test_automated_install_cadence_stays_fast(self):
+        self.assertLessEqual(
+            AUTOMATED_INSTALL_CADENCE_DEFAULTS["next_mod_delay_ms"], 50
+        )
+        self.assertLessEqual(
+            AUTOMATED_INSTALL_CADENCE_DEFAULTS["dialog_poll_initial_delay_ms"], 50
+        )
+        self.assertLessEqual(
+            AUTOMATED_INSTALL_CADENCE_DEFAULTS["dialog_poll_interval_ms"], 50
+        )
+        self.assertLessEqual(
+            AUTOMATED_INSTALL_CADENCE_DEFAULTS["fomod_advance_interval_ms"], 50
+        )
+
+    def test_automated_install_does_not_explicitly_steal_focus(self):
+        self.assertFalse(
+            AUTOMATED_INSTALL_CADENCE_DEFAULTS["restore_install_dialog_focus"]
+        )
+        self.assertFalse(
+            AUTOMATED_INSTALL_CADENCE_DEFAULTS["raise_mo2_for_native_install"]
+        )
+        self.assertFalse(
+            AUTOMATED_INSTALL_CADENCE_DEFAULTS["hide_progress_for_native_install"]
+        )
 
 
 class ShouldUseCollectionTargetModNameTests(unittest.TestCase):
@@ -1258,7 +2736,7 @@ class ShouldUseArchiveDefaultForFomodCompatibilityTests(unittest.TestCase):
             )
         )
 
-    def test_unknown_fomod_state_uses_collection_target_name_first(self):
+    def test_unknown_fomod_state_does_not_force_slow_fomod_compatibility_path(self):
         self.assertFalse(
             shouldUseArchiveDefaultForFomodCompatibility(
                 separate_file_installs=True,
@@ -1291,6 +2769,38 @@ class ShouldUseArchiveDefaultForFomodCompatibilityTests(unittest.TestCase):
                 separate_file_installs=False,
                 manual_install_pass=False,
                 fomod_state=True,
+            )
+        )
+
+
+class ShouldPassTargetNameToInstallModTests(unittest.TestCase):
+    def test_regular_separate_install_uses_collection_target_name(self):
+        self.assertTrue(
+            shouldPassTargetNameToInstallMod(
+                separate_file_installs=True,
+                manual_install_pass=False,
+                normal_dialog_retry_pass=False,
+                use_archive_default_for_fomod=False,
+            )
+        )
+
+    def test_archive_default_policy_suppresses_target_name(self):
+        self.assertFalse(
+            shouldPassTargetNameToInstallMod(
+                separate_file_installs=True,
+                manual_install_pass=False,
+                normal_dialog_retry_pass=False,
+                use_archive_default_for_fomod=True,
+            )
+        )
+
+    def test_manual_retry_does_not_force_collection_name(self):
+        self.assertFalse(
+            shouldPassTargetNameToInstallMod(
+                separate_file_installs=True,
+                manual_install_pass=True,
+                normal_dialog_retry_pass=False,
+                use_archive_default_for_fomod=False,
             )
         )
 
@@ -1445,7 +2955,9 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
     def test_parses_expected_steam_values(self):
         self.assertEqual(steamLaunchOptions(self.GOOD_LOCALCONFIG), "")
         self.assertIsNone(steamDefaultLaunchOption(self.GOOD_LOCALCONFIG))
-        self.assertEqual(steamShaderProcessingQueue(self.GOOD_STEAM_CONFIG), ["123", "456"])
+        self.assertEqual(
+            steamShaderProcessingQueue(self.GOOD_STEAM_CONFIG), ["123", "456"]
+        )
         self.assertTrue(steamShaderCacheDisabled(self.GOOD_STEAM_CONFIG))
         self.assertEqual(steamAppShaderCacheSize(self.GOOD_STEAM_CONFIG), 0)
         self.assertTrue(
@@ -1463,7 +2975,7 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
 
     def test_user_command_launch_option_is_caught(self):
         result = self.guard(
-            localconfig_text='"489830" { "LaunchOptions" "USER=tkb %command%" }'
+            localconfig_text='"489830" { "LaunchOptions" "USER=steamuser %command%" }'
         )
 
         self.assertFalse(result["ok"])
@@ -1489,7 +3001,9 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
         )
 
         self.assertFalse(result["ok"])
-        self.assertTrue(any("default launch option changed" in p for p in result["problems"]))
+        self.assertTrue(
+            any("default launch option changed" in p for p in result["problems"])
+        )
 
     def test_expected_default_launch_option_can_be_required_explicitly(self):
         result = self.guard(
@@ -1510,9 +3024,9 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
 
     def test_latest_launch_log_uses_redirector_when_required(self):
         command = (
-            '[2026-07-26 18:54:25] AppID 489830 adding PID 1 as a tracked process '
+            "[2026-07-26 18:54:25] AppID 489830 adding PID 1 as a tracked process "
             '"/steam-wrapper -- proton waitforexitandrun '
-            "'/mnt/STEAMNTFS/SteamLibrary/steamapps/common/Skyrim Special Edition/mo2-redirector.exe'\""
+            "'/mnt/steam-library/SteamLibrary/steamapps/common/Skyrim Special Edition/mo2-redirector.exe'\""
         )
         self.assertIn("mo2-redirector.exe", latestSteamLaunchCommand(command))
 
@@ -1522,9 +3036,9 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
 
     def test_latest_launcher_plus_redirector_argument_is_caught(self):
         command = (
-            '[2026-07-26 20:25:56] AppID 489830 adding PID 1 as a tracked process '
+            "[2026-07-26 20:25:56] AppID 489830 adding PID 1 as a tracked process "
             '"/steam-wrapper -- proton waitforexitandrun '
-            "'/mnt/STEAMNTFS/SteamLibrary/steamapps/common/Skyrim Special Edition/SkyrimSELauncher.exe' "
+            "'/mnt/steam-library/SteamLibrary/steamapps/common/Skyrim Special Edition/SkyrimSELauncher.exe' "
             'mo2-redirector.exe"'
         )
         result = self.guard(gameprocess_log_text=command, require_latest_launch=True)
@@ -1544,37 +3058,53 @@ class SteamMo2GuardAuditTests(unittest.TestCase):
         result = self.guard(steam_config_text='"DisableShaderCache" "0"')
 
         self.assertFalse(result["ok"])
-        self.assertTrue(any("shader cache is not disabled" in p for p in result["problems"]))
+        self.assertTrue(
+            any("shader cache is not disabled" in p for p in result["problems"])
+        )
 
     def test_nonzero_shader_cache_size_is_caught(self):
         result = self.guard(
             steam_config_text=(
-                '"DisableShaderCache" "1" '
-                '"489830" { "ShaderCacheSize" "2147483648" }'
+                '"DisableShaderCache" "1" "489830" { "ShaderCacheSize" "2147483648" }'
             )
         )
 
         self.assertFalse(result["ok"])
-        self.assertTrue(any("ShaderCacheSize" in p or "shader cache size" in p for p in result["problems"]))
+        self.assertTrue(
+            any(
+                "ShaderCacheSize" in p or "shader cache size" in p
+                for p in result["problems"]
+            )
+        )
 
     def test_missing_immutable_lock_is_caught(self):
         result = self.guard(localconfig_lsattr="--------------e------- /path/file")
 
         self.assertFalse(result["ok"])
-        self.assertTrue(any("localconfig.vdf is not immutable" in p for p in result["problems"]))
+        self.assertTrue(
+            any("localconfig.vdf is not immutable" in p for p in result["problems"])
+        )
 
     def test_unlocked_steam_config_is_caught(self):
-        result = self.guard(steam_config_lsattr="--------------e------- /path/config.vdf")
+        result = self.guard(
+            steam_config_lsattr="--------------e------- /path/config.vdf"
+        )
 
         self.assertFalse(result["ok"])
-        self.assertTrue(any("config.vdf is not immutable" in p for p in result["problems"]))
+        self.assertTrue(
+            any("config.vdf is not immutable" in p for p in result["problems"])
+        )
 
     def test_unclean_mo2_state_is_caught_when_required(self):
         result = self.guard(mods_count=75, downloads_count=75)
 
         self.assertFalse(result["ok"])
-        self.assertTrue(any("managed mods directory is not clean" in p for p in result["problems"]))
-        self.assertTrue(any("downloads directory is not clean" in p for p in result["problems"]))
+        self.assertTrue(
+            any("managed mods directory is not clean" in p for p in result["problems"])
+        )
+        self.assertTrue(
+            any("downloads directory is not clean" in p for p in result["problems"])
+        )
 
 
 if __name__ == "__main__":
