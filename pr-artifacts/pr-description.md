@@ -70,6 +70,7 @@ White-box coverage includes:
   unsafe archive rejection, and legacy setting compatibility
 - native archive-worker request handling and Wine/Proton path adapter behavior
 - installed mod metadata repair for version and Nexus category fields
+- installed mod layout repair for safe single-wrapper archive roots
 - no-GUI fallback behavior when archive preflight is ambiguous or unavailable
 - activation/install completion and final postcondition audit behavior
 
@@ -82,6 +83,12 @@ Observed final replay results on July 29, 2026:
 
 - `xxsqm4`: 559 installed/already present/root-handled, 0 downloaded but not
   installed, 558 activated collection mods, 500 plugins already active, 0 blocked
+- `xxsqm4` recovery replay repaired 40 previously invalid single-wrapper mod
+  layouts, repaired 571 collection metadata records, and a disk audit found 0
+  remaining invalid headless installs.
+- A follow-up `xxsqm4` replay was layout-idempotent: 0 additional wrapper
+  repairs, 559 installed/already present/root-handled, 0 downloaded but not
+  installed, 33 plugins activated, 500 plugins already active, 0 blocked.
 - `8vdyr1`: 75 installed/already present/root-handled, 0 downloaded but not
   installed, 75 activated collection mods, 23 plugins already active, 0 blocked
 - MO2 Sort completed and reported a missing master from collection content. That

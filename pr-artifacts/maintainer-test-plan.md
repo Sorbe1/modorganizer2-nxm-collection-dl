@@ -49,6 +49,7 @@ Validated:
 - safe `.7z`, `.zip`, and `.rar` archives installed without MO2 Quick Install UI
 - Proton archive subprocess failure fell back to the native archive worker
 - Add Collection replay repaired installed/download metadata and activation
+- Add Collection replay repaired existing safe single-wrapper layout defects
 - success summaries auto-closed during automatic handoff/replay
 - stacked target collections converged to installed and active state
 - MO2 Sort completed after convergence
@@ -57,6 +58,12 @@ Observed final replay results on July 29, 2026:
 
 - `xxsqm4`: 559 installed/already present/root-handled, 0 downloaded but not
   installed, 558 activated collection mods, 500 plugins already active, 0 blocked
+- `xxsqm4` recovery replay repaired 40 invalid single-wrapper layouts and 571
+  metadata records; an independent disk audit found 0 remaining invalid
+  headless installs.
+- A second `xxsqm4` replay performed 0 additional layout repairs, stayed at
+  559 installed/already present/root-handled, and activated 33 previously
+  inactive plugins.
 - `8vdyr1`: 75 installed/already present/root-handled, 0 downloaded but not
   installed, 75 activated collection mods, 23 plugins already active, 0 blocked
 

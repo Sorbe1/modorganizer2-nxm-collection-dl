@@ -82,6 +82,12 @@ Observed final replay results on July 29, 2026:
 - `xxsqm4` replay: 559 entries installed/already present/root-handled, 0
   downloaded-but-not-installed, 558 activated collection mods, 500 plugins
   already active, 0 blocked, success summary auto-closed.
+- `xxsqm4` recovery replay repaired 40 invalid single-wrapper layouts and 571
+  metadata records. An independent disk audit found 0 remaining invalid
+  headless installs.
+- A second `xxsqm4` replay performed 0 additional layout repairs, remained at
+  559 installed/already present/root-handled, and activated 33 previously
+  inactive plugins.
 - `8vdyr1` replay: 75 entries installed/already present/root-handled, 0
   downloaded-but-not-installed, 75 activated collection mods, 23 plugins already
   active, 0 blocked, success summary auto-closed.
