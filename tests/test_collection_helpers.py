@@ -47,6 +47,7 @@ from collection_helpers import (
     gameRootFileEvidenceForCollectionEntry,
     headlessArchivePreflightFallback,
     hasPartialUnfinishedEntries,
+    headlessPayloadRootValid,
     headlessInstallMetaIni,
     headlessZipInstallLayout,
     inferModIdFromDownloadName,
@@ -75,6 +76,7 @@ from collection_helpers import (
     repairDownloadMetadataInstalledFlags,
     repairInstalledCollectionModMetadata,
     repairModlistEnabledStates,
+    repairSingleWrapperPayload,
     retryAfterSeconds,
     quotaLimitMessage,
     quotaResumeDelaySeconds,
@@ -2634,6 +2636,86 @@ class MoveHeadlessArchivePayloadTests(unittest.TestCase):
                 (target_dir / "textures" / "road.dds").read_bytes(), b"texture"
             )
             self.assertFalse((target_dir / "Example").exists())
+
+
+class HeadlessPayloadRootValidationTests(unittest.TestCase):
+    def test_accepts_top_level_plugin_or_known_data_directory(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin_root = root / "plugin"
+            plugin_root.mkdir()
+            (plugin_root / "Example.esp").write_text("", encoding="utf-8")
+            self.assertTrue(headlessPayloadRootValid(plugin_root))
+
+            mesh_root = root / "mesh"
+            (mesh_root / "meshes").mkdir(parents=True)
+            (mesh_root / "meshes" / "Example.nif").write_text("", encoding="utf-8")
+            self.assertTrue(headlessPayloadRootValid(mesh_root))
+
+            ini_root = root / "ini"
+            ini_root.mkdir()
+            (ini_root / "Example_DISTR.ini").write_text("", encoding="utf-8")
+            self.assertTrue(headlessPayloadRootValid(ini_root))
+
+            netscript_root = root / "netscript"
+            (netscript_root / "NetScriptFramework" / "Plugins").mkdir(parents=True)
+            (
+                netscript_root / "NetScriptFramework" / "Plugins" / "GrassControl.dll"
+            ).write_text("", encoding="utf-8")
+            self.assertTrue(headlessPayloadRootValid(netscript_root))
+
+    def test_rejects_plugin_hidden_under_unstripped_wrapper(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wrapper = root / "Wrapper"
+            wrapper.mkdir()
+            (wrapper / "Example.esp").write_text("", encoding="utf-8")
+
+            self.assertFalse(headlessPayloadRootValid(root))
+
+    def test_repairs_single_valid_wrapper_payload(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wrapper = root / "Glorious Doors of Skyrim (GDOS) - Update 1.04"
+            wrapper.mkdir()
+            (wrapper / "GDOS - Splendid Mechanized Dwemer Door.esp").write_text(
+                "", encoding="utf-8"
+            )
+            (root / "meta.ini").write_text("[General]\n", encoding="utf-8")
+
+            self.assertTrue(repairSingleWrapperPayload(root))
+            self.assertTrue(
+                (root / "GDOS - Splendid Mechanized Dwemer Door.esp").exists()
+            )
+            self.assertFalse(wrapper.exists())
+            self.assertTrue(headlessPayloadRootValid(root))
+
+    def test_repairs_nested_single_wrapper_payload(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            nested = root / "Outer" / "Inner"
+            nested.mkdir(parents=True)
+            (nested / "Example.esp").write_text("", encoding="utf-8")
+            (root / "meta.ini").write_text("[General]\n", encoding="utf-8")
+
+            self.assertTrue(repairSingleWrapperPayload(root))
+            self.assertTrue((root / "Example.esp").exists())
+            self.assertFalse((root / "Outer").exists())
+
+    def test_does_not_repair_when_lift_would_overwrite_existing_file(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wrapper = root / "Wrapper"
+            wrapper.mkdir()
+            (wrapper / "Example.esp").write_text("nested", encoding="utf-8")
+            (root / "Example.esp").write_text("existing", encoding="utf-8")
+            (root / "meta.ini").write_text("[General]\n", encoding="utf-8")
+
+            self.assertFalse(repairSingleWrapperPayload(root))
+            self.assertEqual(
+                (root / "Example.esp").read_text(encoding="utf-8"), "existing"
+            )
+            self.assertTrue((wrapper / "Example.esp").exists())
 
 
 class HeadlessInstallMetaIniTests(unittest.TestCase):

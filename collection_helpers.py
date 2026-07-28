@@ -44,6 +44,7 @@ DIRECT_INSTALL_MARKER_DIRS = {
     "meshes",
     "mcm",
     "music",
+    "netscriptframework",
     "scripts",
     "seq",
     "skse",
@@ -54,6 +55,10 @@ DIRECT_INSTALL_MARKER_DIRS = {
 
 DIRECT_INSTALL_MARKER_FILES = {
     "meta.ini",
+}
+
+DIRECT_INSTALL_MARKER_FILE_EXTENSIONS = {
+    ".ini",
 }
 
 DIRECT_INSTALL_PLUGIN_EXTENSIONS = {
@@ -208,6 +213,76 @@ def moveHeadlessArchivePayload(extract_root, target_dir, layout_plan):
     if extracted <= 0:
         raise RuntimeError("Archive contained no installable files.")
     return extracted
+
+
+def headlessPayloadRootValid(target_dir):
+    """Return True when an extracted mod folder looks valid to MO2."""
+    target_dir = Path(target_dir)
+    if not target_dir.exists():
+        return False
+    member_names = [
+        path.relative_to(target_dir).as_posix()
+        for path in target_dir.rglob("*")
+        if path.is_file()
+    ]
+    for name in member_names:
+        parts = name.split("/")
+        if not parts:
+            continue
+        first = parts[0].casefold()
+        suffix = Path(parts[0]).suffix.casefold()
+        if first in DIRECT_INSTALL_MARKER_DIRS:
+            return True
+        if (
+            len(parts) == 1
+            and parts[0].casefold() != "meta.ini"
+            and suffix in DIRECT_INSTALL_MARKER_FILE_EXTENSIONS
+        ):
+            return True
+        if len(parts) == 1 and suffix in DIRECT_INSTALL_PLUGIN_EXTENSIONS:
+            return True
+    return False
+
+
+def singleWrapperPayloadRoot(target_dir, max_depth=4):
+    """Return the nested valid wrapper root that can be safely lifted, if any."""
+    current = Path(target_dir)
+    for _depth in range(max_depth):
+        if headlessPayloadRootValid(current):
+            return current
+        children = [child for child in current.iterdir() if child.name != "meta.ini"]
+        if len(children) != 1 or not children[0].is_dir():
+            return None
+        current = children[0]
+    if headlessPayloadRootValid(current):
+        return current
+    return None
+
+
+def repairSingleWrapperPayload(target_dir):
+    """Lift a single valid wrapper folder into the mod root when safe."""
+    target_dir = Path(target_dir)
+    if headlessPayloadRootValid(target_dir):
+        return False
+    wrapper = singleWrapperPayloadRoot(target_dir)
+    if wrapper is None or wrapper == target_dir:
+        return False
+    wrapper_children = list(wrapper.iterdir())
+    for child in wrapper_children:
+        destination = target_dir / child.name
+        if destination.exists():
+            return False
+    for child in wrapper_children:
+        shutil.move(str(child), str(target_dir / child.name))
+    current = wrapper
+    while current != target_dir:
+        parent = current.parent
+        try:
+            current.rmdir()
+        except OSError:
+            return False
+        current = parent
+    return True
 
 
 def extractHeadlessZipArchive(archive_path, target_dir, layout_plan):

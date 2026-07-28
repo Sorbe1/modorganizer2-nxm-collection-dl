@@ -54,6 +54,7 @@ from .collection_helpers import (
     nativeGameRootPathCandidate,
     fomodManualChoiceGuide,
     headlessInstallMetaIni,
+    headlessPayloadRootValid,
     headlessArchivePreflightFallback,
     invalidInstallContentDialogAction,
     installNoResultReason,
@@ -67,6 +68,7 @@ from .collection_helpers import (
     preferredCanonicalDownloadArchive,
     repairDownloadMetadataInstalledFlags,
     repairInstalledCollectionModMetadata,
+    repairSingleWrapperPayload,
     safeDisplayText,
     sevenZipArchiveMemberPaths,
     sevenZipModuleConfigPathFromListing,
@@ -1370,6 +1372,10 @@ class stepInstallMods(QDialog):
             if not extraction["ok"]:
                 raise RuntimeError(extraction["error"])
             moveHeadlessArchivePayload(extract_dir, temp_dir, layout_plan)
+            if not headlessPayloadRootValid(temp_dir):
+                raise RuntimeError(
+                    "Headless archive extraction produced invalid MO2 game data"
+                )
             self.writeHeadlessInstallMeta(
                 temp_dir,
                 archive_path,
@@ -3439,11 +3445,19 @@ class stepInstallMods(QDialog):
             ordered_keys.append(nexus_key)
 
         discovered_names = []
+        layout_repairs = 0
         for nexus_key in ordered_keys:
             mod_names = installed_records.get(nexus_key, [])
             if mod_names:
                 installed_map[nexus_key] = mod_names[0]
             for mod_name in mod_names:
+                mod_dir = mods_path / mod_name
+                if repairSingleWrapperPayload(mod_dir):
+                    layout_repairs += 1
+                    self.log(
+                        f"Repaired single-wrapper game data layout for {mod_name}.",
+                        "note",
+                    )
                 discovered_names.append(mod_name)
                 if mod_name not in known_installed_mods:
                     installed_mods.append(mod_name)
@@ -3507,6 +3521,7 @@ class stepInstallMods(QDialog):
             "installed_keys": len(installed_keys),
             "expected_installed_keys": len(expected_installed_keys),
             "discovered_mods": len(set(discovered_names)),
+            "layout_repaired": layout_repairs,
             "metadata_repaired": metadata_repair.get("repaired", 0),
             "metadata_failed": metadata_repair.get("failed", 0),
             "mod_metadata_repaired": mod_metadata_repair.get("repaired", 0),
