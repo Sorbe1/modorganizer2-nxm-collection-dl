@@ -90,11 +90,12 @@ The install pass separates safe archive installs from real installer UI:
 
 By default, the install pass checks installed collection mods in MO2, repairs
 download metadata for archives it installed, restores deterministic `meta.ini`
-fields such as version and Nexus category, restores collection priority order,
+fields such as version and category, restores collection priority order,
 activates installed collection mods, and attempts to activate plugins from those
-mods after the collection completes. MO2-local category assignment is not guessed
-from Nexus category ids. Repeated files from the same Nexus mod use `#2`, `#3`,
-and later suffixes instead of silently merging into one row.
+mods after the collection completes. Category repair uses MO2's own
+`categories.dat` table when the collection metadata names a category; unrelated
+MO2-local metadata remains user/MO2-owned. Repeated files from the same Nexus mod
+use `#2`, `#3`, and later suffixes instead of silently merging into one row.
 
 ## Platform Notes
 

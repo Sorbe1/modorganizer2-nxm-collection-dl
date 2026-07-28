@@ -32,6 +32,8 @@ Covered behavior:
 - unsafe archive path rejection
 - native archive-worker request/result handling
 - installed mod metadata repair for version and Nexus category fields
+- MO2 category mapping through `categories.dat`
+- invalid empty installer-output replay and non-game-data container disablement
 - activation/install completion and postcondition audit behavior
 
 ## Live Checks
@@ -57,13 +59,13 @@ Validated:
 Observed final replay results on July 29, 2026:
 
 - `xxsqm4`: 559 installed/already present/root-handled, 0 downloaded but not
-  installed, 558 activated collection mods, 500 plugins already active, 0 blocked
-- `xxsqm4` recovery replay repaired 40 invalid single-wrapper layouts and 571
-  metadata records; an independent disk audit found 0 remaining invalid
-  headless installs.
-- A second `xxsqm4` replay performed 0 additional layout repairs, stayed at
-  559 installed/already present/root-handled, and activated 33 previously
-  inactive plugins.
+  installed, 553 activated collection mods, 535 plugins already active, 0 blocked
+- Final `xxsqm4` replay repaired installed download metadata, restored version
+  and category metadata, handled the root Engine Fixes preloader as already
+  present, and produced 0 failed/skipped entries.
+- Post-run audits found 0 active invalid game-data containers, 0 blank versions,
+  0 blank categories, and confirmed previously disabled plugins persisted as
+  enabled with canonical filename casing.
 - `8vdyr1`: 75 installed/already present/root-handled, 0 downloaded but not
   installed, 75 activated collection mods, 23 plugins already active, 0 blocked
 

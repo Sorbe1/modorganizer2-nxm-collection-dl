@@ -40,22 +40,29 @@ from .collection_helpers import (
     INSTALLER_SETTING_DEFAULTS,
     allocateUniqueModName,
     archiveInspectionSubprocessKwargs,
+    collectionInvalidPayloadModNames,
     collectionInstallRoute,
+    collectionPluginNamesFromModDirs,
     coerceBoolSetting,
     coerceIntSetting,
     collectionEntryNexusKey,
+    collectionPluginActivationTargetModNames,
     collectionExpectedFileNames,
     collectionExpectedNexusKeys,
     contentTreeWarningDialogAction,
     detachedInstallCacheKeyFromPath,
+    extractHeadlessZipArchive,
     fastFinishMetadataRepairKeys,
     headlessArchiveInstallLayout,
+    headlessFomodDependencyInstallLayout,
     gameRootFileEvidenceForCollectionEntry,
     nativeGameRootPathCandidate,
     fomodManualChoiceGuide,
     headlessInstallMetaIni,
     headlessPayloadRootValid,
     headlessArchivePreflightFallback,
+    installedModHasCompletionPayload,
+    installedPayloadFileCount,
     invalidInstallContentDialogAction,
     installNoResultReason,
     installPlanExecutionAction,
@@ -66,16 +73,20 @@ from .collection_helpers import (
     normalizedButtonLabel,
     nativePathForArchiveInspection,
     preferredCanonicalDownloadArchive,
+    mo2CategoryNameMap,
     repairDownloadMetadataInstalledFlags,
     repairInstalledCollectionModMetadata,
     repairSingleWrapperPayload,
+    repairPluginEnabledStates,
     safeDisplayText,
     sevenZipArchiveMemberPaths,
     sevenZipModuleConfigPathFromListing,
     shouldAutoCloseInstallSummary,
     shouldPassTargetNameToInstallMod,
+    shouldQueueFomodProbeRetry,
     shouldUseArchiveDefaultForFomodCompatibility,
     steamGameRootFromMo2BasePath,
+    zipArchiveMemberPaths,
     installedModRecordsFromDirectory,
 )
 
@@ -813,6 +824,7 @@ class stepInstallMods(QDialog):
         self.fomod_auto_stalled_generations = set()
         self.archive_fomod_errors = {}
         self.archive_fomod_cache = None
+        self.manual_fomod_plan_cache = None
         self.runtime_api_trace_logged = False
         self.last_failed_entries = []
         self.warning_report_path = None
@@ -1299,6 +1311,84 @@ class stepInstallMods(QDialog):
                 return entry
         return None
 
+    def manualFomodPlanCachePath(self, organizer):
+        return Path(organizer.basePath()) / "nxm-collection-dl-manual-fomod-cache.json"
+
+    def loadManualFomodPlanCache(self, organizer):
+        if self.manual_fomod_plan_cache is not None:
+            return self.manual_fomod_plan_cache
+        self.manual_fomod_plan_cache = {}
+        try:
+            with open(
+                self.manualFomodPlanCachePath(organizer),
+                "r",
+                encoding="utf-8",
+            ) as cache_file:
+                payload = json.load(cache_file)
+        except (OSError, ValueError):
+            return self.manual_fomod_plan_cache
+        entries = payload.get("archives", {}) if isinstance(payload, dict) else {}
+        if isinstance(entries, dict):
+            self.manual_fomod_plan_cache = entries
+        return self.manual_fomod_plan_cache
+
+    def archiveIdentityForManualFomodCache(self, archive_path):
+        path = Path(str(archive_path))
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        return {
+            "archive": path.name,
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+        }
+
+    def manualFomodPlanCacheKey(self, install_key):
+        return f"{int(install_key[0])}:{int(install_key[1])}"
+
+    def cachedManualFomodPlanFailure(self, organizer, install_key, archive_path):
+        identity = self.archiveIdentityForManualFomodCache(archive_path)
+        if identity is None:
+            return None
+        entry = self.loadManualFomodPlanCache(organizer).get(
+            self.manualFomodPlanCacheKey(install_key)
+        )
+        if not isinstance(entry, dict):
+            return None
+        if entry.get("identity") != identity:
+            return None
+        reason = entry.get("reason")
+        if not reason:
+            return None
+        return str(reason)
+
+    def rememberManualFomodPlanFailure(
+        self,
+        organizer,
+        install_key,
+        archive_path,
+        reason,
+    ):
+        identity = self.archiveIdentityForManualFomodCache(archive_path)
+        if identity is None or not reason:
+            return
+        cache = self.loadManualFomodPlanCache(organizer)
+        cache[self.manualFomodPlanCacheKey(install_key)] = {
+            "identity": identity,
+            "reason": str(reason),
+            "updated": datetime.now().isoformat(timespec="seconds"),
+        }
+        try:
+            with open(
+                self.manualFomodPlanCachePath(organizer),
+                "w",
+                encoding="utf-8",
+            ) as cache_file:
+                json.dump({"archives": cache}, cache_file, indent=2, sort_keys=True)
+        except OSError as e:
+            qDebug(f"[NXMColDL Install] Could not write manual FOMOD plan cache: {e}")
+
     def sevenZipExecutable(self):
         executable = shutil.which("7z") or shutil.which("7zz")
         if executable:
@@ -1338,6 +1428,63 @@ class stepInstallMods(QDialog):
             }
         return headlessArchiveInstallLayout(listing["members"])
 
+    def headlessFomodDependencyLayoutPlan(
+        self, archive_path, organizer, evidence_names
+    ):
+        if (
+            Path(str(archive_path)).suffix.casefold() != ".zip"
+            and not self.sevenZipExecutable()
+        ):
+            return {
+                "installable": False,
+                "reason": "non-ZIP FOMOD archive requires external 7z inspection",
+                "mappings": [],
+                "fomod_selection": True,
+            }
+        listing = self.listArchiveMembers(archive_path, organizer=organizer)
+        if not listing["ok"]:
+            return {
+                "installable": False,
+                "reason": listing["error"],
+                "mappings": [],
+                "fomod_selection": True,
+            }
+        module_config, module_path, error = self.readArchiveFomodModuleConfig(
+            archive_path
+        )
+        if error:
+            return {
+                "installable": False,
+                "reason": error,
+                "mappings": [],
+                "fomod_selection": True,
+            }
+        return headlessFomodDependencyInstallLayout(
+            module_config,
+            module_path,
+            listing["members"],
+            evidence_names,
+        )
+
+    def profileInstallEvidenceNames(self, organizer):
+        """Return active mod and plugin names for dependency-based FOMOD choices."""
+        evidence = set()
+        for file_name in ("modlist.txt", "plugins.txt"):
+            profile_file = Path(organizer.profilePath()) / file_name
+            try:
+                lines = profile_file.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("+") or line.startswith("*"):
+                    evidence.add(line[1:].strip())
+        return sorted(name for name in evidence if name)
+
     def directHeadlessArchiveInstall(
         self,
         organizer,
@@ -1347,6 +1494,7 @@ class stepInstallMods(QDialog):
         file_name,
         layout_plan,
         mod_info=None,
+        replace_empty_target=False,
     ):
         if not target_mod_name:
             raise RuntimeError("Headless archive install requires a target mod name.")
@@ -1356,7 +1504,9 @@ class stepInstallMods(QDialog):
         temp_dir = mods_path / f".nxm-collection-installing-{target_mod_name}"
         extract_dir = mods_path / f".nxm-collection-extracting-{target_mod_name}"
         if target_dir.exists():
-            raise RuntimeError(f"Target mod directory already exists: {target_dir}")
+            if not replace_empty_target or installedModHasCompletionPayload(target_dir):
+                raise RuntimeError(f"Target mod directory already exists: {target_dir}")
+            shutil.rmtree(target_dir)
         for transient_dir in (temp_dir, extract_dir):
             if transient_dir.exists():
                 shutil.rmtree(transient_dir)
@@ -1383,6 +1533,7 @@ class stepInstallMods(QDialog):
                 install_key,
                 file_name,
                 mod_info=mod_info,
+                organizer=organizer,
             )
             temp_dir.rename(target_dir)
             return target_mod_name
@@ -1404,11 +1555,20 @@ class stepInstallMods(QDialog):
         install_key,
         file_name,
         mod_info=None,
+        organizer=None,
     ):
         timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         mod_id, file_id = install_key
         file_data = (mod_info or {}).get("file") or {}
         nexus_mod = file_data.get("mod") or {}
+        category_map = (
+            mo2CategoryNameMap(Path(organizer.basePath()) / "categories.dat")
+            if organizer is not None
+            else {}
+        )
+        nexus_category = nexus_mod.get("category", 0)
+        if not isinstance(nexus_category, int):
+            nexus_category = category_map.get(str(nexus_category).casefold(), 0)
         metadata = headlessInstallMetaIni(
             mod_id,
             file_id,
@@ -1418,11 +1578,25 @@ class stepInstallMods(QDialog):
             timestamp,
             file_version=file_data.get("version", ""),
             mod_version=nexus_mod.get("version", ""),
-            nexus_category=nexus_mod.get("category", 0),
+            nexus_category=nexus_category,
         )
         (Path(mod_dir) / "meta.ini").write_text(metadata, encoding="utf-8")
 
     def listArchiveMembers(self, archive_path, organizer=None):
+        if Path(str(archive_path)).suffix.casefold() == ".zip":
+            try:
+                return {
+                    "ok": True,
+                    "members": zipArchiveMemberPaths(archive_path),
+                    "error": None,
+                }
+            except (OSError, zipfile.BadZipFile) as e:
+                return {
+                    "ok": False,
+                    "members": [],
+                    "error": f"Could not inspect zip archive: {e}",
+                }
+
         executable = self.sevenZipExecutable()
         if not executable:
             direct_error = "No 7z/7zz executable available to inspect this archive."
@@ -1449,6 +1623,13 @@ class stepInstallMods(QDialog):
         return {"ok": True, "members": members, "error": None}
 
     def extractArchiveToDirectory(self, archive_path, target_dir, organizer=None):
+        if Path(str(archive_path)).suffix.casefold() == ".zip":
+            try:
+                extractHeadlessZipArchive(archive_path, target_dir, {})
+            except (OSError, zipfile.BadZipFile, RuntimeError) as e:
+                return {"ok": False, "error": f"Could not extract zip archive: {e}"}
+            return {"ok": True, "error": None}
+
         executable = self.sevenZipExecutable()
         if not executable:
             direct_error = "No 7z/7zz executable available to extract this archive."
@@ -1755,6 +1936,7 @@ class stepInstallMods(QDialog):
                 "expected_file_names": expected_file_names,
                 "download_map": download_map,
                 "installed_map": installed_map,
+                "install_evidence_names": self.profileInstallEvidenceNames(organizer),
                 "installed_mods": [],
                 "failed_entries": [],
                 "root_level_entries": [],
@@ -1854,12 +2036,33 @@ class stepInstallMods(QDialog):
                 "status": "install",
             }
 
+            download_path = download_map.get(install_key)
+
+            invalid_installed_name = None
             if install_key in installed_map:
-                entry["status"] = "installed"
-                entry["installed_name"] = installed_map[install_key]
-                counts["installed"] += 1
-                plan.append(entry)
-                continue
+                installed_name = installed_map[install_key]
+                installed_dir = mods_path / installed_name
+                invalid_installed = (
+                    installed_dir / "meta.ini"
+                ).exists() and not headlessPayloadRootValid(installed_dir)
+                if invalid_installed and download_path:
+                    invalid_payload_files = installedPayloadFileCount(installed_dir)
+                    # Empty invalid containers are interrupted installer outputs and can be
+                    # replayed from the archive. Non-empty invalid containers may be
+                    # deliberate tool/root payloads, so keep them installed and let the
+                    # final sweep disable them instead of forcing a lossy reinstall.
+                    if invalid_payload_files == 0:
+                        invalid_installed_name = installed_name
+                        counts["repair_invalid_empty"] += 1
+                    else:
+                        counts["invalid_nonempty"] += 1
+
+                if invalid_installed_name is None:
+                    entry["status"] = "installed"
+                    entry["installed_name"] = installed_name
+                    counts["installed"] += 1
+                    plan.append(entry)
+                    continue
 
             root_evidence = (
                 gameRootFileEvidenceForCollectionEntry(install_key, game_root_path)
@@ -1875,7 +2078,6 @@ class stepInstallMods(QDialog):
                 plan.append(entry)
                 continue
 
-            download_path = download_map.get(install_key)
             if not download_path:
                 entry["status"] = "failed"
                 entry["reason"] = "not found in downloads"
@@ -1887,13 +2089,18 @@ class stepInstallMods(QDialog):
                 mods_path, mod_name, download_path, mod_id
             )
             if existing_name_match:
-                entry["status"] = "installed"
-                entry["installed_name"] = existing_name_match
-                entry["matched_installation_archive"] = True
-                installed_map[install_key] = existing_name_match
-                counts["installed"] += 1
-                plan.append(entry)
-                continue
+                matched_dir = mods_path / existing_name_match
+                if not installedModHasCompletionPayload(matched_dir):
+                    invalid_installed_name = existing_name_match
+                    counts["repair_invalid_empty"] += 1
+                else:
+                    entry["status"] = "installed"
+                    entry["installed_name"] = existing_name_match
+                    entry["matched_installation_archive"] = True
+                    installed_map[install_key] = existing_name_match
+                    counts["installed"] += 1
+                    plan.append(entry)
+                    continue
 
             self.repairStaleInstalledDownloadMetadata(
                 download_path, install_key, installed_map
@@ -1907,17 +2114,23 @@ class stepInstallMods(QDialog):
                     organizer, download_path, install_key
                 )
                 source_note = "detached"
+            if invalid_installed_name:
+                install_source_path = download_path
+                source_note = "invalid-installed-repair"
 
             fomod_state = False
             auto_advance_fomod_defaults = context.get(
                 "auto_advance_fomod_defaults",
                 INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"],
             )
+            if invalid_installed_name:
+                fomod_state = True
             if (
                 context["separate_file_installs"]
                 and not manual_install_pass
                 and not normal_dialog_retry_pass
                 and auto_advance_fomod_defaults
+                and not invalid_installed_name
             ):
                 fomod_archive_cache = context.setdefault("fomod_archive_cache", {})
                 archive_key = str(install_source_path)
@@ -1939,7 +2152,9 @@ class stepInstallMods(QDialog):
             )
 
             existing_mod_action = None
-            if not manual_install_pass or normal_dialog_retry_pass:
+            if invalid_installed_name:
+                existing_mod_action = "replace"
+            elif not manual_install_pass or normal_dialog_retry_pass:
                 if context["separate_file_installs"]:
                     existing_mod_action = "rename"
                 elif not context[
@@ -1954,7 +2169,11 @@ class stepInstallMods(QDialog):
                 use_archive_default_for_fomod,
             )
             target_mod_name = None
-            if use_target_mod_name or existing_mod_action == "rename":
+            if invalid_installed_name:
+                target_mod_name = invalid_installed_name
+                use_target_mod_name = True
+                use_archive_default_for_fomod = False
+            elif use_target_mod_name or existing_mod_action == "rename":
                 target_mod_name = self.allocateCollectionModName(
                     mod_name, used_mod_names, mod_name_counts
                 )
@@ -1970,10 +2189,72 @@ class stepInstallMods(QDialog):
                 ),
             )
             headless_archive_layout = None
-            if install_route == "headless-archive":
-                headless_archive_layout = self.headlessArchiveLayoutPlan(
+            if (
+                invalid_installed_name
+                and fomod_state is True
+                and install_route == "mo2"
+                and not manual_install_pass
+                and not normal_dialog_retry_pass
+                and self.installerBoolSetting("headless_archive_installs")
+            ):
+                cached_manual_fomod_reason = self.cachedManualFomodPlanFailure(
+                    context["organizer"],
+                    install_key,
                     install_source_path,
-                    organizer=context["organizer"],
+                )
+                if cached_manual_fomod_reason:
+                    headless_archive_layout = {
+                        "installable": False,
+                        "reason": cached_manual_fomod_reason,
+                        "mappings": [],
+                        "fomod_selection": True,
+                        "source": "manual-fomod-cache",
+                    }
+                else:
+                    headless_archive_layout = self.headlessFomodDependencyLayoutPlan(
+                        install_source_path,
+                        organizer=context["organizer"],
+                        evidence_names=context.get("install_evidence_names", []),
+                    )
+                if headless_archive_layout.get("installable"):
+                    install_route = "headless-archive"
+                    existing_mod_action = None
+                    use_target_mod_name = True
+                    use_archive_default_for_fomod = False
+                    counts["headless_fomod_repair"] += 1
+                else:
+                    self.rememberManualFomodPlanFailure(
+                        context["organizer"],
+                        install_key,
+                        install_source_path,
+                        headless_archive_layout.get("reason"),
+                    )
+                    entry.update(
+                        {
+                            "status": "failed",
+                            "download_path": download_path,
+                            "install_source_path": install_source_path,
+                            "source_note": source_note,
+                            "reason": (
+                                "manual FOMOD choices required: "
+                                f"{headless_archive_layout.get('reason')}"
+                            ),
+                            "headless_archive_layout": headless_archive_layout,
+                            "replacing_invalid_installed_name": invalid_installed_name,
+                            "fomod_state": "true",
+                        }
+                    )
+                    counts["missing"] += 1
+                    plan.append(entry)
+                    continue
+            if install_route == "headless-archive":
+                headless_archive_layout = (
+                    self.headlessArchiveLayoutPlan(
+                        install_source_path,
+                        organizer=context["organizer"],
+                    )
+                    if headless_archive_layout is None
+                    else headless_archive_layout
                 )
                 if not headless_archive_layout.get("installable"):
                     fallback_route = headlessArchivePreflightFallback(
@@ -2014,9 +2295,12 @@ class stepInstallMods(QDialog):
                     "use_target_mod_name": use_target_mod_name,
                     "install_route": install_route,
                     "headless_archive_layout": headless_archive_layout,
+                    "replacing_invalid_installed_name": invalid_installed_name,
                 }
             )
             counts["install"] += 1
+            if invalid_installed_name:
+                counts["repair_invalid"] += 1
             if install_route == "headless-archive":
                 counts["headless_archive"] += 1
             if fomod_state is True:
@@ -2029,9 +2313,12 @@ class stepInstallMods(QDialog):
 
         context["install_plan"] = plan
         context["install_plan_counts"] = dict(counts)
-        context["install_plan_fast_finish"] = (
-            counts["install"] == 0 and counts["missing"] == 0
-        )
+        context["install_plan_work_indexes"] = [
+            index
+            for index, entry in enumerate(plan)
+            if entry.get("status") == "install"
+        ]
+        context["install_plan_fast_finish"] = counts["install"] == 0
         self.log(
             "Install plan ready: "
             f"{counts['installed']} already installed, "
@@ -2041,7 +2328,10 @@ class stepInstallMods(QDialog):
             f"{counts['fomod']} FOMOD, "
             f"{counts['fomod_unknown']} unknown FOMOD state, "
             f"{counts['headless_archive']} headless archive, "
-            f"{counts['named']} reserved names.",
+            f"{counts['named']} reserved names, "
+            f"{counts['repair_invalid']} invalid installed repair(s), "
+            f"{counts['repair_invalid_empty']} meta-only invalid repair(s), "
+            f"{counts['invalid_nonempty']} non-empty invalid kept installed.",
             "note",
         )
         self.log("")
@@ -2104,7 +2394,7 @@ class stepInstallMods(QDialog):
 
         context["install_plan_fast_finished"] = True
         self.log(
-            "No install work remains; verifying metadata, activation, and priority "
+            "No install work remains; preparing fast summary "
             f"for {installed_count} installed and {root_count} root-handled entries.",
             "note",
         )
@@ -2114,6 +2404,37 @@ class stepInstallMods(QDialog):
                 "warning",
             )
         self.finishInstallation()
+
+    def populateNonInstallPlanEntries(self, context):
+        """Record preflight plan outcomes that do not need installer execution."""
+        if context.get("install_plan_non_install_populated"):
+            return
+
+        for entry in context.get("install_plan", []):
+            status = entry.get("status")
+            if status == "failed":
+                context["failed_entries"].append(
+                    {
+                        "mod": entry["mod_name"],
+                        "file": entry["file_name"],
+                        "mod_id": int(entry["mod_id"]),
+                        "file_id": int(entry["file_id"]),
+                        "reason": entry.get("reason", "preflight failed"),
+                    }
+                )
+            elif status == "root":
+                context.setdefault("root_level_entries", []).append(
+                    {
+                        "mod": entry["mod_name"],
+                        "file": entry["file_name"],
+                        "mod_id": int(entry["mod_id"]),
+                        "file_id": int(entry["file_id"]),
+                        "archive": "",
+                        "reason": entry.get("reason", "game-root file already present"),
+                    }
+                )
+
+        context["install_plan_non_install_populated"] = True
 
     def startManualFailedInstall(self):
         if not self.last_failed_entries:
@@ -2350,7 +2671,6 @@ class stepInstallMods(QDialog):
         manual_install_pass = context.get("manual_install_pass", False)
         normal_dialog_retry_pass = context.get("normal_dialog_retry_pass", False)
 
-        idx = context["next_index"] + 1
         if self.cancel_requested:
             self.finishInstallation(cancelled=True)
             return
@@ -2361,15 +2681,23 @@ class stepInstallMods(QDialog):
             self.fastFinishInstallPlan(context)
             return
 
-        if idx > len(mods_to_install):
+        self.populateNonInstallPlanEntries(context)
+        work_indexes = context.get("install_plan_work_indexes")
+        if work_indexes is None:
+            work_indexes = list(range(len(mods_to_install)))
+
+        work_idx = context["next_index"] + 1
+        if work_idx > len(work_indexes):
             self.finishInstallation()
             return
 
-        context["next_index"] = idx
-        self.progress_label.setText(f"Installing mod {idx}/{len(mods_to_install)}")
-        self.progress_bar.setValue(idx - 1)
+        context["next_index"] = work_idx
+        plan_index = work_indexes[work_idx - 1]
+        idx = plan_index + 1
+        self.progress_label.setText(f"Installing mod {work_idx}/{len(work_indexes)}")
+        self.progress_bar.setValue(work_idx - 1)
 
-        mod_info = mods_to_install[idx - 1]
+        mod_info = mods_to_install[plan_index]
         mod_id = mod_info["file"]["mod"]["modId"]
         file_id = mod_info["file"]["fileId"]
         mod_name = mod_info["file"]["mod"]["name"]
@@ -2381,7 +2709,7 @@ class stepInstallMods(QDialog):
 
         activate_after_install = context["activation_enabled"]
         plan = context.get("install_plan", [])
-        plan_entry = plan[idx - 1] if idx - 1 < len(plan) else None
+        plan_entry = plan[plan_index] if plan_index < len(plan) else None
 
         if plan_entry and plan_entry.get("status") == "installed":
             internal_name = plan_entry["installed_name"]
@@ -2544,6 +2872,10 @@ class stepInstallMods(QDialog):
                     file_name,
                     headless_archive_layout,
                     mod_info=mod_info,
+                    replace_empty_target=bool(
+                        plan_entry
+                        and plan_entry.get("replacing_invalid_installed_name")
+                    ),
                 )
                 self.log(f"  Installed headlessly as: {internal_name}", "success")
                 self.log("  Priority will be checked after collection install")
@@ -2721,6 +3053,32 @@ class stepInstallMods(QDialog):
             if installed_mod:
                 self.discardInterfaceWarningsFrom(warning_start)
                 internal_name = installed_mod.name()
+                installed_dir = Path(organizer.modsPath()) / internal_name
+                if not installedModHasCompletionPayload(installed_dir):
+                    reason = (
+                        "installer completed but produced an empty mod container; "
+                        "review FOMOD/manual choices"
+                    )
+                    failed_entries.append(
+                        {
+                            "mod": mod_name,
+                            "file": file_name,
+                            "mod_id": int(mod_id),
+                            "file_id": int(file_id),
+                            "archive": str(install_source_path),
+                            "reason": reason,
+                            **self.fomodInstallDiagnostics(
+                                fomod_state,
+                                use_archive_default_for_fomod,
+                                target_mod_name,
+                                dialog_handler_generation,
+                            ),
+                        }
+                    )
+                    self.logInstallIssue(reason, expected=True)
+                    self.log("")
+                    QTimer.singleShot(INSTALL_NEXT_DELAY_MS, self.installNextMod)
+                    return
                 self.log(f"  Installed as: {internal_name}", "success")
                 self.log(
                     "  Priority will be checked after collection install",
@@ -3496,6 +3854,9 @@ class stepInstallMods(QDialog):
             mods_path,
             installed_records,
             mods_by_key,
+            category_name_map=mo2CategoryNameMap(
+                Path(organizer.basePath()) / "categories.dat"
+            ),
         )
         if mod_metadata_repair.get("repaired"):
             self.log(
@@ -3517,6 +3878,15 @@ class stepInstallMods(QDialog):
                 f"{len(set(discovered_names))} MO2 mod container(s) installed.",
                 "note",
             )
+        invalid_payload_mods = collectionInvalidPayloadModNames(
+            mods_path, dict.fromkeys(discovered_names)
+        )
+        if invalid_payload_mods:
+            self.log(
+                "Collection containers without valid game-data payload will remain "
+                f"disabled: {len(invalid_payload_mods)}",
+                "note",
+            )
         return {
             "installed_keys": len(installed_keys),
             "expected_installed_keys": len(expected_installed_keys),
@@ -3526,6 +3896,7 @@ class stepInstallMods(QDialog):
             "metadata_failed": metadata_repair.get("failed", 0),
             "mod_metadata_repaired": mod_metadata_repair.get("repaired", 0),
             "mod_metadata_failed": mod_metadata_repair.get("failed", 0),
+            "invalid_payload_mods": invalid_payload_mods,
         }
 
     def finishInstallation(self, cancelled=False):
@@ -3548,6 +3919,9 @@ class stepInstallMods(QDialog):
         activated_count = len(context["activated_mods"])
         activation_failures = context["activation_failures"]
         plugin_activation = dict(context["plugin_activation"])
+        fast_summary_only = context.get(
+            "install_plan_fast_finished"
+        ) and not context.get("headless_installed_count")
 
         if context.get("headless_installed_count"):
             try:
@@ -3563,9 +3937,68 @@ class stepInstallMods(QDialog):
                     expected=True,
                 )
 
-        postcondition_state = self.refreshInstalledCollectionState(context)
+        if fast_summary_only:
+            plan = context.get("install_plan", [])
+            installed_plan_entries = [
+                entry for entry in plan if entry.get("status") == "installed"
+            ]
+            postcondition_state = {
+                "installed_keys": len(installed_plan_entries),
+                "expected_installed_keys": len(installed_plan_entries),
+                "discovered_mods": len(
+                    {
+                        entry.get("installed_name")
+                        for entry in installed_plan_entries
+                        if entry.get("installed_name")
+                    }
+                ),
+                "layout_repaired": 0,
+                "metadata_repaired": 0,
+                "metadata_failed": 0,
+                "mod_metadata_repaired": 0,
+                "mod_metadata_failed": 0,
+                "invalid_payload_mods": [],
+            }
+            mods_to_activate = []
+            context["mods_to_activate"] = mods_to_activate
+            installed_mods = [
+                entry["installed_name"]
+                for entry in installed_plan_entries
+                if entry.get("installed_name")
+            ]
+            context["installed_mods"] = installed_mods
+            self.log(
+                "No install work remains; using fast summary without full "
+                "post-install sweep.",
+                "note",
+            )
+        else:
+            postcondition_state = self.refreshInstalledCollectionState(context)
+        invalid_payload_mods = set(postcondition_state.get("invalid_payload_mods", []))
+        if invalid_payload_mods:
+            mods_to_activate = [
+                name for name in mods_to_activate if name not in invalid_payload_mods
+            ]
+            context["mods_to_activate"] = mods_to_activate
+            disabled_count = 0
+            for internal_name in sorted(invalid_payload_mods):
+                try:
+                    modlist.setActive(internal_name, False)
+                    disabled_count += 1
+                except Exception as e:
+                    self.logInstallIssue(
+                        f"Could not disable invalid collection container "
+                        f"{internal_name}: {e}",
+                        expected=True,
+                    )
+            if disabled_count:
+                self.log(
+                    "Disabled "
+                    f"{disabled_count} collection container(s) without valid game data.",
+                    "note",
+                )
 
-        if installed_mods:
+        if installed_mods and not fast_summary_only:
             priority_order = self.reconcileCollectionPriorityOrder(
                 modlist, installed_mods
             )
@@ -3590,12 +4023,17 @@ class stepInstallMods(QDialog):
             )
             if warning_count and len(activation_failures) == activation_failure_start:
                 self.discardInterfaceWarningsFrom(warning_start)
-            if activation_enabled:
-                final_plugin_activation = self.activatePluginsForMods(
-                    organizer, mods_to_activate
-                )
-                for key in ("activated", "already_active", "blocked"):
-                    plugin_activation[key] += final_plugin_activation[key]
+            self.log("")
+
+        plugin_activation_targets = collectionPluginActivationTargetModNames(
+            installed_mods, mods_to_activate
+        )
+        if activation_enabled and plugin_activation_targets and not fast_summary_only:
+            final_plugin_activation = self.activatePluginsForMods(
+                organizer, plugin_activation_targets
+            )
+            for key in ("activated", "already_active", "blocked"):
+                plugin_activation[key] += final_plugin_activation[key]
             self.log("")
 
         self.progress_bar.setValue(len(mods_to_install))
@@ -3622,10 +4060,8 @@ class stepInstallMods(QDialog):
         root_level_count = len(root_level_entries)
         total_entries = context.get("collection_total_entries", len(mods_to_install))
         self.log(f"  Collection file entries: {total_entries}")
-        self.log(
-            "  Entries installed/already present/root-handled: "
-            f"{len(installed_mods) + root_level_count}"
-        )
+        completed_entries = len(mods_to_install) - review_count
+        self.log(f"  Entries completed/root-handled: {completed_entries}")
         if review_count:
             self.log(
                 "  Entries downloaded but not installed: "
@@ -3726,8 +4162,7 @@ class stepInstallMods(QDialog):
             self.log(f"  FOMOD/manual install guide: {guide_path}", "note")
         qDebug(
             "[NXMColDL] Installation finished: "
-            f"{len(installed_mods) + root_level_count}/{len(mods_to_install)} "
-            "installed/root-handled, "
+            f"{completed_entries}/{len(mods_to_install)} completed/root-handled, "
             f"{failed_count} failed/skipped"
         )
 
@@ -3793,11 +4228,9 @@ class stepInstallMods(QDialog):
     def fomodProbeBatchEntries(self, failed_entries):
         batch_entries = []
         for entry in failed_entries:
-            if entry.get("fomod_state") != "true":
+            if not shouldQueueFomodProbeRetry(entry):
                 continue
             archive = entry.get("archive")
-            if not archive:
-                continue
             target = entry.get("target_mod_name") or entry.get("mod")
             batch_entries.append(
                 {
@@ -3890,7 +4323,11 @@ class stepInstallMods(QDialog):
 
     def activatePluginsForMods(self, organizer, mod_names, heading=None):
         plugin_list = organizer.pluginList()
-        mod_name_set = set(mod_names)
+        mod_name_set = {str(name).casefold() for name in mod_names or []}
+        plugin_names_from_dirs = collectionPluginNamesFromModDirs(
+            Path(organizer.modsPath()), mod_names
+        )
+        plugin_name_set = {name.casefold() for name in plugin_names_from_dirs}
         activated = 0
         already_active = 0
         blocked = 0
@@ -3903,7 +4340,10 @@ class stepInstallMods(QDialog):
         self.log(heading or "Activating plugins from installed mods...")
         for plugin_name in plugin_list.pluginNames():
             try:
-                if plugin_list.origin(plugin_name) not in mod_name_set:
+                if (
+                    str(plugin_list.origin(plugin_name)).casefold() not in mod_name_set
+                    and plugin_name.casefold() not in plugin_name_set
+                ):
                     continue
 
                 if plugin_list.state(plugin_name) == mobase.PluginState.ACTIVE:
@@ -3932,6 +4372,30 @@ class stepInstallMods(QDialog):
             f"  Plugin activation: {activated} activated, "
             f"{already_active} already active, {blocked} blocked"
         )
+        profile_plugins_path = Path(organizer.profilePath()) / "plugins.txt"
+        file_repair = repairPluginEnabledStates(
+            profile_plugins_path, plugin_names_from_dirs
+        )
+        if file_repair.get("enabled"):
+            self.log(
+                "  Profile plugin list repaired: "
+                f"{file_repair['enabled']} plugin(s) enabled on disk",
+                "success",
+            )
+            try:
+                organizer.refresh(True)
+            except Exception as e:
+                self.logInstallIssue(
+                    f"Could not refresh after profile plugin repair: {e}",
+                    expected=True,
+                )
+            activated = max(activated, file_repair["enabled"])
+        if file_repair.get("failed"):
+            blocked += file_repair["failed"]
+            self.logInstallIssue(
+                "Could not repair profile plugin enabled state on disk",
+                expected=True,
+            )
         return {
             "activated": activated,
             "already_active": already_active,

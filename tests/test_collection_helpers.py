@@ -45,14 +45,20 @@ from collection_helpers import (
     fastFinishMetadataRepairKeys,
     fomodManualChoiceGuide,
     gameRootFileEvidenceForCollectionEntry,
+    headlessFomodDependencyInstallLayout,
     headlessArchivePreflightFallback,
     hasPartialUnfinishedEntries,
     headlessPayloadRootValid,
     headlessInstallMetaIni,
     headlessZipInstallLayout,
     inferModIdFromDownloadName,
+    installedModHasCompletionPayload,
+    installedPayloadFileCount,
     installedModRecordsFromDirectory,
     installPlanExecutionAction,
+    collectionPluginActivationTargetModNames,
+    collectionInvalidPayloadModNames,
+    collectionPluginNamesFromModDirs,
     invalidInstallContentDialogAction,
     installNoResultReason,
     installerDefaultActionLabel,
@@ -60,7 +66,10 @@ from collection_helpers import (
     isQuotaLimitText,
     isSafeSingletonFomodOption,
     matchingPartialOrphanUnfinishedEntries,
+    mo2CategoryField,
+    mo2CategoryNameMap,
     moveHeadlessArchivePayload,
+    moveHeadlessFomodSelectionPayload,
     nativeGameRootPathCandidate,
     nativePathForArchiveInspection,
     nexusQuotaRemainingFromText,
@@ -75,7 +84,9 @@ from collection_helpers import (
     removeUnfinishedEntries,
     repairDownloadMetadataInstalledFlags,
     repairInstalledCollectionModMetadata,
+    repairModlistDisabledStates,
     repairModlistEnabledStates,
+    repairPluginEnabledStates,
     repairSingleWrapperPayload,
     retryAfterSeconds,
     quotaLimitMessage,
@@ -88,6 +99,8 @@ from collection_helpers import (
     sevenZipArchiveMemberPaths,
     shouldAutoCloseInstallSummary,
     shouldPassTargetNameToInstallMod,
+    shouldQueueFomodProbeRetry,
+    shouldRetryInvalidInstalledCollectionArchive,
     shouldUseArchiveDefaultForFomodCompatibility,
     shouldUseCollectionTargetModName,
     shouldDelayTerminalDownloadFailure,
@@ -107,6 +120,7 @@ from collection_helpers import (
     steamShaderProcessingQueue,
     unfinishedDownloadEntries,
     zeroByteUnfinishedEntries,
+    zipArchiveMemberPaths,
 )
 
 
@@ -392,7 +406,7 @@ class RepairDownloadMetadataInstalledFlagsTests(unittest.TestCase):
 
 
 class InstalledCollectionMetadataRepairTests(unittest.TestCase):
-    def test_repairs_manifest_version_and_nexus_category_without_local_category(self):
+    def test_repairs_manifest_version_and_mo2_category_from_nexus_category(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             mods = root / "mods"
@@ -422,7 +436,48 @@ class InstalledCollectionMetadataRepairTests(unittest.TestCase):
                     (123, 456): {
                         "file": {
                             "version": "1.2.3",
-                            "mod": {"version": "1.2", "category": 42},
+                            "mod": {"version": "1.2", "category": "User Interface"},
+                        }
+                    }
+                },
+                category_name_map={"user interface": 42},
+            )
+
+            repaired = metadata.read_text(encoding="utf-8")
+            self.assertEqual(result["repaired"], 1)
+            self.assertIn("version=1.2.3", repaired)
+            self.assertIn("newestVersion=1.2", repaired)
+            self.assertIn("nexusCategory=User Interface", repaired)
+            self.assertIn('category="42,"', repaired)
+
+    def test_repairs_blank_file_version_from_manifest_mod_version(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            mod_dir = mods / "Example Mod"
+            mod_dir.mkdir(parents=True)
+            metadata = mod_dir / "meta.ini"
+            metadata.write_text(
+                "[General]\n"
+                "modid=123\n"
+                "version=\n"
+                "newestVersion=\n"
+                "\n"
+                "[installedFiles]\n"
+                "size=1\n"
+                "1\\modid=123\n"
+                "1\\fileid=456\n",
+                encoding="utf-8",
+            )
+
+            result = repairInstalledCollectionModMetadata(
+                mods,
+                {(123, 456): ["Example Mod"]},
+                {
+                    (123, 456): {
+                        "file": {
+                            "version": "",
+                            "mod": {"version": "1.05", "category": "Combat"},
                         }
                     }
                 },
@@ -430,10 +485,73 @@ class InstalledCollectionMetadataRepairTests(unittest.TestCase):
 
             repaired = metadata.read_text(encoding="utf-8")
             self.assertEqual(result["repaired"], 1)
-            self.assertIn("version=1.2.3", repaired)
-            self.assertIn("newestVersion=1.2", repaired)
-            self.assertIn("nexusCategory=42", repaired)
-            self.assertIn('category="7,"', repaired)
+            self.assertIn("version=1.05", repaired)
+            self.assertIn("newestVersion=1.05", repaired)
+
+
+class CollectionPluginActivationTargetTests(unittest.TestCase):
+    def test_reconciles_already_installed_mods_on_replay(self):
+        self.assertEqual(
+            collectionPluginActivationTargetModNames(
+                ["Already Installed", "Needs Enable"], ["Needs Enable"]
+            ),
+            ["Already Installed", "Needs Enable"],
+        )
+
+
+class CollectionPluginNamesFromModDirsTests(unittest.TestCase):
+    def test_discovers_plugins_under_collection_mods(self):
+        with TemporaryDirectory() as tmp:
+            mods = Path(tmp) / "mods"
+            first = mods / "First"
+            second = mods / "Second"
+            first.mkdir(parents=True)
+            second.mkdir()
+            (first / "Plugin.esp").write_text("", encoding="utf-8")
+            (second / "nested").mkdir()
+            (second / "nested" / "Patch.esl").write_text("", encoding="utf-8")
+            (second / "readme.txt").write_text("", encoding="utf-8")
+
+            self.assertEqual(
+                collectionPluginNamesFromModDirs(mods, ["First", "Second"]),
+                ["Plugin.esp", "Patch.esl"],
+            )
+
+
+class CollectionInvalidPayloadModNamesTests(unittest.TestCase):
+    def test_flags_empty_collection_container(self):
+        with TemporaryDirectory() as tmp:
+            mods = Path(tmp) / "mods"
+            invalid = mods / "Empty Patch"
+            valid = mods / "Valid Patch"
+            invalid.mkdir(parents=True)
+            valid.mkdir()
+            (invalid / "meta.ini").write_text("[General]\n", encoding="utf-8")
+            (valid / "meta.ini").write_text("[General]\n", encoding="utf-8")
+            (valid / "patch.esp").write_text("", encoding="utf-8")
+
+            self.assertEqual(
+                collectionInvalidPayloadModNames(mods, ["Empty Patch", "Valid Patch"]),
+                ["Empty Patch"],
+            )
+
+
+class Mo2CategoryFieldTests(unittest.TestCase):
+    def test_uses_nexus_category_when_available(self):
+        self.assertEqual(mo2CategoryField(42), '"42,"')
+
+    def test_uses_unknown_category_when_missing(self):
+        self.assertIsNone(mo2CategoryField(0))
+
+    def test_reads_mo2_category_file(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "categories.dat"
+            path.write_text(
+                "15|User Interface|0\nbad|Ignored|0\n16||0\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(mo2CategoryNameMap(path), {"user interface": 15})
 
 
 class CollectionInstallPostconditionAuditTests(unittest.TestCase):
@@ -719,6 +837,92 @@ class RepairModlistEnabledStatesTests(unittest.TestCase):
             self.assertEqual(
                 (backup / "modlist.txt").read_text(encoding="utf-8"),
                 "-Example Mod\n",
+            )
+
+
+class RepairModlistDisabledStatesTests(unittest.TestCase):
+    def test_disables_matching_enabled_entries_without_touching_others(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            modlist = root / "modlist.txt"
+            modlist.write_text(
+                "+Example Mod\n+Other Mod\n-Already Disabled\n",
+                encoding="utf-8",
+            )
+
+            result = repairModlistDisabledStates(
+                modlist, {"Example Mod", "Already Disabled"}
+            )
+
+            self.assertEqual(result["disabled"], 1)
+            self.assertEqual(result["already_disabled"], 1)
+            self.assertIn("-Example Mod", modlist.read_text(encoding="utf-8"))
+            self.assertIn("+Other Mod", modlist.read_text(encoding="utf-8"))
+
+
+class RepairPluginEnabledStatesTests(unittest.TestCase):
+    def test_enables_matching_disabled_plugins_without_touching_others(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugins = root / "plugins.txt"
+            plugins.write_text(
+                "# This file was automatically generated by Mod Organizer.\n"
+                "*AlreadyActive.esp\n"
+                "NeedsEnable.esl\n"
+                "Other.esp\n",
+                encoding="utf-8",
+            )
+
+            result = repairPluginEnabledStates(
+                plugins, {"AlreadyActive.esp", "NeedsEnable.esl"}
+            )
+
+            text = plugins.read_text(encoding="utf-8")
+            self.assertEqual(result["enabled"], 1)
+            self.assertEqual(result["already_enabled"], 1)
+            self.assertIn("*AlreadyActive.esp", text)
+            self.assertIn("*NeedsEnable.esl", text)
+            self.assertIn("Other.esp", text)
+
+    def test_matches_plugin_names_case_insensitively(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugins = root / "plugins.txt"
+            plugins.write_text("wd03otrainers.esp\n", encoding="utf-8")
+
+            result = repairPluginEnabledStates(plugins, {"WD03OTrainers.esp"})
+
+            self.assertEqual(result["enabled"], 1)
+            self.assertEqual(result["missing"], [])
+            self.assertEqual(
+                plugins.read_text(encoding="utf-8"), "*WD03OTrainers.esp\n"
+            )
+
+    def test_canonicalizes_already_enabled_plugin_names(self):
+        with TemporaryDirectory() as tmp:
+            plugins = Path(tmp) / "plugins.txt"
+            plugins.write_text("*wd03otrainers.esp\n", encoding="utf-8")
+
+            result = repairPluginEnabledStates(plugins, {"WD03OTrainers.esp"})
+
+            self.assertEqual(result["enabled"], 0)
+            self.assertEqual(result["already_enabled"], 1)
+            self.assertEqual(
+                plugins.read_text(encoding="utf-8"), "*WD03OTrainers.esp\n"
+            )
+
+    def test_appends_missing_plugins_as_enabled_entries(self):
+        with TemporaryDirectory() as tmp:
+            plugins = Path(tmp) / "plugins.txt"
+            plugins.write_text("*Other.esp\n", encoding="utf-8")
+
+            result = repairPluginEnabledStates(plugins, {"WD03OTrainers.esp"})
+
+            self.assertEqual(result["enabled"], 1)
+            self.assertEqual(result["missing"], [])
+            self.assertIn(
+                "*WD03OTrainers.esp",
+                plugins.read_text(encoding="utf-8"),
             )
 
 
@@ -1414,6 +1618,140 @@ class SevenZipArchiveMemberPathsTests(unittest.TestCase):
             sevenZipArchiveMemberPaths("Path = Archive.7z\nType = 7z\n"),
             [],
         )
+
+
+class ZipArchiveMemberPathsTests(unittest.TestCase):
+    def test_lists_zip_members_without_external_archive_worker(self):
+        with TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "example.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("fomod/ModuleConfig.xml", "<config />")
+                archive.writestr("Folder\\Nested.esp", "plugin")
+
+            self.assertEqual(
+                zipArchiveMemberPaths(archive_path),
+                ["fomod/ModuleConfig.xml", "Folder/Nested.esp"],
+            )
+
+
+class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
+    def test_selects_matching_select_any_patch_option(self):
+        module_config = """\
+<config>
+  <installSteps>
+    <installStep name="Select patches">
+      <optionalFileGroups>
+        <group name="Patches" type="SelectAny">
+          <plugins>
+            <plugin name="Patch for Alternate Start - Live Another Life">
+              <files><folder source="00 Alternate start" destination="" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Patch for Cutting Room Floor">
+              <files><folder source="01 Cutting Room Floor" destination="" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+  </installSteps>
+</config>
+"""
+
+        plan = headlessFomodDependencyInstallLayout(
+            module_config,
+            "Landscape/fomod/ModuleConfig.xml",
+            [
+                "Landscape/00 Alternate start/example.esp",
+                "Landscape/01 Cutting Room Floor/example.esp",
+            ],
+            ["Alternate Perspective - Alternate Start", "Cutting Room Floor.esp"],
+        )
+
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["reason"], "dependency-selected FOMOD payload")
+        self.assertEqual(plan["selected_options"], ["Patch for Cutting Room Floor"])
+        self.assertEqual(
+            plan["mappings"],
+            [
+                {
+                    "type": "folder",
+                    "source": "Landscape/01 Cutting Room Floor",
+                    "destination": "",
+                    "priority": "0",
+                }
+            ],
+        )
+
+    def test_refuses_ambiguous_single_choice_theme_picker(self):
+        module_config = """\
+<config>
+  <installSteps>
+    <installStep name="Pick your patch">
+      <optionalFileGroups>
+        <group name="Dear Diary" type="SelectExactlyOne">
+          <plugins>
+            <plugin name="Dear Diary Light Mode - Fixed Journal">
+              <files><folder source="10_Dear Diary Light/Interface" destination="Interface" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Dear Diary Dark Mode - Fixed Journal">
+              <files><folder source="11_Dear Diary Dark/Interface" destination="Interface" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+  </installSteps>
+</config>
+"""
+
+        plan = headlessFomodDependencyInstallLayout(
+            module_config,
+            "fomod/ModuleConfig.xml",
+            [
+                "10_Dear Diary Light/Interface/quest_journal.swf",
+                "11_Dear Diary Dark/Interface/quest_journal.swf",
+            ],
+            ["Dear Diary"],
+        )
+
+        self.assertFalse(plan["installable"])
+        self.assertEqual(
+            plan["reason"], "ambiguous FOMOD dependency choices: Dear Diary"
+        )
+
+    def test_moves_selected_folder_payload_to_requested_destination(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            extract_root = root / "extract"
+            target = root / "target"
+            source = extract_root / "Archive" / "Patch A"
+            source.mkdir(parents=True)
+            (source / "Example.esp").write_text("plugin", encoding="utf-8")
+            (source / "meshes").mkdir()
+            (source / "meshes" / "example.nif").write_text("mesh", encoding="utf-8")
+
+            moved = moveHeadlessFomodSelectionPayload(
+                extract_root,
+                target,
+                {
+                    "fomod_selection": True,
+                    "mappings": [
+                        {
+                            "type": "folder",
+                            "source": "Archive/Patch A",
+                            "destination": "",
+                        }
+                    ],
+                },
+            )
+
+            self.assertEqual(moved, 2)
+            self.assertTrue((target / "Example.esp").exists())
+            self.assertTrue((target / "meshes" / "example.nif").exists())
 
 
 class NativeArchiveWorkerTests(unittest.TestCase):
@@ -2512,6 +2850,87 @@ class HeadlessArchivePreflightFallbackTests(unittest.TestCase):
         )
 
 
+class InvalidInstalledCollectionArchiveRetryTests(unittest.TestCase):
+    def test_meta_only_invalid_container_has_no_payload_files(self):
+        with TemporaryDirectory() as tmp:
+            mod_dir = Path(tmp) / "Quest Journal Fixes"
+            mod_dir.mkdir()
+            (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
+
+            self.assertEqual(installedPayloadFileCount(mod_dir), 0)
+
+    def test_nonempty_tool_container_has_payload_files(self):
+        with TemporaryDirectory() as tmp:
+            mod_dir = Path(tmp) / "Dynamic Interface Patcher"
+            tool_dir = mod_dir / "DIP"
+            tool_dir.mkdir(parents=True)
+            (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
+            (tool_dir / "dip.exe").write_text("tool", encoding="utf-8")
+
+            self.assertEqual(installedPayloadFileCount(mod_dir), 1)
+            self.assertTrue(installedModHasCompletionPayload(mod_dir))
+
+    def test_empty_fomod_result_is_not_a_completed_install(self):
+        with TemporaryDirectory() as tmp:
+            mod_dir = Path(tmp) / "Opulent Thieves Guild Patch Collection"
+            mod_dir.mkdir()
+            (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
+
+            self.assertFalse(installedModHasCompletionPayload(mod_dir))
+
+    def test_empty_fomod_result_does_not_queue_probe_retry(self):
+        self.assertFalse(
+            shouldQueueFomodProbeRetry(
+                {
+                    "fomod_state": "true",
+                    "archive": "Quest Journal Fixes.7z",
+                    "reason": (
+                        "installer completed but produced an empty mod container; "
+                        "review FOMOD/manual choices"
+                    ),
+                }
+            )
+        )
+
+    def test_unresolved_fomod_failure_can_queue_probe_retry(self):
+        self.assertTrue(
+            shouldQueueFomodProbeRetry(
+                {
+                    "fomod_state": "true",
+                    "archive": "Glorious Doors.7z",
+                    "reason": "FOMOD requires manual choices before unattended install can continue",
+                }
+            )
+        )
+
+    def test_fomod_invalid_container_retries_with_native_installer(self):
+        self.assertTrue(shouldRetryInvalidInstalledCollectionArchive(True))
+
+    def test_safe_headless_layout_invalid_container_retries_headlessly(self):
+        self.assertTrue(
+            shouldRetryInvalidInstalledCollectionArchive(
+                False,
+                {"installable": True, "reason": "single wrapper folder"},
+            )
+        )
+
+    def test_ambiguous_non_fomod_invalid_container_stays_disabled(self):
+        self.assertFalse(
+            shouldRetryInvalidInstalledCollectionArchive(
+                False,
+                {"installable": False, "reason": "ambiguous archive layout"},
+            )
+        )
+
+    def test_unknown_fomod_state_does_not_retry_without_safe_layout(self):
+        self.assertFalse(
+            shouldRetryInvalidInstalledCollectionArchive(
+                None,
+                {"installable": False, "reason": "native archive worker timed out"},
+            )
+        )
+
+
 class HeadlessZipInstallLayoutTests(unittest.TestCase):
     def test_accepts_direct_mod_root_layout(self):
         plan = headlessZipInstallLayout(
@@ -2702,6 +3121,30 @@ class HeadlessPayloadRootValidationTests(unittest.TestCase):
             self.assertTrue((root / "Example.esp").exists())
             self.assertFalse((root / "Outer").exists())
 
+    def test_repairs_single_wrapper_payload_without_overwriting_collection_metadata(
+        self,
+    ):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wrapper = root / "Wrapper"
+            wrapper.mkdir()
+            (wrapper / "meta.ini").write_text(
+                "[General]\nversion=old\n", encoding="utf-8"
+            )
+            (wrapper / "SKSE").mkdir()
+            (wrapper / "SKSE" / "Plugin.dll").write_text("", encoding="utf-8")
+            (root / "meta.ini").write_text(
+                "[General]\nversion=collection\n", encoding="utf-8"
+            )
+
+            self.assertTrue(repairSingleWrapperPayload(root))
+            self.assertTrue((root / "SKSE" / "Plugin.dll").exists())
+            self.assertEqual(
+                (root / "meta.ini").read_text(encoding="utf-8"),
+                "[General]\nversion=collection\n",
+            )
+            self.assertFalse(wrapper.exists())
+
     def test_does_not_repair_when_lift_would_overwrite_existing_file(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -2752,7 +3195,7 @@ class HeadlessInstallMetaIniTests(unittest.TestCase):
         self.assertIn("version=1.2.3", metadata)
         self.assertIn("newestVersion=1.2", metadata)
         self.assertIn("nexusCategory=42", metadata)
-        self.assertIn('category="-1,"', metadata)
+        self.assertIn('category="42,"', metadata)
 
 
 class AutomatedInstallCadenceDefaultsTests(unittest.TestCase):

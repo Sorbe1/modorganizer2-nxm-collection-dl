@@ -20,6 +20,10 @@ FOMOD_ADVANCE_EXCLUDED_TITLES = {
     "NXM Collection Installer - Select Collection",
 }
 
+EMPTY_INSTALLER_OUTPUT_REASON = (
+    "installer completed but produced an empty mod container"
+)
+
 INSTALLER_SETTING_DEFAULTS = {
     "auto_accept_quick_install": True,
     "auto_dismiss_known_post_install_errors": True,
@@ -186,8 +190,17 @@ def sevenZipArchiveMemberPaths(listing_text):
     return paths
 
 
+def zipArchiveMemberPaths(archive_path):
+    """Return normalized member paths from a ZIP archive without shelling out."""
+    with zipfile.ZipFile(archive_path) as archive:
+        return [name.replace("\\", "/") for name in archive.namelist()]
+
+
 def moveHeadlessArchivePayload(extract_root, target_dir, layout_plan):
     """Move a preflighted extracted archive tree into ``target_dir``."""
+    if (layout_plan or {}).get("fomod_selection"):
+        return moveHeadlessFomodSelectionPayload(extract_root, target_dir, layout_plan)
+
     strip_prefix = str((layout_plan or {}).get("strip_prefix") or "")
     extracted = 0
     extract_root = Path(extract_root)
@@ -212,6 +225,57 @@ def moveHeadlessArchivePayload(extract_root, target_dir, layout_plan):
         extracted += 1
     if extracted <= 0:
         raise RuntimeError("Archive contained no installable files.")
+    return extracted
+
+
+def moveHeadlessFomodSelectionPayload(extract_root, target_dir, layout_plan):
+    """Move selected FOMOD file/folder mappings into ``target_dir``."""
+    extract_root = Path(extract_root)
+    target_dir = Path(target_dir)
+    extracted = 0
+    for mapping in (layout_plan or {}).get("mappings") or []:
+        source = normalizedArchiveMemberPath(mapping.get("source"))
+        destination = (
+            str(mapping.get("destination") or "").replace("\\", "/").strip("/")
+        )
+        if not source:
+            raise RuntimeError("Unsafe FOMOD source path.")
+
+        source_path = (extract_root / source).resolve()
+        try:
+            source_path.relative_to(extract_root.resolve())
+        except ValueError:
+            raise RuntimeError(f"Unsafe FOMOD source path: {source}") from None
+        if not source_path.exists():
+            raise RuntimeError(f"Selected FOMOD source not found: {source}")
+
+        if source_path.is_file():
+            output_name = "/".join(
+                part for part in (destination, source_path.name) if part
+            )
+            target_path = safeArchiveMemberTarget(target_dir, output_name)
+            if target_path is None:
+                raise RuntimeError(f"Unsafe FOMOD destination path: {output_name}")
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source_path), str(target_path))
+            extracted += 1
+            continue
+
+        for child in source_path.rglob("*"):
+            if not child.is_file():
+                continue
+            relative_child = child.relative_to(source_path).as_posix()
+            output_name = "/".join(
+                part for part in (destination, relative_child) if part
+            )
+            target_path = safeArchiveMemberTarget(target_dir, output_name)
+            if target_path is None:
+                raise RuntimeError(f"Unsafe FOMOD destination path: {output_name}")
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(child), str(target_path))
+            extracted += 1
+    if extracted <= 0:
+        raise RuntimeError("FOMOD selection contained no installable files.")
     return extracted
 
 
@@ -267,13 +331,21 @@ def repairSingleWrapperPayload(target_dir):
     wrapper = singleWrapperPayloadRoot(target_dir)
     if wrapper is None or wrapper == target_dir:
         return False
-    wrapper_children = list(wrapper.iterdir())
+    wrapper_children = [
+        child for child in wrapper.iterdir() if child.name.casefold() != "meta.ini"
+    ]
     for child in wrapper_children:
         destination = target_dir / child.name
         if destination.exists():
             return False
     for child in wrapper_children:
         shutil.move(str(child), str(target_dir / child.name))
+    nested_meta = wrapper / "meta.ini"
+    if nested_meta.exists():
+        try:
+            nested_meta.unlink()
+        except OSError:
+            return False
     current = wrapper
     while current != target_dir:
         parent = current.parent
@@ -329,6 +401,7 @@ def headlessInstallMetaIni(
         nexus_category_value = int(nexus_category or 0)
     except (TypeError, ValueError):
         nexus_category_value = 0
+    category = mo2CategoryField(nexus_category_value) or '"-1,"'
     return "\n".join(
         [
             "[General]",
@@ -337,7 +410,7 @@ def headlessInstallMetaIni(
             "ignoredVersion=",
             f"version={version}",
             f"newestVersion={newest_version}",
-            'category="-1,"',
+            f"category={category}",
             "nexusFileStatus=1",
             f"installationFile={archive_name}",
             "repository=Nexus",
@@ -369,7 +442,45 @@ def headlessInstallMetaIni(
     )
 
 
-def collectionEntryMetadataFields(mod_info):
+def mo2CategoryField(nexus_category):
+    """Return MO2's quoted category list for a category id, or ``None`` if unknown."""
+    try:
+        category = int(nexus_category or 0)
+    except (TypeError, ValueError):
+        return None
+    if category > 0:
+        return f'"{category},"'
+    return None
+
+
+def mo2CategoryNameMap(categories_file):
+    """Return ``{category name: category id}`` from MO2's categories.dat."""
+    result = {}
+    if not categories_file:
+        return result
+    try:
+        lines = (
+            Path(categories_file)
+            .read_text(encoding="utf-8", errors="replace")
+            .splitlines()
+        )
+    except OSError:
+        return result
+    for line in lines:
+        parts = line.split("|")
+        if len(parts) < 2:
+            continue
+        try:
+            category_id = int(parts[0])
+        except ValueError:
+            continue
+        name = parts[1].strip()
+        if name:
+            result[name.casefold()] = category_id
+    return result
+
+
+def collectionEntryMetadataFields(mod_info, category_name_map=None):
     """Return deterministic MO2 ``meta.ini`` fields available from a manifest entry."""
     file_data = (mod_info or {}).get("file") or {}
     nexus_mod = file_data.get("mod") or {}
@@ -377,18 +488,72 @@ def collectionEntryMetadataFields(mod_info):
 
     file_version = str(file_data.get("version") or "")
     mod_version = str(nexus_mod.get("version") or "")
-    if file_version:
-        fields["version"] = file_version
+    if file_version or mod_version:
+        fields["version"] = file_version or mod_version
     if mod_version:
         fields["newestVersion"] = mod_version
     elif file_version:
         fields["newestVersion"] = file_version
 
-    try:
-        fields["nexusCategory"] = str(int(nexus_mod.get("category") or 0))
-    except (TypeError, ValueError):
-        pass
+    category_value = nexus_mod.get("category")
+    category_field = mo2CategoryField(category_value)
+    if category_field:
+        fields["nexusCategory"] = str(int(category_value))
+        fields["category"] = category_field
+    elif category_value:
+        fields["nexusCategory"] = str(category_value)
+        mapped_category = (category_name_map or {}).get(str(category_value).casefold())
+        category_field = mo2CategoryField(mapped_category)
+        if category_field:
+            fields["category"] = category_field
     return fields
+
+
+def collectionPluginActivationTargetModNames(installed_mods, mods_to_activate):
+    """Return every installed collection container whose plugins should be reconciled."""
+    return list(
+        dict.fromkeys(list(installed_mods or []) + list(mods_to_activate or []))
+    )
+
+
+def collectionPluginNamesFromModDirs(mods_dir, mod_names):
+    """Return plugin filenames present in the supplied MO2 mod containers."""
+    mods_dir = Path(mods_dir)
+    result = []
+    seen = set()
+    for mod_name in mod_names or []:
+        mod_dir = mods_dir / mod_name
+        if not mod_dir.exists():
+            continue
+        try:
+            files = mod_dir.rglob("*")
+            for path in files:
+                if not path.is_file():
+                    continue
+                if path.suffix.casefold() not in DIRECT_INSTALL_PLUGIN_EXTENSIONS:
+                    continue
+                plugin_name = path.name
+                key = plugin_name.casefold()
+                if key in seen:
+                    continue
+                result.append(plugin_name)
+                seen.add(key)
+        except OSError:
+            continue
+    return result
+
+
+def collectionInvalidPayloadModNames(mods_dir, mod_names):
+    """Return installed collection containers that MO2 should not enable as game data."""
+    mods_dir = Path(mods_dir)
+    result = []
+    for mod_name in mod_names or []:
+        mod_dir = mods_dir / mod_name
+        if not (mod_dir / "meta.ini").exists():
+            continue
+        if not headlessPayloadRootValid(mod_dir):
+            result.append(mod_name)
+    return result
 
 
 def updateMetaIniGeneralFields(metadata_file, fields):
@@ -444,12 +609,17 @@ def updateMetaIniGeneralFields(metadata_file, fields):
     return changed
 
 
-def repairInstalledCollectionModMetadata(mods_dir, installed_records, mods_by_key):
+def repairInstalledCollectionModMetadata(
+    mods_dir, installed_records, mods_by_key, category_name_map=None
+):
     """Repair deterministic Nexus metadata fields for installed collection mods."""
     result = {"checked": 0, "repaired": 0, "failed": 0}
     mods_dir = Path(mods_dir)
     for nexus_key, mod_names in (installed_records or {}).items():
-        fields = collectionEntryMetadataFields((mods_by_key or {}).get(nexus_key))
+        fields = collectionEntryMetadataFields(
+            (mods_by_key or {}).get(nexus_key),
+            category_name_map=category_name_map,
+        )
         if not fields:
             continue
         for mod_name in mod_names:
@@ -582,6 +752,66 @@ def collectionInstallRoute(
     if Path(str(archive_path)).suffix.casefold() not in HEADLESS_ARCHIVE_EXTENSIONS:
         return "mo2"
     return "headless-archive"
+
+
+def shouldRetryInvalidInstalledCollectionArchive(fomod_state, layout_plan=None):
+    """Return True when an invalid installed container should be reinstalled.
+
+    A replay should not preserve an installed collection entry that produced no
+    MO2-valid game data if the original archive has a real installer or a safe
+    headless layout. Ambiguous non-FOMOD payloads stay installed-but-disabled so
+    replay does not open Quick Install as an accidental fallback.
+    """
+    if fomod_state is True:
+        return True
+    if layout_plan and layout_plan.get("installable"):
+        return True
+    return False
+
+
+def installedPayloadFileCount(mod_dir):
+    """Return installed files other than MO2 metadata for an installed mod directory."""
+    mod_dir = Path(mod_dir)
+    count = 0
+    try:
+        for path in mod_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                relative = path.relative_to(mod_dir)
+            except ValueError:
+                relative = path
+            if len(relative.parts) == 1 and relative.name.casefold() == "meta.ini":
+                continue
+            count += 1
+    except OSError:
+        return 0
+    return count
+
+
+def installedModHasCompletionPayload(mod_dir):
+    """Return True when an installer result contains files beyond MO2 metadata."""
+    return installedPayloadFileCount(mod_dir) > 0
+
+
+def shouldQueueFomodProbeRetry(failed_entry):
+    """Return True when a failed FOMOD entry is safe for blind Next/Install retry.
+
+    Default FOMOD automation is useful for installer dialogs whose first pass did
+    not reach a terminal result. It is not useful after MO2 successfully creates
+    a metadata-only container: retrying the same archive with the same default
+    choices just reopens modal prompts and produces another empty result.
+    """
+    if not failed_entry or failed_entry.get("fomod_state") != "true":
+        return False
+    if not failed_entry.get("archive"):
+        return False
+    reason = str(failed_entry.get("reason") or "").casefold()
+    if EMPTY_INSTALLER_OUTPUT_REASON in reason:
+        return False
+    if "manual fomod choices required" in reason:
+        return False
+    return True
 
 
 def headlessArchivePreflightFallback(layout_plan):
@@ -931,10 +1161,219 @@ def _directChildren(element, name):
     return [child for child in list(element) if _xmlLocalName(child.tag) == name]
 
 
+def decodedXmlText(xml_payload):
+    """Decode XML bytes from archives, including UTF-16 FOMOD configs."""
+    if isinstance(xml_payload, str):
+        return xml_payload
+    data = bytes(xml_payload or b"")
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-16-be"):
+        try:
+            text = data.decode(encoding)
+        except UnicodeError:
+            continue
+        if "<" in text and "\x00" not in text[:100]:
+            return text
+    return data.decode("utf-8", errors="replace")
+
+
+def _fomodModuleBasePrefix(module_config_path):
+    normalized = normalizedArchiveMemberPath(module_config_path)
+    if not normalized:
+        return ""
+    lower = normalized.casefold()
+    marker = "fomod/moduleconfig.xml"
+    if lower.endswith(marker):
+        return normalized[: -len(marker)]
+    return ""
+
+
+def _fomodSelectionEvidenceLabel(text):
+    normalized = unicodedata.normalize("NFKD", str(text or ""))
+    normalized = normalized.encode("ascii", "ignore").decode("ascii")
+    normalized = Path(normalized.replace("\\", "/")).name
+    normalized = re.sub(r"\.[Ee][Ss][PpMmLl]$", "", normalized)
+    normalized = re.sub(r"^\s*\d+[\s._-]+", "", normalized)
+    normalized = normalized.casefold()
+    normalized = re.sub(r"\b(patch|patches)\s+for\b", " ", normalized)
+    normalized = re.sub(r"\b(patch|patches|locations|location)\b", " ", normalized)
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _fomodMeaningfulTokens(label):
+    stop_words = {"a", "an", "and", "for", "of", "the", "to", "with"}
+    return [
+        token
+        for token in _fomodSelectionEvidenceLabel(label).split()
+        if token and token not in stop_words
+    ]
+
+
+def _fomodOptionMatchesEvidence(option_name, evidence_labels):
+    option_label = _fomodSelectionEvidenceLabel(option_name)
+    if not option_label:
+        return False
+    option_tokens = _fomodMeaningfulTokens(option_label)
+    if not option_tokens:
+        return False
+    for evidence_label in evidence_labels:
+        evidence_tokens = _fomodMeaningfulTokens(evidence_label)
+        if not evidence_tokens:
+            continue
+        evidence_text = " ".join(evidence_tokens)
+        option_text = " ".join(option_tokens)
+        if option_text == evidence_text:
+            return True
+        if len(option_tokens) >= 2 and option_text in evidence_text:
+            return True
+        if len(evidence_tokens) >= 2 and evidence_text in option_text:
+            return True
+    return False
+
+
+def _fomodPluginFileMappings(plugin, module_base_prefix):
+    mappings = []
+    for files_node in _directChildren(plugin, "files"):
+        for child in list(files_node):
+            local_name = _xmlLocalName(child.tag)
+            if local_name not in {"file", "folder"}:
+                continue
+            source = child.attrib.get("source", "")
+            if not source:
+                continue
+            normalized_source = normalizedArchiveMemberPath(
+                module_base_prefix + source.replace("\\", "/")
+            )
+            if not normalized_source:
+                continue
+            mappings.append(
+                {
+                    "type": local_name,
+                    "source": normalized_source,
+                    "destination": child.attrib.get("destination", ""),
+                    "priority": child.attrib.get("priority", "0"),
+                }
+            )
+    return mappings
+
+
+def _fomodPluginType(plugin):
+    for descriptor in _directChildren(plugin, "typeDescriptor"):
+        for type_node in _directChildren(descriptor, "type"):
+            return type_node.attrib.get("name", "")
+    return ""
+
+
+def headlessFomodDependencyInstallLayout(
+    module_config_xml, module_config_path, member_names, evidence_names
+):
+    """Return a conservative direct-install plan for simple dependency patch FOMODs.
+
+    The planner only automates choices whose option names match installed/active
+    evidence from the current profile. It supports optional patch hubs well, but
+    intentionally refuses subjective single-choice theme/configuration pickers.
+    """
+    try:
+        root = ElementTree.fromstring(decodedXmlText(module_config_xml))
+    except ElementTree.ParseError as e:
+        return {
+            "installable": False,
+            "reason": f"FOMOD XML parse error: {e}",
+            "mappings": [],
+            "fomod_selection": True,
+        }
+
+    module_base_prefix = _fomodModuleBasePrefix(module_config_path)
+    archive_members = {
+        normalizedArchiveMemberPath(name)
+        for name in (member_names or [])
+        if normalizedArchiveMemberPath(name)
+    }
+    evidence_labels = [
+        _fomodSelectionEvidenceLabel(name)
+        for name in (evidence_names or [])
+        if _fomodSelectionEvidenceLabel(name)
+    ]
+    selected_mappings = []
+    selected_options = []
+    ambiguous_groups = []
+
+    for group in root.iter():
+        if _xmlLocalName(group.tag) != "group":
+            continue
+        group_type = group.attrib.get("type", "")
+        if group_type not in {"SelectAny", "SelectExactlyOne", "SelectAtLeastOne"}:
+            continue
+
+        plugins = []
+        for plugins_node in _directChildren(group, "plugins"):
+            plugins.extend(_directChildren(plugins_node, "plugin"))
+
+        candidates = []
+        for plugin in plugins:
+            option_name = plugin.attrib.get("name", "")
+            plugin_type = _fomodPluginType(plugin).casefold()
+            if normalizedButtonLabel(option_name) in {"skip", "none", "reminder"}:
+                continue
+            if plugin_type in {"notusable", "not usable"}:
+                continue
+            mappings = _fomodPluginFileMappings(plugin, module_base_prefix)
+            if not mappings:
+                continue
+            if not all(
+                mapping["source"] in archive_members
+                or any(
+                    member.startswith(mapping["source"].rstrip("/") + "/")
+                    for member in archive_members
+                )
+                for mapping in mappings
+            ):
+                continue
+            if _fomodOptionMatchesEvidence(option_name, evidence_labels):
+                candidates.append((option_name, mappings))
+
+        if group_type == "SelectAny":
+            for option_name, mappings in candidates:
+                selected_options.append(option_name)
+                selected_mappings.extend(mappings)
+            continue
+
+        if len(candidates) == 1 and len(plugins) == 1:
+            option_name, mappings = candidates[0]
+            selected_options.append(option_name)
+            selected_mappings.extend(mappings)
+        elif candidates:
+            ambiguous_groups.append(group.attrib.get("name", ""))
+
+    if ambiguous_groups:
+        return {
+            "installable": False,
+            "reason": "ambiguous FOMOD dependency choices: "
+            + ", ".join(name for name in ambiguous_groups if name),
+            "mappings": [],
+            "fomod_selection": True,
+        }
+    if not selected_mappings:
+        return {
+            "installable": False,
+            "reason": "no FOMOD options matched installed profile evidence",
+            "mappings": [],
+            "fomod_selection": True,
+        }
+    return {
+        "installable": True,
+        "reason": "dependency-selected FOMOD payload",
+        "mappings": selected_mappings,
+        "selected_options": selected_options,
+        "fomod_selection": True,
+    }
+
+
 def fomodManualChoiceGuide(module_config_xml):
     """Return unresolved required FOMOD choices from a ModuleConfig.xml payload."""
     try:
-        root = ElementTree.fromstring(module_config_xml)
+        root = ElementTree.fromstring(decodedXmlText(module_config_xml))
     except ElementTree.ParseError as e:
         return {
             "parse_error": str(e),
@@ -2134,6 +2573,158 @@ def repairModlistEnabledStates(modlist_path, mod_names, backup_dir=None):
 
     try:
         modlist_path.write_text("".join(lines), encoding="utf-8")
+    except OSError:
+        result["failed"] += 1
+
+    return result
+
+
+def repairModlistDisabledStates(modlist_path, mod_names, backup_dir=None):
+    """Disable matching MO2 profile modlist entries while preserving order."""
+    result = {
+        "checked": 0,
+        "disabled": 0,
+        "already_disabled": 0,
+        "missing": [],
+        "failed": 0,
+    }
+    mod_names = set(mod_names or [])
+    if not mod_names:
+        return result
+
+    modlist_path = Path(modlist_path)
+    try:
+        lines = modlist_path.read_text(encoding="utf-8", errors="replace").splitlines(
+            keepends=True
+        )
+    except OSError:
+        result["failed"] += 1
+        result["missing"] = sorted(mod_names)
+        return result
+
+    seen = set()
+    changed = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped[0] in "+-":
+            mod_name = stripped[1:]
+            if mod_name not in mod_names:
+                continue
+            result["checked"] += 1
+            seen.add(mod_name)
+            if stripped[0] == "-":
+                result["already_disabled"] += 1
+                continue
+            newline = (
+                "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+            )
+            lines[index] = f"-{mod_name}{newline}"
+            result["disabled"] += 1
+            changed = True
+
+    result["missing"] = sorted(mod_names - seen)
+    if not changed:
+        return result
+
+    if backup_dir is not None:
+        try:
+            backup_dir = Path(backup_dir)
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / modlist_path.name).write_bytes(modlist_path.read_bytes())
+        except OSError:
+            result["failed"] += 1
+            return result
+
+    try:
+        modlist_path.write_text("".join(lines), encoding="utf-8")
+    except OSError:
+        result["failed"] += 1
+
+    return result
+
+
+def repairPluginEnabledStates(plugins_path, plugin_names, backup_dir=None):
+    """Enable matching MO2 profile plugin entries while preserving load order.
+
+    MO2 can expose newly discovered plugins in the live plugin model before the
+    profile ``plugins.txt`` file contains an entry for them. Appending missing
+    collection plugins makes replay/finalization idempotent across that delayed
+    serialization boundary.
+    """
+    result = {
+        "checked": 0,
+        "enabled": 0,
+        "already_enabled": 0,
+        "missing": [],
+        "failed": 0,
+    }
+    requested_names = {str(name).casefold(): str(name) for name in plugin_names or []}
+    plugin_names = set(requested_names)
+    if not plugin_names:
+        return result
+
+    plugins_path = Path(plugins_path)
+    try:
+        lines = plugins_path.read_text(encoding="utf-8", errors="replace").splitlines(
+            keepends=True
+        )
+    except OSError:
+        result["failed"] += 1
+        result["missing"] = sorted(requested_names.values())
+        return result
+
+    seen = set()
+    changed = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        marker = "*" if stripped.startswith("*") else ""
+        plugin_name = stripped[1:] if marker else stripped
+        key = plugin_name.casefold()
+        if key not in plugin_names:
+            continue
+        result["checked"] += 1
+        seen.add(key)
+        requested_name = requested_names[key]
+        newline = (
+            "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+        )
+        if marker == "*":
+            result["already_enabled"] += 1
+            if plugin_name != requested_name:
+                lines[index] = f"*{requested_name}{newline}"
+                changed = True
+            continue
+        lines[index] = f"*{requested_name}{newline}"
+        result["enabled"] += 1
+        changed = True
+
+    result["missing"] = sorted(requested_names[key] for key in plugin_names - seen)
+    if result["missing"]:
+        if lines and not lines[-1].endswith(("\n", "\r\n")):
+            lines[-1] += "\n"
+        for plugin_name in result["missing"]:
+            lines.append(f"*{plugin_name}\n")
+            result["enabled"] += 1
+            changed = True
+        result["missing"] = []
+    if not changed:
+        return result
+
+    if backup_dir is not None:
+        try:
+            backup_dir = Path(backup_dir)
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / plugins_path.name).write_bytes(plugins_path.read_bytes())
+        except OSError:
+            result["failed"] += 1
+            return result
+
+    try:
+        plugins_path.write_text("".join(lines), encoding="utf-8")
     except OSError:
         result["failed"] += 1
 

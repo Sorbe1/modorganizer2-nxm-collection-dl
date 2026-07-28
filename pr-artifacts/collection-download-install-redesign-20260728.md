@@ -62,8 +62,13 @@ with better restartability and auditability than a dialog-driven flow.
 - Headless installs write Nexus identity, file version, mod version, and Nexus
   category metadata. Replay also repairs those deterministic fields for older
   installed collection containers without reinstalling files.
-- MO2-local category assignment remains user/MO2-owned metadata and is not
-  guessed from Nexus category ids.
+- Category repair maps collection category names through MO2's `categories.dat`
+  table. If MO2 cannot identify the category, unrelated MO2-local metadata
+  remains user/MO2-owned.
+- Empty invalid installed containers are replayed from their original archive.
+  Non-empty invalid containers are kept installed but disabled during the final
+  sweep because they may be tool or root payloads rather than broken game-data
+  installs.
 
 ## Validation Notes
 
@@ -80,14 +85,15 @@ Live MO2 2.5.2 / Steam Proton validation used:
 Observed final replay results on July 29, 2026:
 
 - `xxsqm4` replay: 559 entries installed/already present/root-handled, 0
-  downloaded-but-not-installed, 558 activated collection mods, 500 plugins
-  already active, 0 blocked, success summary auto-closed.
-- `xxsqm4` recovery replay repaired 40 invalid single-wrapper layouts and 571
-  metadata records. An independent disk audit found 0 remaining invalid
-  headless installs.
-- A second `xxsqm4` replay performed 0 additional layout repairs, remained at
-  559 installed/already present/root-handled, and activated 33 previously
-  inactive plugins.
+  downloaded-but-not-installed, 553 activated collection mods, 535 plugins
+  already active, 0 blocked, 0 failed/skipped entries, success summary
+  auto-closed.
+- Final `xxsqm4` replay repaired installed download metadata, restored version
+  and category metadata, handled the root Engine Fixes preloader as already
+  present, and produced 0 active invalid game-data containers.
+- Post-run audits found 0 blank versions, 0 blank categories, and confirmed
+  previously disabled plugins persisted as enabled with canonical filename
+  casing.
 - `8vdyr1` replay: 75 entries installed/already present/root-handled, 0
   downloaded-but-not-installed, 75 activated collection mods, 23 plugins already
   active, 0 blocked, success summary auto-closed.

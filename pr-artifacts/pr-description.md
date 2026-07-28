@@ -36,8 +36,12 @@ and a clear final audit.
 - Split install and activation into separate phases with a final audit of
   expected downloads, installed mod containers, active mods, and active plugins.
 - Repair installed collection mod metadata for manifest-provided file version,
-  mod version, and Nexus category fields without overwriting MO2-local category
-  assignment.
+  mod version, and MO2 category fields mapped from collection category names.
+- Repair replayed invalid empty installer outputs from their original archives,
+  while disabling non-game-data collection containers that should not be active
+  in the left pane.
+- Repair profile `plugins.txt` for plugin enablement and canonical filename
+  casing after collection activation.
 - Update the README and include maintainer-facing design/test notes.
 
 ## Review Notes
@@ -82,13 +86,13 @@ Black-box MO2 2.5.2 / Steam Proton validation used:
 Observed final replay results on July 29, 2026:
 
 - `xxsqm4`: 559 installed/already present/root-handled, 0 downloaded but not
-  installed, 558 activated collection mods, 500 plugins already active, 0 blocked
-- `xxsqm4` recovery replay repaired 40 previously invalid single-wrapper mod
-  layouts, repaired 571 collection metadata records, and a disk audit found 0
-  remaining invalid headless installs.
-- A follow-up `xxsqm4` replay was layout-idempotent: 0 additional wrapper
-  repairs, 559 installed/already present/root-handled, 0 downloaded but not
-  installed, 33 plugins activated, 500 plugins already active, 0 blocked.
+  installed, 553 activated collection mods, 535 plugins already active, 0 blocked
+- Final `xxsqm4` replay repaired metadata for installed collection containers,
+  restored MO2 category/version fields, handled the root Engine Fixes preloader
+  as already present, and produced 0 failed/skipped entries.
+- Post-run audits found 0 active invalid game-data containers, 0 blank versions,
+  0 blank categories, and confirmed previously disabled plugins persisted as
+  enabled with canonical filename casing.
 - `8vdyr1`: 75 installed/already present/root-handled, 0 downloaded but not
   installed, 75 activated collection mods, 23 plugins already active, 0 blocked
 - MO2 Sort completed and reported a missing master from collection content. That
@@ -97,13 +101,13 @@ Observed final replay results on July 29, 2026:
 
 ## Scope
 
-Approximate final branch scope is `+8.0K/-1.1K` lines:
+Approximate final branch scope is `+15.1K/-0.4K` lines:
 
-- runtime/plugin code: `+6.0K/-0.6K`
-- regression tests: `+1.6K/-0.05K`
+- runtime/plugin code: `+11.1K/-0.4K`
+- regression tests: `+3.5K`
 - native archive worker: `+0.15K`
-- README and maintainer docs: `+0.33K/-0.02K`
-- removed local reset/audit artifacts: `-0.45K`
+- README and maintainer docs: `+0.37K`
+- CI/package support: `+0.02K`
 
 ## Follow-Up
 
