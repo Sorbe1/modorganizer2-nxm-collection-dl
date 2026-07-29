@@ -99,6 +99,18 @@ Observed final replay results on July 29, 2026:
   is retained as a load-order/content validation finding, not treated as an
   installer convergence failure.
 
+Follow-up replay on July 30, 2026:
+
+- Replaying `xxsqm4` revision `99` against an already-converged MO2 instance
+  repaired one stale/unqueried MO2 download sidecar during the fast-finish path:
+  `Faster HDT-SMP-57339-2-5-1-1728377043.7z.meta` now records
+  `modID=57339`, `fileID=550156`, `repository=Nexus`, and `installed=true`.
+- The replay reported `Installed download metadata: 557 verified, 1 repaired,
+  0 failed`.
+- The only remaining review item was `Quest Journal Fixes`, intentionally left
+  excluded from the live profile after proving its `quest_journal.swf` payload
+  crashes Skyrim's `Esc` system menu.
+
 ## Scope
 
 Approximate final branch scope is `+15.1K/-0.4K` lines:

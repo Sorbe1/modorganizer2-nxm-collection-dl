@@ -2351,7 +2351,7 @@ class stepInstallMods(QDialog):
         installed_count = 0
         root_count = 0
         failed_count = 0
-        root_metadata_keys = fastFinishMetadataRepairKeys(context.get("install_plan"))
+        metadata_repair_keys = fastFinishMetadataRepairKeys(context.get("install_plan"))
         for entry in context.get("install_plan", []):
             status = entry.get("status")
             install_key = entry.get("install_key")
@@ -2389,8 +2389,10 @@ class stepInstallMods(QDialog):
                 )
                 failed_count += 1
 
-        if root_metadata_keys:
-            self.markInstalledDownloadMetadataKeys(context, root_metadata_keys)
+        if metadata_repair_keys:
+            context["fast_finish_metadata_repair"] = (
+                self.markInstalledDownloadMetadataKeys(context, metadata_repair_keys)
+            )
 
         context["install_plan_fast_finished"] = True
         self.log(
@@ -3744,6 +3746,7 @@ class stepInstallMods(QDialog):
                 Path(context["organizer"].downloadsPath()),
                 set(install_keys),
                 desired_installed=True,
+                expected_file_names=context.get("expected_file_names", {}),
             )
         except Exception as e:
             self.logInstallIssue(
@@ -3831,6 +3834,7 @@ class stepInstallMods(QDialog):
             downloads_path,
             expected_installed_keys,
             desired_installed=True,
+            expected_file_names=expected_file_names,
         )
         if metadata_repair.get("repaired"):
             self.log(
@@ -3953,8 +3957,12 @@ class stepInstallMods(QDialog):
                     }
                 ),
                 "layout_repaired": 0,
-                "metadata_repaired": 0,
-                "metadata_failed": 0,
+                "metadata_repaired": context.get("fast_finish_metadata_repair", {}).get(
+                    "repaired", 0
+                ),
+                "metadata_failed": context.get("fast_finish_metadata_repair", {}).get(
+                    "failed", 0
+                ),
                 "mod_metadata_repaired": 0,
                 "mod_metadata_failed": 0,
                 "invalid_payload_mods": [],

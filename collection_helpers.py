@@ -1700,13 +1700,13 @@ def installPlanExecutionAction(fast_finish):
 def fastFinishMetadataRepairKeys(plan_entries):
     """Return Nexus keys that need metadata repair during a no-op replay.
 
-    Installed mod entries are repaired by the normal postcondition sweep in one
-    batch. Root/game-directory entries have no MO2 mod container, so they need
-    their download metadata marked explicitly here.
+    A fast-finished replay skips the normal postcondition sweep, so both
+    already-installed mod containers and root/game-directory entries need their
+    download metadata reconciled explicitly here.
     """
     keys = set()
     for entry in plan_entries or []:
-        if entry.get("status") != "root":
+        if entry.get("status") not in {"installed", "root"}:
             continue
         key = entry.get("install_key")
         if isinstance(key, tuple) and len(key) == 2:
@@ -2174,6 +2174,37 @@ def readDownloadMetaKey(metadata_file):
         return None
 
 
+def _archiveKeyFromExpectedFileNames(archive_name, expected_file_names):
+    """Infer a Nexus key from a downloaded archive name and collection names."""
+    if not archive_name or not expected_file_names:
+        return None
+
+    expected_by_mod_id = {}
+    for key, file_name in expected_file_names.items():
+        try:
+            mod_id, file_id = int(key[0]), int(key[1])
+        except (TypeError, ValueError):
+            continue
+        expected_by_mod_id.setdefault(mod_id, []).append(
+            ((mod_id, file_id), _normalizeArchiveIdentityText(file_name))
+        )
+
+    normalized_archive = _normalizeArchiveIdentityText(archive_name)
+    archive_mod_ids = {
+        int(match.group(1))
+        for match in re.finditer(r"-(\d+)(?=[-.])", str(archive_name))
+        if int(match.group(1)) in expected_by_mod_id
+    }
+    matches = set()
+    for mod_id in archive_mod_ids:
+        for expected_key, normalized_name in expected_by_mod_id.get(mod_id, []):
+            if normalized_name and normalized_archive.startswith(normalized_name):
+                matches.add(expected_key)
+    if len(matches) == 1:
+        return next(iter(matches))
+    return None
+
+
 def downloadMetaInstalledValue(metadata_file):
     """Return the installed= value from an MO2 download metadata file."""
     try:
@@ -2187,9 +2218,8 @@ def downloadMetaInstalledValue(metadata_file):
     return None
 
 
-def setDownloadMetaInstalledFlag(metadata_file, installed):
-    """Set installed=true/false in an MO2 download metadata file without reserializing it."""
-    desired = "true" if installed else "false"
+def setDownloadMetaGeneralValues(metadata_file, values):
+    """Set selected [General] values in an MO2 download metadata sidecar."""
     try:
         lines = metadata_file.read_text(encoding="utf-8", errors="replace").splitlines(
             keepends=True
@@ -2197,24 +2227,57 @@ def setDownloadMetaInstalledFlag(metadata_file, installed):
     except OSError:
         return False
 
-    installed_index = None
-    for index, line in enumerate(lines):
-        if line.strip().lower().startswith("installed="):
-            installed_index = index
-            break
+    if not lines:
+        lines = ["[General]\n"]
 
-    if installed_index is None:
-        if lines and not lines[-1].endswith(("\n", "\r")):
-            lines[-1] = lines[-1] + "\n"
-        lines.append(f"installed={desired}\n")
-    else:
-        old_line = lines[installed_index]
+    general_start = None
+    general_end = len(lines)
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.casefold() == "[general]":
+            general_start = index
+            continue
+        if general_start is not None and index > general_start:
+            if stripped.startswith("[") and stripped.endswith("]"):
+                general_end = index
+                break
+
+    if general_start is None:
+        lines.insert(0, "[General]\n")
+        general_start = 0
+        general_end = len(lines)
+
+    changed = False
+    remaining = {
+        str(key).casefold(): (str(key), str(value)) for key, value in values.items()
+    }
+    for index in range(general_start + 1, general_end):
+        line = lines[index]
+        if "=" not in line:
+            continue
+        key, _value = line.split("=", 1)
+        lookup = key.strip().casefold()
+        if lookup not in remaining:
+            continue
+        original_key, desired_value = remaining.pop(lookup)
         newline = ""
-        if old_line.endswith("\r\n"):
+        if line.endswith("\r\n"):
             newline = "\r\n"
-        elif old_line.endswith("\n"):
+        elif line.endswith("\n"):
             newline = "\n"
-        lines[installed_index] = f"installed={desired}{newline}"
+        replacement = f"{original_key}={desired_value}{newline}"
+        if line != replacement:
+            lines[index] = replacement
+            changed = True
+
+    if remaining:
+        newline = "\r\n" if any(line.endswith("\r\n") for line in lines) else "\n"
+        insert_lines = [f"{key}={value}{newline}" for key, value in remaining.values()]
+        lines[general_end:general_end] = insert_lines
+        changed = True
+
+    if not changed:
+        return True
 
     try:
         metadata_file.write_text("".join(lines), encoding="utf-8")
@@ -2223,16 +2286,25 @@ def setDownloadMetaInstalledFlag(metadata_file, installed):
     return True
 
 
+def setDownloadMetaInstalledFlag(metadata_file, installed):
+    """Set installed=true/false in an MO2 download metadata file without reserializing it."""
+    desired = "true" if installed else "false"
+    return setDownloadMetaGeneralValues(metadata_file, {"installed": desired})
+
+
 def repairDownloadMetadataInstalledFlags(
     downloads_dir,
     installed_keys,
     desired_installed=True,
     backup_dir=None,
+    expected_file_names=None,
 ):
     """Repair MO2 download metadata install flags for exact Nexus keys.
 
     Only completed downloads with an existing archive are touched. The caller
-    supplies the authoritative installed Nexus key set.
+    supplies the authoritative installed Nexus key set. When MO2 left a
+    sidecar unqueried, the collection manifest filename can identify it so the
+    Nexus identity fields can be restored along with the install flag.
     """
     result = {
         "checked": 0,
@@ -2252,18 +2324,34 @@ def repairDownloadMetadataInstalledFlags(
             result["skipped"] += 1
             continue
 
+        archive_file = metadata_file.with_suffix("")
         key = readDownloadMetaKey(metadata_file)
+        inferred_key = None
+        if key is None:
+            inferred_key = _archiveKeyFromExpectedFileNames(
+                archive_file.name, expected_file_names
+            )
+            key = inferred_key
         if key not in installed_keys:
             result["skipped"] += 1
             continue
 
-        archive_file = metadata_file.with_suffix("")
         if not archive_file.exists() or archive_file.is_dir():
             result["skipped"] += 1
             continue
 
         result["checked"] += 1
-        if downloadMetaInstalledValue(metadata_file) == desired_value:
+        repair_values = {"installed": desired_value}
+        if inferred_key is not None:
+            repair_values.update(
+                {
+                    "gameName": "SkyrimSE",
+                    "modID": str(inferred_key[0]),
+                    "fileID": str(inferred_key[1]),
+                    "repository": "Nexus",
+                }
+            )
+        elif downloadMetaInstalledValue(metadata_file) == desired_value:
             continue
 
         if backup_dir is not None:
@@ -2276,7 +2364,7 @@ def repairDownloadMetadataInstalledFlags(
                 result["failed"] += 1
                 continue
 
-        if setDownloadMetaInstalledFlag(metadata_file, desired_installed):
+        if setDownloadMetaGeneralValues(metadata_file, repair_values):
             result["repaired"] += 1
             result["metadata"].append(str(metadata_file))
         else:
@@ -2487,14 +2575,20 @@ def collectionInstallPostconditionAudit(
     downloads_dir = Path(downloads_dir)
     if downloads_dir.exists():
         for metadata_file in sorted(downloads_dir.glob("*.meta")):
+            archive_file = metadata_file.with_suffix("")
             key = readDownloadMetaKey(metadata_file)
+            missing_identity = False
+            if key is None:
+                key = _archiveKeyFromExpectedFileNames(
+                    archive_file.name, expected_file_names
+                )
+                missing_identity = key is not None
             if key not in expected_installed_keys:
                 continue
-            archive_file = metadata_file.with_suffix("")
             if not archive_file.exists() or archive_file.is_dir():
                 continue
             download_checked += 1
-            if downloadMetaInstalledValue(metadata_file) != "true":
+            if missing_identity or downloadMetaInstalledValue(metadata_file) != "true":
                 download_mismatches.append(str(metadata_file))
 
     return {

@@ -404,6 +404,30 @@ class RepairDownloadMetadataInstalledFlagsTests(unittest.TestCase):
                 (backups / metadata.name).read_text(encoding="utf-8"),
             )
 
+    def test_repairs_unqueried_metadata_from_collection_file_name(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Faster HDT-SMP-57339-2-5-1-1728377043.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / "Faster HDT-SMP-57339-2-5-1-1728377043.7z.meta"
+            metadata.write_text(
+                "[General]\r\ninstalled=true\r\nuninstalled=false\r\n",
+                encoding="utf-8",
+            )
+
+            result = repairDownloadMetadataInstalledFlags(
+                downloads,
+                {(57339, 550156)},
+                expected_file_names={(57339, 550156): "Faster HDT-SMP"},
+            )
+
+            repaired_metadata = metadata.read_text(encoding="utf-8")
+            self.assertEqual(result["repaired"], 1)
+            self.assertIn("modID=57339", repaired_metadata)
+            self.assertIn("fileID=550156", repaired_metadata)
+            self.assertIn("repository=Nexus", repaired_metadata)
+            self.assertIn("installed=true", repaired_metadata)
+
 
 class InstalledCollectionMetadataRepairTests(unittest.TestCase):
     def test_repairs_manifest_version_and_mo2_category_from_nexus_category(self):
@@ -736,6 +760,45 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
                 ),
                 {(57339, 550156): ["Faster HDT-SMP"]},
             )
+
+    def test_flags_unqueried_download_metadata_for_installed_archive(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            mod_dir = mods / "Faster HDT-SMP"
+            mod_dir.mkdir()
+            (mod_dir / "meta.ini").write_text(
+                "[General]\n"
+                "modid=57339\n"
+                "installationFile=Faster HDT-SMP-57339-2-5-1-1728377043.7z\n"
+                "\n"
+                "[installedFiles]\n"
+                "size=1\n"
+                "1\\modid=0\n"
+                "1\\fileid=0\n",
+                encoding="utf-8",
+            )
+            archive = downloads / "Faster HDT-SMP-57339-2-5-1-1728377043.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / "Faster HDT-SMP-57339-2-5-1-1728377043.7z.meta"
+            metadata.write_text(
+                "[General]\ninstalled=true\nuninstalled=false\n",
+                encoding="utf-8",
+            )
+
+            result = collectionInstallPostconditionAudit(
+                downloads,
+                mods,
+                "+Faster HDT-SMP\n",
+                expected_keys={(57339, 550156)},
+                expected_file_names={(57339, 550156): "Faster HDT-SMP"},
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["download_metadata_mismatches"], [str(metadata)])
 
     def test_detects_known_game_root_install_evidence(self):
         with TemporaryDirectory() as tmp:
@@ -2435,15 +2498,15 @@ class InstallPlanExecutionActionTests(unittest.TestCase):
 
 
 class FastFinishMetadataRepairKeysTests(unittest.TestCase):
-    def test_excludes_installed_entries_repaired_by_postcondition_sweep(self):
+    def test_includes_installed_entries_because_fast_finish_skips_sweep(self):
         self.assertEqual(
             fastFinishMetadataRepairKeys(
                 [{"status": "installed", "install_key": (123, 456)}]
             ),
-            set(),
+            {(123, 456)},
         )
 
-    def test_returns_root_entries_without_mo2_mod_containers(self):
+    def test_returns_installed_and_root_entries_without_failed_entries(self):
         self.assertEqual(
             fastFinishMetadataRepairKeys(
                 [
@@ -2452,7 +2515,7 @@ class FastFinishMetadataRepairKeysTests(unittest.TestCase):
                     {"status": "failed", "install_key": (999, 111)},
                 ]
             ),
-            {(321, 654)},
+            {(123, 456), (321, 654)},
         )
 
 
