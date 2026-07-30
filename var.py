@@ -25,12 +25,30 @@ chosenOptional = []
 chosenExternal = True
 openModWebsites = False
 autoAdvanceFomodDefaultsOverride = None
+debugLogPath = None
+lastQuotaLimitMessage = None
+lastQuotaState = None
+
+
+def setDebugLogPath(path):
+    global debugLogPath
+
+    debugLogPath = Path(path) if path else None
 
 
 def debug(message):
     """Send text to MO2's debug log without crashing on non-ASCII Nexus data."""
     safe_message = str(message).encode("ascii", "backslashreplace").decode("ascii")
     _qDebug(safe_message)
+    if not debugLogPath:
+        return
+    try:
+        debugLogPath.parent.mkdir(parents=True, exist_ok=True)
+        with open(debugLogPath, "a", encoding="utf-8") as log_file:
+            timestamp = datetime.now().isoformat(timespec="seconds")
+            log_file.write(f"{timestamp} {safe_message}\n")
+    except OSError:
+        pass
 
 
 qDebug = debug

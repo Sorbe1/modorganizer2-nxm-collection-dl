@@ -8,12 +8,6 @@ from datetime import datetime
 from pathlib import Path
 
 
-DEFAULT_BASE = Path(
-    "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/"
-    "users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp"
-)
-
-
 def collection_identity(collection_file):
     data = json.loads(collection_file.read_text(encoding="utf-8"))
     entries = data.get("essentialMods", []) + data.get("chosenOptional", [])
@@ -76,7 +70,9 @@ def matching_mod_dirs(base, keys, mod_ids, names):
             matches.append(meta_ini.parent)
         elif mod_name in names:
             matches.append(meta_ini.parent)
-        elif installation_file and any(f"-{mid}-" in installation_file for mid in mod_ids):
+        elif installation_file and any(
+            f"-{mid}-" in installation_file for mid in mod_ids
+        ):
             matches.append(meta_ini.parent)
     return matches
 
@@ -159,54 +155,79 @@ def update_list_file(path, removed_names, backup_dir):
     return removed
 
 
-def move_paths(paths, target_dir):
-    moved = []
-    target_dir.mkdir(parents=True, exist_ok=True)
+def delete_paths(paths):
+    removed = []
     for path in paths:
-        target = target_dir / path.name
-        if target.exists():
-            target = target_dir / f"{datetime.now().strftime('%H%M%S-%f')}-{path.name}"
-        shutil.move(str(path), str(target))
-        moved.append(path.name)
-    return moved
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        removed.append(path.name)
+    return removed
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("collection", help="Collection metadata basename, e.g. 8vdyr1_12")
-    parser.add_argument("--base", type=Path, default=DEFAULT_BASE)
+    parser.add_argument(
+        "collection", help="Collection metadata basename, e.g. 8vdyr1_12"
+    )
+    parser.add_argument(
+        "--base",
+        type=Path,
+        default=None,
+        help=(
+            "MO2 instance base directory. May also be supplied with "
+            "NXM_COLLECTION_DL_MO2_BASE."
+        ),
+    )
     parser.add_argument("--keep-downloads", action="store_true")
     args = parser.parse_args()
+    if args.base is None:
+        import os
+
+        env_base = os.environ.get("NXM_COLLECTION_DL_MO2_BASE")
+        if env_base:
+            args.base = Path(env_base)
+        else:
+            parser.error("provide --base or set NXM_COLLECTION_DL_MO2_BASE")
 
     collection_file = (
         args.base / "collections" / "skyrimspecialedition" / f"{args.collection}.json"
     )
     data, keys, mod_ids, names = collection_identity(collection_file)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_dir = args.base / "reset-backups" / f"{args.collection}-full-reset-{timestamp}"
+    backup_dir = (
+        args.base / "reset-backups" / f"{args.collection}-full-reset-{timestamp}"
+    )
     backup_dir.mkdir(parents=True, exist_ok=False)
 
     mod_dirs = matching_mod_dirs(args.base, keys, mod_ids, names)
-    moved_mods = move_paths(mod_dirs, backup_dir / "mods")
-    removed_names = set(moved_mods)
+    reset_mod_dirs = delete_paths(mod_dirs)
+    removed_names = set(reset_mod_dirs)
 
     profile = args.base / "profiles" / "Default"
-    modlist_removed = update_list_file(profile / "modlist.txt", removed_names, backup_dir)
-    loadorder_removed = update_list_file(profile / "loadorder.txt", removed_names, backup_dir)
-    plugins_removed = update_list_file(profile / "plugins.txt", removed_names, backup_dir)
+    modlist_removed = update_list_file(
+        profile / "modlist.txt", removed_names, backup_dir
+    )
+    loadorder_removed = update_list_file(
+        profile / "loadorder.txt", removed_names, backup_dir
+    )
+    plugins_removed = update_list_file(
+        profile / "plugins.txt", removed_names, backup_dir
+    )
 
-    moved_downloads = []
+    reset_downloads = []
     if not args.keep_downloads:
-        moved_downloads = move_paths(
-            matching_download_files(args.base, keys, mod_ids), backup_dir / "downloads"
+        reset_downloads = delete_paths(
+            matching_download_files(args.base, keys, mod_ids)
         )
 
     manifest = {
         "collection": args.collection,
         "name": data.get("name"),
         "entries": len(keys),
-        "moved_mod_dirs": moved_mods,
-        "moved_download_files": moved_downloads,
+        "reset_mod_dirs": reset_mod_dirs,
+        "reset_download_files": reset_downloads,
         "modlist_removed": modlist_removed,
         "loadorder_removed": loadorder_removed,
         "plugins_removed": plugins_removed,
@@ -217,8 +238,8 @@ def main():
 
     print(f"Collection: {args.collection} ({data.get('name')})")
     print(f"Collection entries: {len(keys)}")
-    print(f"Moved mod dirs: {len(moved_mods)}")
-    print(f"Moved download files: {len(moved_downloads)}")
+    print(f"Reset mod dirs: {len(reset_mod_dirs)}")
+    print(f"Reset download files: {len(reset_downloads)}")
     print(f"Removed modlist lines: {modlist_removed}")
     print(f"Removed loadorder lines: {loadorder_removed}")
     print(f"Removed plugins lines: {plugins_removed}")
