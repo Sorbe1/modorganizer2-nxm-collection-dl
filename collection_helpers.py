@@ -1337,6 +1337,26 @@ def isSafeSingletonFomodOption(group_title, option_label):
     )
 
 
+def preferredRequiredFomodFallbackOption(option_labels):
+    """Return the safest fallback label for an otherwise unselected required group."""
+    preferred = (
+        "none",
+        "no",
+        "skip",
+        "do not install",
+        "do not use",
+        "not installed",
+    )
+    normalized_options = [
+        (normalizedButtonLabel(label), label) for label in (option_labels or [])
+    ]
+    for preferred_label in preferred:
+        for normalized, original in normalized_options:
+            if normalized == preferred_label:
+                return original
+    return None
+
+
 def _xmlLocalName(tag):
     return str(tag).rsplit("}", 1)[-1]
 

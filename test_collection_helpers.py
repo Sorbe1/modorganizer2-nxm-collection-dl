@@ -83,6 +83,7 @@ from collection_helpers import (
     parseCollectionAddress,
     popDownloadKey,
     preferredCanonicalDownloadArchive,
+    preferredRequiredFomodFallbackOption,
     removeOrphanUnfinishedEntries,
     removeOrphanUnfinishedDownloadsForKeys,
     removeUnfinishedEntries,
@@ -1684,6 +1685,21 @@ class SafeSingletonFomodOptionTests(unittest.TestCase):
                 isSafeSingletonFomodOption(group_title, option_label),
                 (group_title, option_label),
             )
+
+    def test_prefers_safe_required_fallback_labels(self):
+        self.assertEqual(
+            preferredRequiredFomodFallbackOption(["Yes", "No"]),
+            "No",
+        )
+        self.assertEqual(
+            preferredRequiredFomodFallbackOption(["Fancy Patch", "None"]),
+            "None",
+        )
+
+    def test_rejects_required_fallback_without_safe_label(self):
+        self.assertIsNone(
+            preferredRequiredFomodFallbackOption(["Red", "Blue", "Green"])
+        )
 
 
 class ArchiveInspectionSubprocessKwargsTests(unittest.TestCase):

@@ -78,6 +78,7 @@ from .collection_helpers import (
     nativePathForArchiveInspection,
     preferredCanonicalDownloadArchive,
     mo2CategoryNameMap,
+    preferredRequiredFomodFallbackOption,
     repairDownloadMetadataInstalledFlags,
     repairInstalledCollectionModMetadata,
     repairSingleWrapperPayload,
@@ -472,7 +473,20 @@ def selectRequiredSingletonFomodOption(widget, selected_groups=None):
         elif isRequiredFomodGroupTitle(group.title()):
             if group_key in selected_groups:
                 continue
-            button = candidates[0]
+            preferred_label = preferredRequiredFomodFallbackOption(
+                [button.text() for button in candidates]
+            )
+            if not preferred_label:
+                continue
+            button = None
+            for candidate in candidates:
+                if normalizedButtonLabel(candidate.text()) == normalizedButtonLabel(
+                    preferred_label
+                ):
+                    button = candidate
+                    break
+            if button is None:
+                continue
             label = normalizedButtonLabel(button.text())
         else:
             continue
@@ -501,7 +515,16 @@ def advanceInstallerDialogDefaults(selected_groups=None):
                 return safeDisplayText(widget.windowTitle()), "ignore", None
 
         button = installerDefaultAction(widget)
+        if button and normalizedButtonLabel(button.text()) == "install":
+            selection = selectRequiredSingletonFomodOption(widget, selected_groups)
+            if selection:
+                title, group_title, label, group_key = selection
+                return title, "select " + label, group_key
         if not button:
+            selection = selectRequiredSingletonFomodOption(widget, selected_groups)
+            if selection:
+                title, group_title, label, group_key = selection
+                return title, "select " + label, group_key
             continue
 
         title = safeDisplayText(widget.windowTitle())
