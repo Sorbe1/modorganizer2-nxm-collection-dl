@@ -829,6 +829,7 @@ class stepDownloadProgress(QDialog):
         self.ambiguous_download_keys = {}
         self.completed_keys = set()
         self.failed_keys = set()
+        self.failed_key_reasons = {}
         self.restart_required_keys = set()
         self.restart_required_reasons = {}
         self.duplicate_declined_keys = set()
@@ -1271,6 +1272,7 @@ class stepDownloadProgress(QDialog):
             return False
 
         self.failed_keys.discard(key)
+        self.failed_key_reasons.pop(key, None)
         self.restart_required_keys.discard(key)
         self.restart_required_reasons.pop(key, None)
         self.completed_keys.add(key)
@@ -1302,6 +1304,7 @@ class stepDownloadProgress(QDialog):
             return False
 
         self.failed_keys.add(key)
+        self.failed_key_reasons[key] = reason
         self.note_download_progress()
         qDebug(f"[NXMColDL Progress] {reason}: ModID {key[0]}, FileID {key[1]}")
         return True
@@ -1666,6 +1669,7 @@ class stepDownloadProgress(QDialog):
         pending_keys = set(self.key_counts) - self.completed_keys - self.failed_keys
         self.failed_keys.update(pending_keys)
         for key in sorted(pending_keys):
+            self.failed_key_reasons[key] = self.quota_stop_message
             self.queued_keys.discard(key)
             self.queued_at.pop(key, None)
             self.waiting_partial_keys.discard(key)
@@ -2346,6 +2350,7 @@ class stepDownloadProgress(QDialog):
         self.already_started_at.pop(key, None)
         self.paused_keys.pop(key, None)
         self.failed_keys.discard(key)
+        self.failed_key_reasons.pop(key, None)
         self.remove_download_ids_for_key(key)
 
         mod_name = self.mod_label(mod) if mod else f"ModID {key[0]}"
@@ -2379,6 +2384,7 @@ class stepDownloadProgress(QDialog):
 
             self.terminal_cleanup_attempts.add(key)
             self.failed_keys.discard(key)
+            self.failed_key_reasons.pop(key, None)
             self.queued_keys.discard(key)
             self.queued_at.pop(key, None)
             self.waiting_partial_keys.discard(key)
@@ -2414,6 +2420,7 @@ class stepDownloadProgress(QDialog):
                 continue
 
             self.failed_keys.discard(key)
+            self.failed_key_reasons.pop(key, None)
             self.queued_keys.add(key)
             self.queued_at.setdefault(key, time.time())
             self.waiting_partial_keys.add(key)
@@ -3065,6 +3072,8 @@ class stepDownloadProgress(QDialog):
             )
 
         self.failed_keys.difference_update(retry_keys)
+        for key in retry_keys:
+            self.failed_key_reasons.pop(key, None)
         self.queued_keys.difference_update(retry_keys)
         self.waiting_partial_keys.difference_update(retry_keys)
         for key in retry_keys:
@@ -3184,7 +3193,13 @@ class stepDownloadProgress(QDialog):
                 "[NXMColDL Progress] Final download readiness failed: "
                 + "; ".join(readiness["blockers"])
             )
-            self.failed_keys.update(readiness.get("missing_keys", set()))
+            missing_keys = readiness.get("missing_keys", set())
+            self.failed_keys.update(missing_keys)
+            for key in missing_keys:
+                self.failed_key_reasons[key] = (
+                    "Final download readiness failed: "
+                    + "; ".join(readiness["blockers"])
+                )
             state = self.refresh_progress_counts()
             self.show_completion_choices(state)
             return
@@ -3279,6 +3294,8 @@ class stepDownloadProgress(QDialog):
         if not blockers:
             self.completed_keys.update(completed_on_disk & expected_keys)
             self.failed_keys.difference_update(expected_keys)
+            for key in expected_keys:
+                self.failed_key_reasons.pop(key, None)
             self.restart_required_keys.difference_update(expected_keys)
             self.restart_required_reasons = {
                 key: value
@@ -3333,7 +3350,11 @@ class stepDownloadProgress(QDialog):
                 "file_id": key[1],
                 "mod": mod_info.get("name"),
                 "file": file_info.get("name"),
-                "reason": self.restart_required_reasons.get(key),
+                "reason": (
+                    self.restart_required_reasons.get(key)
+                    or self.failed_key_reasons.get(key)
+                    or "Download did not reach a completed archive"
+                ),
             }
 
         report = {
