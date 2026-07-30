@@ -29,6 +29,7 @@ from . import var
 from .collection_helpers import (
     INSTALLER_SETTING_DEFAULTS,
     activeDownloadPromptKey,
+    adaptiveDownloadTailGraceSeconds,
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
@@ -41,6 +42,7 @@ from .collection_helpers import (
     downloadedArchiveNameKeys,
     downloadCompletionChoices,
     downloadCompletionPlan,
+    downloadTailBoundaryReached,
     downloadProgressCanClose,
     downloadProgressFormat,
     downloadProgressState,
@@ -860,6 +862,14 @@ class stepDownloadProgress(QDialog):
         self.queue_pump_active = False
         self.queue_backoff_until = 0
         self.queue_throttle_log_at = 0
+        self.tail_boundary_started_at = None
+        self.tail_boundary_completion_ratio = 0.75
+        self.tail_boundary_grace_seconds = adaptiveDownloadTailGraceSeconds(
+            self.total_mods,
+            self.max_unresolved_queue_submissions,
+            self.max_retries,
+            self.stale_unfinished_seconds,
+        )
         self.quota_stop_message = None
         self.reconcile_timer = QTimer(self)
         self.reconcile_timer.setInterval(1000)
@@ -1080,6 +1090,8 @@ class stepDownloadProgress(QDialog):
         self.cleanup_stalled_zero_byte_queue_starts()
         unresolved = self.unresolved_queue_count()
         if unresolved >= self.max_unresolved_queue_submissions:
+            if self.apply_download_tail_boundary(unresolved, now):
+                return
             if now >= self.queue_throttle_log_at:
                 qDebug(
                     "[NXMColDL Progress] Pausing download pump: "
@@ -1090,6 +1102,7 @@ class stepDownloadProgress(QDialog):
             QTimer.singleShot(self.queue_interval_ms, self.pump_next_download)
             return
 
+        self.tail_boundary_started_at = None
         mod = self.queue_pending_mods.pop(0)
         key = self.mod_key(mod)
         skipped = 0
@@ -1295,6 +1308,16 @@ class stepDownloadProgress(QDialog):
             return True
         return False
 
+    def mark_keys_restart_required(self, keys, reason):
+        """Fail multiple keys in a restartable state without hiding the count."""
+        marked = 0
+        for key in sorted(set(keys or [])):
+            if key in self.completed_keys or key in self.failed_keys:
+                continue
+            if self.mark_key_restart_required(key, reason):
+                marked += 1
+        return marked
+
     def stop_queueing_for_resume_boundary(self):
         """Stop issuing MO2 requests after stale in-memory queue state appears."""
         self.queue_pending_mods = []
@@ -1381,6 +1404,78 @@ class stepDownloadProgress(QDialog):
         unresolved_keys.difference_update(self.failed_keys)
         extra_orphans = max(0, active_orphan_count - len(active_orphan_keys))
         return len(unresolved_keys) + extra_orphans
+
+    def unresolved_queue_keys(self):
+        """Return known pending keys contributing to MO2 queue pressure."""
+        entries_by_key = unfinishedDownloadEntries(downloadDirectory())
+        pending_keys = set(self.key_counts) - self.completed_keys - self.failed_keys
+        keys = set()
+        keys.update(key for key in entries_by_key if key in pending_keys)
+        keys.update(key for key in self.download_ids.values() if key in pending_keys)
+        keys.update(key for key in self.queued_keys if key in pending_keys)
+        keys.update(key for key in self.queued_at if key in pending_keys)
+        keys.update(key for key in self.waiting_partial_keys if key in pending_keys)
+        keys.update(key for key in self.already_started_keys if key in pending_keys)
+        return keys
+
+    def apply_download_tail_boundary(self, unresolved, now):
+        """Stop a mostly complete run from waiting forever on MO2 queue laggards."""
+        state = self.refresh_progress_counts()
+        if not self.tail_boundary_started_at:
+            if downloadTailBoundaryReached(
+                self.total_mods,
+                state["successful"],
+                state["failed"],
+                unresolved,
+                self.max_unresolved_queue_submissions,
+                now,
+                now,
+                0,
+                self.tail_boundary_completion_ratio,
+            ):
+                self.tail_boundary_started_at = now
+                qDebug(
+                    "[NXMColDL Progress] Download tail boundary armed: "
+                    f"successful={state['successful']}, failed={state['failed']}, "
+                    f"total={self.total_mods}, unresolved={unresolved}"
+                )
+            return False
+
+        if not downloadTailBoundaryReached(
+            self.total_mods,
+            state["successful"],
+            state["failed"],
+            unresolved,
+            self.max_unresolved_queue_submissions,
+            self.tail_boundary_started_at,
+            now,
+            self.tail_boundary_grace_seconds,
+            self.tail_boundary_completion_ratio,
+        ):
+            return False
+
+        tail_keys = self.unresolved_queue_keys()
+        pending_queue_keys = {self.mod_key(mod) for mod in self.queue_pending_mods}
+        tail_keys.update(
+            pending_queue_keys - self.completed_keys - self.failed_keys
+        )
+        marked = self.mark_keys_restart_required(
+            tail_keys,
+            "Download tail exceeded retry/grace budget; rerun collection to resume laggards",
+        )
+        qDebug(
+            "[NXMColDL Progress] Download tail boundary applied: "
+            f"{marked} key(s) moved to restart/manual review after "
+            f"{self.tail_boundary_grace_seconds}s grace"
+        )
+        self.detail_label.setText(
+            f"{marked} lagging download(s) moved to review; "
+            "rerun the collection to resume only missing files."
+        )
+        self.detail_label.setStyleSheet("color: orange;")
+        self.update_progress()
+        self.finish_if_complete()
+        return True
 
     def stalled_zero_byte_keys(self, entries_by_key, keys, now, timeout_seconds):
         """Return keys whose MO2 placeholder never started receiving bytes."""

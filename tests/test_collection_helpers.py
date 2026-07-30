@@ -95,6 +95,8 @@ from collection_helpers import (
     shouldUseCollectionTargetModName,
     shouldDelayTerminalDownloadFailure,
     staleAlreadyStartedAction,
+    adaptiveDownloadTailGraceSeconds,
+    downloadTailBoundaryReached,
     staleOrphanUnfinishedDownloadEntries,
     staleDownloadStartAction,
     staleUnfinishedEntries,
@@ -1319,6 +1321,40 @@ class StaleAlreadyStartedActionTests(unittest.TestCase):
 
     def test_escalates_when_already_started_has_no_metadata_entry(self):
         self.assertEqual(staleAlreadyStartedAction(False), "restart_required")
+
+
+class DownloadTailBoundaryTests(unittest.TestCase):
+    def test_waits_before_collection_is_mostly_settled(self):
+        self.assertFalse(
+            downloadTailBoundaryReached(
+                total=100,
+                successful=60,
+                failed=5,
+                unresolved=16,
+                unresolved_limit=16,
+                boundary_started_at=100,
+                now=200,
+                grace_seconds=20,
+            )
+        )
+
+    def test_waits_before_tail_grace_expires(self):
+        self.assertFalse(
+            downloadTailBoundaryReached(100, 75, 0, 16, 16, 100, 119, 20)
+        )
+
+    def test_stops_tail_after_majority_and_grace(self):
+        self.assertTrue(
+            downloadTailBoundaryReached(100, 75, 0, 16, 16, 100, 120, 20)
+        )
+
+    def test_adaptive_grace_scales_but_stays_bounded(self):
+        small = adaptiveDownloadTailGraceSeconds(50, 16, 0, 30)
+        large = adaptiveDownloadTailGraceSeconds(800, 16, 2, 600)
+
+        self.assertGreaterEqual(small, 20)
+        self.assertGreater(large, small)
+        self.assertLessEqual(large, 180)
 
 
 class CoerceDownloadIdTests(unittest.TestCase):

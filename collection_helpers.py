@@ -3298,6 +3298,78 @@ def staleAlreadyStartedAction(has_metadata_entry):
     return "wait" if has_metadata_entry else "restart_required"
 
 
+def downloadTailBoundaryReached(
+    total,
+    successful,
+    failed,
+    unresolved,
+    unresolved_limit,
+    boundary_started_at,
+    now,
+    grace_seconds,
+    completion_ratio=0.75,
+):
+    """Return True when the remaining download tail should stop blocking progress."""
+    try:
+        total = int(total or 0)
+        successful = int(successful or 0)
+        failed = int(failed or 0)
+        unresolved = int(unresolved or 0)
+        unresolved_limit = int(unresolved_limit or 0)
+    except (TypeError, ValueError):
+        return False
+
+    if total <= 0 or unresolved_limit <= 0 or unresolved < unresolved_limit:
+        return False
+
+    terminal = max(0, successful) + max(0, failed)
+    if terminal <= 0:
+        return False
+
+    try:
+        completion_ratio = float(completion_ratio)
+    except (TypeError, ValueError):
+        completion_ratio = 0.75
+    completion_ratio = min(1.0, max(0.0, completion_ratio))
+    if terminal / total < completion_ratio:
+        return False
+
+    try:
+        boundary_started_at = float(boundary_started_at)
+        now = float(now)
+        grace_seconds = max(0.0, float(grace_seconds or 0))
+    except (TypeError, ValueError):
+        return False
+
+    return now - boundary_started_at >= grace_seconds
+
+
+def adaptiveDownloadTailGraceSeconds(
+    total,
+    unresolved_limit,
+    max_retries,
+    stale_unfinished_seconds,
+    minimum=20,
+    maximum=180,
+):
+    """Return a bounded tail grace that scales with run size and retry policy."""
+    try:
+        total = max(0, int(total or 0))
+        unresolved_limit = max(1, int(unresolved_limit or 1))
+        max_retries = max(0, int(max_retries or 0))
+        stale_unfinished_seconds = max(0, int(stale_unfinished_seconds or 0))
+        minimum = max(0, int(minimum or 0))
+        maximum = max(minimum, int(maximum or minimum))
+    except (TypeError, ValueError):
+        return 60
+
+    scale_steps = max(1, (total + unresolved_limit - 1) // unresolved_limit)
+    size_seconds = 5 * scale_steps
+    retry_seconds = 10 * max_retries
+    stale_seconds = min(60, max(0, stale_unfinished_seconds // 10))
+    return min(maximum, max(minimum, size_seconds + retry_seconds + stale_seconds))
+
+
 def coerceDownloadId(download_id):
     """Return a usable MO2 download id, or None for failed queue-start values."""
     try:
