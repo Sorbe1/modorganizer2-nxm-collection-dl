@@ -64,6 +64,7 @@ from collection_helpers import (
     invalidInstallContentDialogAction,
     installNoResultReason,
     installerDefaultActionLabel,
+    isBenignEmptyFomodInstallerResult,
     isRequiredFomodGroupTitle,
     isQuotaLimitText,
     isSafeSingletonFomodOption,
@@ -3146,6 +3147,55 @@ class InvalidInstalledCollectionArchiveRetryTests(unittest.TestCase):
             (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
 
             self.assertFalse(installedModHasCompletionPayload(mod_dir))
+
+    def test_empty_fomod_without_required_choices_is_benign_noop(self):
+        self.assertTrue(
+            isBenignEmptyFomodInstallerResult(
+                True,
+                {
+                    "module_config": "fomod/ModuleConfig.xml",
+                    "manual_choices": [],
+                    "safe_singleton_prompts": [],
+                    "parse_error": None,
+                    "error": None,
+                },
+            )
+        )
+
+    def test_empty_fomod_with_required_choices_is_not_benign(self):
+        self.assertFalse(
+            isBenignEmptyFomodInstallerResult(
+                True,
+                {
+                    "module_config": "fomod/ModuleConfig.xml",
+                    "manual_choices": [
+                        {
+                            "step": "Patches",
+                            "group": "Do you use Example?",
+                            "type": "SelectExactlyOne",
+                            "options": ["Yes", "No"],
+                        }
+                    ],
+                    "safe_singleton_prompts": [],
+                    "parse_error": None,
+                    "error": None,
+                },
+            )
+        )
+
+    def test_empty_fomod_with_unreadable_xml_is_not_benign(self):
+        self.assertFalse(
+            isBenignEmptyFomodInstallerResult(
+                True,
+                {
+                    "module_config": None,
+                    "manual_choices": [],
+                    "safe_singleton_prompts": [],
+                    "parse_error": "not well-formed",
+                    "error": None,
+                },
+            )
+        )
 
     def test_empty_fomod_result_does_not_queue_probe_retry(self):
         self.assertFalse(

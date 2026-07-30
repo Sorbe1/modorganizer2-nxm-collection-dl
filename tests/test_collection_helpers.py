@@ -58,6 +58,9 @@ from collection_helpers import (
     invalidInstallContentDialogAction,
     installNoResultReason,
     installerDefaultActionLabel,
+    installedModHasCompletionPayload,
+    installedPayloadFileCount,
+    isBenignEmptyFomodInstallerResult,
     isRequiredFomodGroupTitle,
     isQuotaLimitText,
     isSafeSingletonFomodOption,
@@ -3162,6 +3165,66 @@ class HeadlessInstallMetaIniTests(unittest.TestCase):
         self.assertIn("newestVersion=1.2", metadata)
         self.assertIn("nexusCategory=42", metadata)
         self.assertIn('category="42,"', metadata)
+
+
+class InstalledPayloadCompletionTests(unittest.TestCase):
+    def test_meta_only_mod_directory_is_empty_completion_payload(self):
+        with TemporaryDirectory() as tmp:
+            mod_dir = Path(tmp) / "Optional Patch Collection"
+            mod_dir.mkdir()
+            (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
+
+            self.assertEqual(installedPayloadFileCount(mod_dir), 0)
+            self.assertFalse(installedModHasCompletionPayload(mod_dir))
+
+    def test_empty_fomod_without_required_choices_is_benign_noop(self):
+        self.assertTrue(
+            isBenignEmptyFomodInstallerResult(
+                True,
+                {
+                    "module_config": "fomod/ModuleConfig.xml",
+                    "manual_choices": [],
+                    "safe_singleton_prompts": [],
+                    "parse_error": None,
+                    "error": None,
+                },
+            )
+        )
+
+    def test_empty_fomod_with_required_choices_is_not_benign(self):
+        self.assertFalse(
+            isBenignEmptyFomodInstallerResult(
+                True,
+                {
+                    "module_config": "fomod/ModuleConfig.xml",
+                    "manual_choices": [
+                        {
+                            "step": "Patches",
+                            "group": "Do you use Example?",
+                            "type": "SelectExactlyOne",
+                            "options": ["Yes", "No"],
+                        }
+                    ],
+                    "safe_singleton_prompts": [],
+                    "parse_error": None,
+                    "error": None,
+                },
+            )
+        )
+
+    def test_empty_fomod_with_unreadable_xml_is_not_benign(self):
+        self.assertFalse(
+            isBenignEmptyFomodInstallerResult(
+                True,
+                {
+                    "module_config": None,
+                    "manual_choices": [],
+                    "safe_singleton_prompts": [],
+                    "parse_error": "not well-formed",
+                    "error": None,
+                },
+            )
+        )
 
 
 class AutomatedInstallCadenceDefaultsTests(unittest.TestCase):

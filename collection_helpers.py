@@ -24,6 +24,9 @@ FOMOD_ADVANCE_EXCLUDED_TITLES = {
 EMPTY_INSTALLER_OUTPUT_REASON = (
     "installer completed but produced an empty mod container"
 )
+EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON = (
+    "FOMOD completed with no applicable files for the active profile"
+)
 
 INSTALLER_SETTING_DEFAULTS = {
     "auto_accept_quick_install": True,
@@ -907,6 +910,21 @@ def installedPayloadFileCount(mod_dir):
 def installedModHasCompletionPayload(mod_dir):
     """Return True when an installer result contains files beyond MO2 metadata."""
     return installedPayloadFileCount(mod_dir) > 0
+
+
+def isBenignEmptyFomodInstallerResult(fomod_state, guide):
+    """Return True when an empty FOMOD result is a valid no-op for this profile."""
+    if fomod_state is not True:
+        return False
+    if not isinstance(guide, dict):
+        return False
+    if not guide.get("module_config"):
+        return False
+    if guide.get("error") or guide.get("parse_error"):
+        return False
+    if guide.get("manual_choices") or guide.get("safe_singleton_prompts"):
+        return False
+    return True
 
 
 def shouldQueueFomodProbeRetry(failed_entry):

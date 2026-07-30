@@ -54,6 +54,7 @@ from .collection_helpers import (
     detachedInstallCacheKeyFromPath,
     extractHeadlessZipArchive,
     fastFinishMetadataRepairKeys,
+    EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON,
     headlessArchiveInstallLayout,
     headlessFomodDependencyInstallLayout,
     gameRootFileEvidenceForCollectionEntry,
@@ -68,6 +69,7 @@ from .collection_helpers import (
     installNoResultReason,
     installPlanExecutionAction,
     installerDefaultActionLabel,
+    isBenignEmptyFomodInstallerResult,
     isRequiredFomodGroupTitle,
     isSafeSingletonFomodOption,
     isTransientManualFomodPlanFailure,
@@ -3292,6 +3294,31 @@ class stepInstallMods(QDialog):
                 internal_name = installed_mod.name()
                 installed_dir = Path(organizer.modsPath()) / internal_name
                 if not installedModHasCompletionPayload(installed_dir):
+                    empty_fomod_guide = None
+                    if fomod_state is True:
+                        empty_fomod_guide = self.archiveFomodGuide(
+                            install_source_path,
+                            organizer=organizer,
+                        )
+                    if isBenignEmptyFomodInstallerResult(
+                        fomod_state,
+                        empty_fomod_guide,
+                    ):
+                        self.log(
+                            "  "
+                            f"{EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON}; "
+                            "leaving empty container disabled.",
+                            "note",
+                        )
+                        used_mod_names.add(internal_name)
+                        installed_mods.append(internal_name)
+                        installed_map[install_key] = internal_name
+                        self.markInstalledDownloadMetadata(context, install_key)
+                        self.log("")
+                        QTimer.singleShot(
+                            INSTALL_NEXT_DELAY_MS, self.installNextMod
+                        )
+                        return
                     reason = (
                         "installer completed but produced an empty mod container; "
                         "review FOMOD/manual choices"
