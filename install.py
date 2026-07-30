@@ -40,7 +40,6 @@ from .collection_helpers import (
     INSTALLER_SETTING_DEFAULTS,
     allocateUniqueModName,
     archiveInspectionSubprocessKwargs,
-    collectionInvalidPayloadModNames,
     collectionMetadataFromFile,
     collectionInstallRoute,
     collectionPluginNamesFromModDirs,
@@ -2549,63 +2548,53 @@ class stepInstallMods(QDialog):
             )
             headless_archive_layout = None
             if (
-                invalid_installed_name
-                and fomod_state is True
+                fomod_state is True
                 and install_route == "mo2"
                 and not manual_install_pass
                 and not normal_dialog_retry_pass
                 and self.installerBoolSetting("headless_archive_installs")
             ):
-                cached_manual_fomod_reason = self.cachedManualFomodPlanFailure(
-                    context["organizer"],
-                    install_key,
+                headless_archive_layout = self.headlessFomodDependencyLayoutPlan(
                     install_source_path,
+                    organizer=context["organizer"],
+                    evidence_names=context.get("install_evidence_names", []),
                 )
-                if cached_manual_fomod_reason:
-                    headless_archive_layout = {
-                        "installable": False,
-                        "reason": cached_manual_fomod_reason,
-                        "mappings": [],
-                        "fomod_selection": True,
-                        "source": "manual-fomod-cache",
-                    }
-                else:
-                    headless_archive_layout = self.headlessFomodDependencyLayoutPlan(
-                        install_source_path,
-                        organizer=context["organizer"],
-                        evidence_names=context.get("install_evidence_names", []),
-                    )
                 if headless_archive_layout.get("installable"):
                     install_route = "headless-archive"
                     existing_mod_action = None
                     use_target_mod_name = True
                     use_archive_default_for_fomod = False
-                    counts["headless_fomod_repair"] += 1
+                    if invalid_installed_name:
+                        counts["headless_fomod_repair"] += 1
+                    else:
+                        counts["headless_fomod"] += 1
                 else:
-                    self.rememberManualFomodPlanFailure(
-                        context["organizer"],
-                        install_key,
-                        install_source_path,
-                        headless_archive_layout.get("reason"),
-                    )
-                    entry.update(
-                        {
-                            "status": "failed",
-                            "download_path": download_path,
-                            "install_source_path": install_source_path,
-                            "source_note": source_note,
-                            "reason": (
-                                "manual FOMOD choices required: "
-                                f"{headless_archive_layout.get('reason')}"
-                            ),
-                            "headless_archive_layout": headless_archive_layout,
-                            "replacing_invalid_installed_name": invalid_installed_name,
-                            "fomod_state": "true",
-                        }
-                    )
-                    counts["missing"] += 1
-                    plan.append(entry)
-                    continue
+                    if invalid_installed_name:
+                        self.rememberManualFomodPlanFailure(
+                            context["organizer"],
+                            install_key,
+                            install_source_path,
+                            headless_archive_layout.get("reason"),
+                        )
+                        entry.update(
+                            {
+                                "status": "failed",
+                                "download_path": download_path,
+                                "install_source_path": install_source_path,
+                                "source_note": source_note,
+                                "reason": (
+                                    "manual FOMOD choices required: "
+                                    f"{headless_archive_layout.get('reason')}"
+                                ),
+                                "headless_archive_layout": headless_archive_layout,
+                                "replacing_invalid_installed_name": invalid_installed_name,
+                                "fomod_state": "true",
+                            }
+                        )
+                        counts["missing"] += 1
+                        plan.append(entry)
+                        continue
+                    headless_archive_layout = None
             if install_route == "headless-archive":
                 headless_archive_layout = (
                     self.headlessArchiveLayoutPlan(
@@ -4308,11 +4297,13 @@ class stepInstallMods(QDialog):
             ordered_keys.append(nexus_key)
 
         discovered_names = []
+        invalid_payload_mods = []
+        invalid_payload_keys = set()
+        valid_installed_keys = set()
         layout_repairs = 0
         for nexus_key in ordered_keys:
             mod_names = installed_records.get(nexus_key, [])
-            if mod_names:
-                installed_map[nexus_key] = mod_names[0]
+            valid_mod_names = []
             for mod_name in mod_names:
                 mod_dir = mods_path / mod_name
                 if repairSingleWrapperPayload(mod_dir):
@@ -4321,6 +4312,11 @@ class stepInstallMods(QDialog):
                         f"Repaired single-wrapper game data layout for {mod_name}.",
                         "note",
                     )
+                if not headlessPayloadRootValid(mod_dir):
+                    invalid_payload_mods.append(mod_name)
+                    invalid_payload_keys.add(nexus_key)
+                    continue
+                valid_mod_names.append(mod_name)
                 discovered_names.append(mod_name)
                 if mod_name not in known_installed_mods:
                     installed_mods.append(mod_name)
@@ -4331,6 +4327,32 @@ class stepInstallMods(QDialog):
                 ):
                     mods_to_activate.append(mod_name)
                     known_activation_targets.add(mod_name)
+            if valid_mod_names:
+                installed_map[nexus_key] = valid_mod_names[0]
+                valid_installed_keys.add(nexus_key)
+
+        expected_installed_keys = valid_installed_keys
+        if invalid_payload_mods:
+            invalid_metadata_repair = repairDownloadMetadataInstalledFlags(
+                downloads_path,
+                invalid_payload_keys,
+                desired_installed=False,
+                expected_file_names=expected_file_names,
+            )
+            if invalid_metadata_repair.get("repaired"):
+                self.log(
+                    "Marked download metadata downloaded-only for "
+                    f"{invalid_metadata_repair['repaired']} invalid collection "
+                    "container(s).",
+                    "note",
+                )
+            if invalid_metadata_repair.get("failed"):
+                self.logInstallIssue(
+                    "Could not mark "
+                    f"{invalid_metadata_repair['failed']} invalid download metadata "
+                    "file(s) downloaded-only",
+                    expected=True,
+                )
 
         metadata_repair = repairDownloadMetadataInstalledFlags(
             downloads_path,
@@ -4384,9 +4406,6 @@ class stepInstallMods(QDialog):
                 f"{len(set(discovered_names))} MO2 mod container(s) installed.",
                 "note",
             )
-        invalid_payload_mods = collectionInvalidPayloadModNames(
-            mods_path, dict.fromkeys(discovered_names)
-        )
         if invalid_payload_mods:
             self.log(
                 "Collection containers without valid game-data payload will remain "

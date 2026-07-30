@@ -81,6 +81,8 @@ DIRECT_INSTALL_PLUGIN_EXTENSIONS = {
 
 IGNORABLE_ARCHIVE_ROOT_FILE_EXTENSIONS = {
     ".bmp",
+    ".doc",
+    ".docx",
     ".gif",
     ".jpeg",
     ".jpg",
@@ -225,6 +227,10 @@ def sevenZipArchiveMemberPaths(listing_text):
             continue
         if line.startswith("Folder = "):
             current_is_dir = line[9:].strip() == "+"
+            continue
+        if line.startswith("Attributes = "):
+            attributes = line[len("Attributes = ") :].casefold()
+            current_is_dir = "d" in attributes
     flush_current()
     return paths
 
@@ -728,10 +734,16 @@ def _installPayloadPaths(paths):
     result = []
     for path in paths:
         parts = path.split("/")
+        suffix = Path(parts[-1]).suffix.casefold() if parts else ""
         if (
             len(parts) == 1
-            and Path(parts[0]).suffix.casefold()
-            in IGNORABLE_ARCHIVE_ROOT_FILE_EXTENSIONS
+            and suffix in IGNORABLE_ARCHIVE_ROOT_FILE_EXTENSIONS
+        ):
+            continue
+        if (
+            len(parts) == 2
+            and suffix in IGNORABLE_ARCHIVE_ROOT_FILE_EXTENSIONS
+            and parts[0].casefold() not in DIRECT_INSTALL_MARKER_DIRS
         ):
             continue
         result.append(path)
@@ -1526,6 +1538,75 @@ def _fomodPluginType(plugin):
     return ""
 
 
+def _fomodEvidenceFileNames(evidence_names):
+    names = set()
+    for name in evidence_names or []:
+        base = Path(str(name or "").replace("\\", "/")).name.casefold()
+        if base:
+            names.add(base)
+    return names
+
+
+def _fomodDependencyMatches(dependencies_node, evidence_files):
+    operator = dependencies_node.attrib.get("operator", "And").casefold()
+    results = []
+    for dependency in list(dependencies_node):
+        if _xmlLocalName(dependency.tag) != "fileDependency":
+            continue
+        dependency_file = Path(
+            dependency.attrib.get("file", "").replace("\\", "/")
+        ).name.casefold()
+        if not dependency_file:
+            continue
+        dependency_state = dependency.attrib.get("state", "").casefold()
+        if dependency_state == "active":
+            results.append(dependency_file in evidence_files)
+        elif dependency_state == "missing":
+            results.append(dependency_file not in evidence_files)
+        elif dependency_state == "inactive":
+            results.append(dependency_file not in evidence_files)
+        else:
+            results.append(False)
+    if not results:
+        return False
+    if operator == "or":
+        return any(results)
+    return all(results)
+
+
+def _fomodDependencyPluginType(plugin, evidence_files):
+    for descriptor in _directChildren(plugin, "typeDescriptor"):
+        for dependency_type in _directChildren(descriptor, "dependencyType"):
+            default_type = "optional"
+            for default_node in _directChildren(dependency_type, "defaultType"):
+                default_type = default_node.attrib.get("name", default_type).casefold()
+                break
+            for patterns_node in _directChildren(dependency_type, "patterns"):
+                for pattern in _directChildren(patterns_node, "pattern"):
+                    dependencies_match = False
+                    for dependencies in _directChildren(pattern, "dependencies"):
+                        dependencies_match = _fomodDependencyMatches(
+                            dependencies, evidence_files
+                        )
+                        break
+                    if not dependencies_match:
+                        continue
+                    for type_node in _directChildren(pattern, "type"):
+                        return type_node.attrib.get("name", default_type).casefold()
+            return default_type
+    return _fomodPluginType(plugin).casefold()
+
+
+def _fomodPluginTypeScore(plugin_type):
+    return {
+        "required": 80,
+        "recommended": 70,
+        "couldbeusable": 50,
+        "could be usable": 50,
+        "optional": 10,
+    }.get(str(plugin_type or "").casefold(), 0)
+
+
 def headlessFomodDependencyInstallLayout(
     module_config_xml, module_config_path, member_names, evidence_names
 ):
@@ -1556,6 +1637,7 @@ def headlessFomodDependencyInstallLayout(
         for name in (evidence_names or [])
         if _fomodSelectionEvidenceLabel(name)
     ]
+    evidence_files = _fomodEvidenceFileNames(evidence_names)
     selected_records = []
     ambiguous_groups = []
 
@@ -1578,7 +1660,7 @@ def headlessFomodDependencyInstallLayout(
         candidates = []
         for plugin in plugins:
             option_name = plugin.attrib.get("name", "")
-            plugin_type = _fomodPluginType(plugin).casefold()
+            plugin_type = _fomodDependencyPluginType(plugin, evidence_files)
             if normalizedButtonLabel(option_name) in {"skip", "none", "reminder"}:
                 continue
             if plugin_type in {"notusable", "not usable"}:
@@ -1600,7 +1682,16 @@ def headlessFomodDependencyInstallLayout(
                     (
                         option_name,
                         mappings,
-                        _fomodOptionEvidenceScore(option_name, evidence_labels),
+                        _fomodOptionEvidenceScore(option_name, evidence_labels)
+                        + _fomodPluginTypeScore(plugin_type),
+                    )
+                )
+            elif _fomodPluginTypeScore(plugin_type) >= 50:
+                candidates.append(
+                    (
+                        option_name,
+                        mappings,
+                        _fomodPluginTypeScore(plugin_type),
                     )
                 )
 

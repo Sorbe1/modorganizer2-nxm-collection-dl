@@ -1813,6 +1813,31 @@ class SevenZipArchiveMemberPathsTests(unittest.TestCase):
             ["Example/Data/sound/effect.wav"],
         )
 
+    def test_skips_attribute_directory_records_without_trailing_slashes(self):
+        listing = "\n".join(
+            [
+                "Path = Example.7z",
+                "Type = 7z",
+                "----------",
+                "Path = Example",
+                "Attributes = D",
+                "Size = 0",
+                "",
+                "Path = Example/Data",
+                "Attributes = D",
+                "Size = 0",
+                "",
+                "Path = Example/Data/Example.esp",
+                "Attributes = A",
+                "Size = 4",
+            ]
+        )
+
+        self.assertEqual(
+            sevenZipArchiveMemberPaths(listing),
+            ["Example/Data/Example.esp"],
+        )
+
     def test_ignores_archive_header_path(self):
         self.assertEqual(
             sevenZipArchiveMemberPaths("Path = Archive.7z\nType = 7z\n"),
@@ -1966,6 +1991,95 @@ class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
         self.assertEqual(
             plan["reason"], "ambiguous FOMOD dependency choices: Dear Diary"
         )
+
+    def test_selects_dependency_typed_required_payload_over_none(self):
+        module_config = """\
+<config>
+  <installSteps>
+    <installStep name="Options">
+      <optionalFileGroups>
+        <group name="Example Armor 3BA" type="SelectExactlyOne">
+          <plugins>
+            <plugin name="Original Plugin + BodySlide Files">
+              <files>
+                <file source="ESPFE\\Original\\ExampleArmor.esp" destination="ExampleArmor.esp" />
+                <folder source="Example Armor BodySlide" destination="" />
+              </files>
+              <typeDescriptor>
+                <dependencyType>
+                  <defaultType name="Optional" />
+                  <patterns>
+                    <pattern>
+                      <dependencies operator="Or">
+                        <fileDependency file="ExampleArmor.esp" state="Active" />
+                      </dependencies>
+                      <type name="CouldBeUsable" />
+                    </pattern>
+                    <pattern>
+                      <dependencies operator="Or">
+                        <fileDependency file="ExampleArmor.esp" state="Missing" />
+                        <fileDependency file="CompatibilityCore.esm" state="Active" />
+                      </dependencies>
+                      <type name="NotUsable" />
+                    </pattern>
+                  </patterns>
+                </dependencyType>
+              </typeDescriptor>
+            </plugin>
+            <plugin name="Compatibility Plugin + BodySlide Files">
+              <files>
+                <file source="ESPFE\\Compatibility\\ExampleArmor.esp" destination="ExampleArmor.esp" />
+                <folder source="Example Armor BodySlide" destination="" />
+              </files>
+              <typeDescriptor>
+                <dependencyType>
+                  <defaultType name="Optional" />
+                  <patterns>
+                    <pattern>
+                      <dependencies operator="Or">
+                        <fileDependency file="CompatibilityCore.esm" state="Active" />
+                      </dependencies>
+                      <type name="Recommended" />
+                    </pattern>
+                    <pattern>
+                      <dependencies operator="Or">
+                        <fileDependency file="ExampleArmor.esp" state="Missing" />
+                        <fileDependency file="CompatibilityCore.esm" state="Missing" />
+                      </dependencies>
+                      <type name="NotUsable" />
+                    </pattern>
+                  </patterns>
+                </dependencyType>
+              </typeDescriptor>
+            </plugin>
+            <plugin name="None">
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+  </installSteps>
+</config>
+"""
+
+        plan = headlessFomodDependencyInstallLayout(
+            module_config,
+            "fomod/ModuleConfig.xml",
+            [
+                "ESPFE/Original/ExampleArmor.esp",
+                "ESPFE/Compatibility/ExampleArmor.esp",
+                "Example Armor BodySlide/CalienteTools/BodySlide/SliderSets/Example.osp",
+            ],
+            ["ExampleArmor.esp"],
+        )
+
+        self.assertTrue(plan["installable"])
+        self.assertEqual(
+            plan["selected_options"],
+            ["Original Plugin + BodySlide Files"],
+        )
+        self.assertEqual(plan["mappings"][0]["source"], "ESPFE/Original/ExampleArmor.esp")
 
     def test_moves_selected_folder_payload_to_requested_destination(self):
         with TemporaryDirectory() as tmp:
@@ -3568,6 +3682,23 @@ class HeadlessZipInstallLayoutTests(unittest.TestCase):
             "2-4k. New Hagraven & Glenmoril Witch SE/Data/",
         )
 
+    def test_strips_single_wrapper_data_folder_with_wrapper_docs(self):
+        plan = headlessZipInstallLayout(
+            [
+                "CompanionArchive_Vanilla/Data/CompanionArchive.bsa",
+                "CompanionArchive_Vanilla/Data/CompanionArchive.esp",
+                "CompanionArchive_Vanilla/Data/Video/IntroScene.bik",
+                "CompanionArchive_Vanilla/OutfitGuidePrintableImages.pdf",
+                "CompanionArchive_Vanilla/Readme.txt",
+                "CompanionArchive_Vanilla/WARDROBE MANUAL FOR BEGINNERS.doc",
+            ]
+        )
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["reason"], "single wrapper Data folder")
+        self.assertEqual(
+            plan["strip_prefix"], "CompanionArchive_Vanilla/Data/"
+        )
+
     def test_accepts_single_wrapper_multiple_variant_data_roots(self):
         plan = headlessZipInstallLayout(
             [
@@ -3590,7 +3721,7 @@ class HeadlessZipInstallLayoutTests(unittest.TestCase):
     def test_rejects_ambiguous_zip_without_mod_markers(self):
         plan = headlessZipInstallLayout(["readme.txt", "screenshots/shot.png"])
         self.assertFalse(plan["installable"])
-        self.assertEqual(plan["reason"], "ambiguous archive layout")
+        self.assertEqual(plan["reason"], "documentation-only archive")
 
     def test_rejects_zip_slip_member_targets(self):
         with TemporaryDirectory() as tmp:

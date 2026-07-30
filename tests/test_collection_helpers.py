@@ -1675,6 +1675,31 @@ class SevenZipArchiveMemberPathsTests(unittest.TestCase):
             ["Example/Data/sound/effect.wav"],
         )
 
+    def test_skips_attribute_directory_records_without_trailing_slashes(self):
+        listing = "\n".join(
+            [
+                "Path = Example.7z",
+                "Type = 7z",
+                "----------",
+                "Path = Example",
+                "Attributes = D",
+                "Size = 0",
+                "",
+                "Path = Example/Data",
+                "Attributes = D",
+                "Size = 0",
+                "",
+                "Path = Example/Data/Example.esp",
+                "Attributes = A",
+                "Size = 4",
+            ]
+        )
+
+        self.assertEqual(
+            sevenZipArchiveMemberPaths(listing),
+            ["Example/Data/Example.esp"],
+        )
+
     def test_ignores_archive_header_path(self):
         self.assertEqual(
             sevenZipArchiveMemberPaths("Path = Archive.7z\nType = 7z\n"),
@@ -3010,6 +3035,23 @@ class HeadlessZipInstallLayoutTests(unittest.TestCase):
             "2-4k. New Hagraven & Glenmoril Witch SE/Data/",
         )
 
+    def test_strips_single_wrapper_data_folder_with_wrapper_docs(self):
+        plan = headlessZipInstallLayout(
+            [
+                "CompanionArchive_Vanilla/Data/CompanionArchive.bsa",
+                "CompanionArchive_Vanilla/Data/CompanionArchive.esp",
+                "CompanionArchive_Vanilla/Data/Video/IntroScene.bik",
+                "CompanionArchive_Vanilla/OutfitGuidePrintableImages.pdf",
+                "CompanionArchive_Vanilla/Readme.txt",
+                "CompanionArchive_Vanilla/WARDROBE MANUAL FOR BEGINNERS.doc",
+            ]
+        )
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["reason"], "single wrapper Data folder")
+        self.assertEqual(
+            plan["strip_prefix"], "CompanionArchive_Vanilla/Data/"
+        )
+
     def test_accepts_single_wrapper_multiple_variant_data_roots(self):
         plan = headlessZipInstallLayout(
             [
@@ -3032,7 +3074,7 @@ class HeadlessZipInstallLayoutTests(unittest.TestCase):
     def test_rejects_ambiguous_zip_without_mod_markers(self):
         plan = headlessZipInstallLayout(["readme.txt", "screenshots/shot.png"])
         self.assertFalse(plan["installable"])
-        self.assertEqual(plan["reason"], "ambiguous archive layout")
+        self.assertEqual(plan["reason"], "documentation-only archive")
 
     def test_rejects_zip_slip_member_targets(self):
         with TemporaryDirectory() as tmp:
