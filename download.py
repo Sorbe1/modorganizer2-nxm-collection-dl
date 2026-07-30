@@ -2975,8 +2975,9 @@ class stepDownloadProgress(QDialog):
                 )
                 self.detail_label.setText(
                     f"{state['failed']} download(s) need an MO2 restart/resume; "
-                    f"{state['successful']} completed. Close MO2, relaunch, "
-                    "and rerun the collection to fetch only missing files."
+                    f"{state['successful']} completed. Install available files now, "
+                    "or close MO2, relaunch, and rerun the collection to fetch "
+                    "only missing files."
                     f"{report_suffix}"
                 )
             else:

@@ -1932,16 +1932,20 @@ def downloadCompletionChoices(
     successful = int(state.get("successful") or 0)
     failed = int(state.get("failed") or 0)
     has_failures = bool(state.get("has_failures"))
-    blocked_until_resume = bool(restart_required) or bool(quota_limited)
+    blocked_until_resume = bool(quota_limited)
     install_visible = (
         bool(has_on_complete) and successful > 0 and not blocked_until_resume
     )
 
     return {
-        "retry_visible": failed > 0 and not blocked_until_resume,
+        "retry_visible": failed > 0
+        and not blocked_until_resume
+        and not bool(restart_required),
         "install_visible": install_visible,
         "install_label": "Install Available" if has_failures else "Install Collection",
-        "fomod_defaults_visible": bool(has_on_complete) and not blocked_until_resume,
+        "fomod_defaults_visible": bool(has_on_complete)
+        and install_visible
+        and not blocked_until_resume,
     }
 
 

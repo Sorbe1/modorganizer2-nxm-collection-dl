@@ -2432,9 +2432,9 @@ class DownloadCompletionChoicesTests(unittest.TestCase):
             ),
             {
                 "retry_visible": False,
-                "install_visible": False,
+                "install_visible": True,
                 "install_label": "Install Available",
-                "fomod_defaults_visible": False,
+                "fomod_defaults_visible": True,
             },
         )
 
