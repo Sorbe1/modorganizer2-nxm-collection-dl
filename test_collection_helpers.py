@@ -3205,6 +3205,47 @@ class HeadlessZipInstallLayoutTests(unittest.TestCase):
         self.assertTrue(plan["installable"])
         self.assertEqual(plan["strip_prefix"], "Data/")
 
+    def test_strips_data_folder_wrapper_with_root_readme(self):
+        plan = headlessZipInstallLayout(
+            [
+                "Follower Readme.txt",
+                "Data/SofiaFollower.bsa",
+                "Data/SofiaFollower.esp",
+            ]
+        )
+
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["reason"], "data root layout")
+        self.assertEqual(plan["strip_prefix"], "Data/")
+
+    def test_strips_deep_single_common_wrapper_folder(self):
+        plan = headlessZipInstallLayout(
+            [
+                "Neisa-1.6/Neisa Follower/Follower Neisa.esp",
+                "Neisa-1.6/Neisa Follower/Meshes/Actors/Neisa/body.nif",
+                "Neisa-1.6/Neisa Follower/Scripts/NeisaRestoreScript.pex",
+            ]
+        )
+
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["reason"], "single common wrapper folder")
+        self.assertEqual(plan["strip_prefix"], "Neisa-1.6/Neisa Follower/")
+
+    def test_strips_three_level_single_common_wrapper_folder(self):
+        plan = headlessZipInstallLayout(
+            [
+                "OneanV1-3/Standalone Follower Onean SE-1-3/Standalone Follower Onean/Follower Onean.esp",
+                "OneanV1-3/Standalone Follower Onean SE-1-3/Standalone Follower Onean/Meshes/actors/Onean/body.nif",
+            ]
+        )
+
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["reason"], "single common wrapper folder")
+        self.assertEqual(
+            plan["strip_prefix"],
+            "OneanV1-3/Standalone Follower Onean SE-1-3/Standalone Follower Onean/",
+        )
+
     def test_accepts_community_shaders_root(self):
         plan = headlessZipInstallLayout(
             [

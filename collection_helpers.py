@@ -75,6 +75,20 @@ DIRECT_INSTALL_PLUGIN_EXTENSIONS = {
     ".esl",
 }
 
+IGNORABLE_ARCHIVE_ROOT_FILE_EXTENSIONS = {
+    ".bmp",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".md",
+    ".pdf",
+    ".png",
+    ".rtf",
+    ".txt",
+    ".url",
+    ".webp",
+}
+
 KNOWN_GAME_ROOT_FILE_EVIDENCE = {
     # SSE Engine Fixes Part 2 installs beside SkyrimSE.exe rather than into an
     # MO2 mod container. A replay should treat the collection entry as complete
@@ -671,6 +685,40 @@ def _hasDirectInstallMarkers(paths):
     return False
 
 
+def _installPayloadPaths(paths):
+    result = []
+    for path in paths:
+        parts = path.split("/")
+        if (
+            len(parts) == 1
+            and Path(parts[0]).suffix.casefold()
+            in IGNORABLE_ARCHIVE_ROOT_FILE_EXTENSIONS
+        ):
+            continue
+        result.append(path)
+    return result
+
+
+def _singleCommonWrapperLayout(payload_paths, max_depth=4):
+    for depth in range(1, max_depth + 1):
+        prefixes = set()
+        stripped = []
+        for path in payload_paths:
+            parts = path.split("/")
+            if len(parts) <= depth:
+                prefixes = set()
+                break
+            prefixes.add("/".join(parts[:depth]) + "/")
+            stripped.append("/".join(parts[depth:]))
+        if len(prefixes) == 1 and _hasDirectInstallMarkers(stripped):
+            return {
+                "installable": True,
+                "reason": "single common wrapper folder",
+                "strip_prefix": next(iter(prefixes)),
+            }
+    return None
+
+
 def headlessArchiveInstallLayout(member_names):
     """Return a conservative root-stripping plan for direct archive extraction."""
     payload_paths = []
@@ -692,36 +740,44 @@ def headlessArchiveInstallLayout(member_names):
             "strip_prefix": "",
         }
 
+    install_paths = _installPayloadPaths(payload_paths)
+    if not install_paths:
+        return {
+            "installable": False,
+            "reason": "documentation-only archive",
+            "strip_prefix": "",
+        }
+
     data_prefix = None
     data_rooted = []
-    for path in payload_paths:
+    for path in install_paths:
         if not path.casefold().startswith("data/"):
             continue
         prefix = path[: len("Data/")]
         if data_prefix is None:
             data_prefix = prefix
         data_rooted.append(path[len(prefix) :])
-    if len(data_rooted) == len(payload_paths) and _hasDirectInstallMarkers(data_rooted):
+    if len(data_rooted) == len(install_paths) and _hasDirectInstallMarkers(data_rooted):
         return {
             "installable": True,
             "reason": "data root layout",
             "strip_prefix": data_prefix or "Data/",
         }
 
-    if _hasDirectInstallMarkers(payload_paths):
+    if _hasDirectInstallMarkers(install_paths):
         return {
             "installable": True,
             "reason": "mod root layout",
             "strip_prefix": "",
         }
 
-    roots = {path.split("/", 1)[0] for path in payload_paths}
+    roots = {path.split("/", 1)[0] for path in install_paths}
     if len(roots) == 1:
         root = next(iter(roots))
-        rooted = [path.split("/", 1)[1] for path in payload_paths if "/" in path]
+        rooted = [path.split("/", 1)[1] for path in install_paths if "/" in path]
         data_prefix = None
         data_rooted = []
-        for path in payload_paths:
+        for path in install_paths:
             parts = path.split("/", 2)
             if len(parts) < 3 or parts[0] != root or parts[1].casefold() != "data":
                 continue
@@ -729,7 +785,7 @@ def headlessArchiveInstallLayout(member_names):
             if data_prefix is None:
                 data_prefix = prefix
             data_rooted.append(path[len(prefix) :])
-        if len(data_rooted) == len(payload_paths) and _hasDirectInstallMarkers(
+        if len(data_rooted) == len(install_paths) and _hasDirectInstallMarkers(
             data_rooted
         ):
             return {
@@ -748,7 +804,7 @@ def headlessArchiveInstallLayout(member_names):
         variant_payload_counts = {}
         variant_data_rooted = []
         all_variant_data_rooted = True
-        for path in payload_paths:
+        for path in install_paths:
             parts = path.split("/", 3)
             if (
                 len(parts) < 4
@@ -773,6 +829,10 @@ def headlessArchiveInstallLayout(member_names):
                 "reason": "single wrapper variant Data folder",
                 "strip_prefix": variant_prefixes[0],
             }
+
+    common_wrapper = _singleCommonWrapperLayout(install_paths)
+    if common_wrapper:
+        return common_wrapper
 
     return {
         "installable": False,

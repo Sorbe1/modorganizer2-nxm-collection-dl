@@ -2964,12 +2964,18 @@ class stepInstallMods(QDialog):
         if plan_entry and plan_entry.get("status") == "failed":
             reason = plan_entry.get("reason", "preflight failed")
             self.logInstallIssue(f"{reason} - skipping")
+            archive = plan_entry.get("download_path") or plan_entry.get(
+                "install_source_path"
+            )
+            install_source = plan_entry.get("install_source_path")
             failed_entries.append(
                 {
                     "mod": mod_name,
                     "file": file_name,
                     "mod_id": int(mod_id),
                     "file_id": int(file_id),
+                    "archive": str(archive) if archive else "",
+                    "install_source": str(install_source) if install_source else "",
                     "reason": reason,
                 }
             )
