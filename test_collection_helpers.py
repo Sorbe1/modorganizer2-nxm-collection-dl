@@ -65,6 +65,7 @@ from collection_helpers import (
     installNoResultReason,
     installerDefaultActionLabel,
     knownPostInstallErrorDialogMessage,
+    warningsAfterCleanInstallDiscard,
     isBenignEmptyFomodInstallerResult,
     isRequiredFomodGroupTitle,
     isQuotaLimitText,
@@ -2366,6 +2367,42 @@ class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
     def test_ignores_unrelated_error_dialog_text(self):
         self.assertIsNone(
             knownPostInstallErrorDialogMessage(["failed to receive data"])
+        )
+
+    def test_clean_install_discard_preserves_suppressed_dialogs(self):
+        warnings = [
+            {
+                "mod": "kept-before",
+                "file": "",
+                "message": "old warning",
+                "normalized_message": "old warning",
+                "category": "other",
+                "occurrences": 1,
+            },
+            {
+                "mod": "dropped-after",
+                "file": "",
+                "message": "transient warning",
+                "normalized_message": "transient warning",
+                "category": "other",
+                "occurrences": 1,
+            },
+            {
+                "mod": "plugin activation",
+                "file": "",
+                "message": "Plugin not found: BBLuxurySuite.esm",
+                "normalized_message": "Plugin not found: BBLuxurySuite.esm",
+                "category": "plugin_state_missing",
+                "occurrences": 1,
+                "source": "suppressed_dialog",
+            },
+        ]
+
+        kept = warningsAfterCleanInstallDiscard(warnings, 1)
+
+        self.assertEqual(
+            [warning["message"] for warning in kept],
+            ["old warning", "Plugin not found: BBLuxurySuite.esm"],
         )
 
 

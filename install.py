@@ -71,6 +71,7 @@ from .collection_helpers import (
     installerDefaultActionLabel,
     isBenignEmptyFomodInstallerResult,
     knownPostInstallErrorDialogMessage,
+    warningsAfterCleanInstallDiscard,
     isRequiredFomodGroupTitle,
     isSafeSingletonFomodOption,
     isTransientManualFomodPlanFailure,
@@ -1205,7 +1206,9 @@ class stepInstallMods(QDialog):
         if warning_start >= len(self.install_warnings):
             return
 
-        self.install_warnings = self.install_warnings[:warning_start]
+        self.install_warnings = warningsAfterCleanInstallDiscard(
+            self.install_warnings, warning_start
+        )
         self.install_warning_index = {}
         self.install_warning_summary = Counter()
         for index, warning in enumerate(self.install_warnings):

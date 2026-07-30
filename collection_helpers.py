@@ -1865,6 +1865,17 @@ def knownPostInstallErrorDialogMessage(labels):
     return None
 
 
+def warningsAfterCleanInstallDiscard(warnings, warning_start):
+    """Drop ordinary transient warnings while preserving dismissed error dialogs."""
+    kept = list(warnings[:warning_start])
+    kept.extend(
+        warning
+        for warning in warnings[warning_start:]
+        if warning.get("source") == "suppressed_dialog"
+    )
+    return kept
+
+
 def installNoResultReason(invalid_content_cancelled, warning_messages):
     """Return a useful reason when MO2 returns no installed mod object."""
     if invalid_content_cancelled:
