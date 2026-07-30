@@ -109,6 +109,7 @@ from collection_helpers import (
     shouldRetryInvalidInstalledCollectionArchive,
     shouldUseArchiveDefaultForFomodCompatibility,
     shouldUseCollectionTargetModName,
+    splitQueuedFomodRecoveryEntries,
     shouldDelayTerminalDownloadFailure,
     staleAlreadyStartedAction,
     adaptiveDownloadTailGraceSeconds,
@@ -3295,6 +3296,60 @@ class InvalidInstalledCollectionArchiveRetryTests(unittest.TestCase):
                 }
             )
         )
+
+    def test_fomod_recovery_split_removes_queued_entries_from_review(self):
+        review_entries, queued_entries = splitQueuedFomodRecoveryEntries(
+            [
+                {
+                    "mod": "JK's Windhelm Outskirts Patch Collection",
+                    "target_mod_name": "JK's Windhelm Outskirts Patch Collection",
+                    "file": "JK's Windhelm Outskirts Patch Collection",
+                    "archive": "JK's Windhelm Outskirts Patch Collection.rar",
+                    "fomod_state": "true",
+                    "reason": "MO2 FOMOD installer returned no installed mod",
+                },
+                {
+                    "mod": "NAT - TrueStorms Merged Compatibility SSE",
+                    "file": "NAT - TrueStorms Merged Compatibility",
+                    "archive": "NAT - TrueStorms Merged Compatibility.7z",
+                    "fomod_state": "true",
+                    "reason": "manual FOMOD choices required",
+                },
+            ],
+            True,
+        )
+
+        self.assertEqual(
+            [entry["mod"] for entry in review_entries],
+            ["NAT - TrueStorms Merged Compatibility SSE"],
+        )
+        self.assertEqual(
+            queued_entries,
+            [
+                {
+                    "archive": "JK's Windhelm Outskirts Patch Collection.rar",
+                    "target": "JK's Windhelm Outskirts Patch Collection",
+                    "observe": False,
+                }
+            ],
+        )
+
+    def test_fomod_recovery_split_can_be_disabled_for_cancelled_runs(self):
+        failed_entries = [
+            {
+                "mod": "JK's Windhelm Outskirts Patch Collection",
+                "archive": "JK's Windhelm Outskirts Patch Collection.rar",
+                "fomod_state": "true",
+                "reason": "MO2 FOMOD installer returned no installed mod",
+            }
+        ]
+
+        review_entries, queued_entries = splitQueuedFomodRecoveryEntries(
+            failed_entries, False
+        )
+
+        self.assertEqual(review_entries, failed_entries)
+        self.assertEqual(queued_entries, [])
 
     def test_fomod_invalid_container_retries_with_native_installer(self):
         self.assertTrue(shouldRetryInvalidInstalledCollectionArchive(True))

@@ -88,8 +88,8 @@ from .collection_helpers import (
     sevenZipModuleConfigPathFromListing,
     shouldAutoCloseInstallSummary,
     shouldPassTargetNameToInstallMod,
-    shouldQueueFomodProbeRetry,
     shouldUseArchiveDefaultForFomodCompatibility,
+    splitQueuedFomodRecoveryEntries,
     steamGameRootFromMo2BasePath,
     zipArchiveMemberPaths,
     installedModRecordsFromDirectory,
@@ -4473,12 +4473,31 @@ class stepInstallMods(QDialog):
                 plugin_activation[key] += final_plugin_activation[key]
             self.log("")
 
+        can_queue_fomod_recovery = (
+            bool(failed_entries)
+            and not cancelled
+            and not manual_install_pass
+            and not normal_dialog_retry_pass
+            and context.get(
+                "auto_advance_fomod_defaults",
+                INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"],
+            )
+        )
+        review_entries, queued_fomod_recovery_entries = (
+            splitQueuedFomodRecoveryEntries(
+                failed_entries, can_queue_fomod_recovery
+            )
+        )
+        queued_recovery_count = len(queued_fomod_recovery_entries)
+
         self.progress_bar.setValue(len(mods_to_install))
-        failed_count = len(failed_entries)
+        failed_count = len(review_entries)
         if cancelled:
             self.progress_label.setText("Installation cancelled.")
         elif failed_count:
             self.progress_label.setText("Installation completed; review needed.")
+        elif queued_recovery_count:
+            self.progress_label.setText("Installation completed; recovery queued.")
         else:
             self.progress_label.setText("Installation complete!")
         self.log("=" * 50)
@@ -4488,12 +4507,16 @@ class stepInstallMods(QDialog):
             self.log("Manual Install Summary (review needed):", "note")
         elif manual_install_pass:
             self.log("Manual Install Summary:", "success")
+        elif queued_recovery_count and failed_count:
+            self.log("Installation Summary (queued recovery; review needed):", "note")
+        elif queued_recovery_count:
+            self.log("Installation Summary (queued recovery):", "note")
         elif failed_count:
             self.log("Installation Summary (review needed):", "note")
         else:
             self.log("Installation Summary:", "success")
         installed_containers = len(set(installed_mods))
-        review_count = len(failed_entries)
+        review_count = len(review_entries)
         root_level_count = len(root_level_entries)
         no_applicable_count = len(no_applicable_entries)
         total_entries = context.get("collection_total_entries", len(mods_to_install))
@@ -4515,7 +4538,9 @@ class stepInstallMods(QDialog):
                 f"{recovery_count} recovery after {launch_count} total launches",
                 "warning",
             )
-        completed_entries = len(mods_to_install) - review_count
+        completed_entries = (
+            len(mods_to_install) - review_count - queued_recovery_count
+        )
         self.log(f"  Entries completed/root-handled: {completed_entries}")
         if review_count:
             self.log(
@@ -4524,6 +4549,12 @@ class stepInstallMods(QDialog):
             )
         else:
             self.log("  Entries downloaded but not installed: 0")
+        if queued_recovery_count:
+            self.log(
+                "  Entries queued for main-window FOMOD recovery: "
+                f"{queued_recovery_count}",
+                "note",
+            )
         if root_level_count:
             self.log(
                 f"  Root/game-directory entries noted: {root_level_count}",
@@ -4565,14 +4596,41 @@ class stepInstallMods(QDialog):
         else:
             self.log("  Activated installed mods: 0 (activation disabled)")
         self.log(f"  Failed/skipped collection entries: {review_count}")
-        if failed_entries:
+        if review_entries:
             self.log("  Entries needing review:", "note")
-            for entry in failed_entries[:20]:
+            for entry in review_entries[:20]:
                 self.log(
                     "    "
                     f"{safeDisplayText(entry['mod'])} - "
                     f"{safeDisplayText(entry['file'])}: "
                     f"{safeDisplayText(entry['reason'])}",
+                    "note",
+                )
+            if len(review_entries) > 20:
+                self.log(
+                    f"    ... {len(review_entries) - 20} more omitted from dialog",
+                    "note",
+                )
+        if queued_fomod_recovery_entries:
+            self.log("  Queued FOMOD recovery entries:", "note")
+            recovery_by_key = {
+                (entry.get("archive"), entry.get("target")): entry
+                for entry in queued_fomod_recovery_entries
+            }
+            for entry in failed_entries[:20]:
+                recovery_entry = recovery_by_key.get(
+                    (
+                        entry.get("archive"),
+                        entry.get("target_mod_name") or entry.get("mod"),
+                    )
+                )
+                if recovery_entry is None:
+                    continue
+                self.log(
+                    "    "
+                    f"{safeDisplayText(entry['mod'])} - "
+                    f"{safeDisplayText(entry['file'])}: queued for main-window "
+                    "Next/Install automation",
                     "note",
                 )
         if root_level_entries:
@@ -4606,11 +4664,6 @@ class stepInstallMods(QDialog):
                     "from dialog",
                     "note",
                 )
-            if len(failed_entries) > 20:
-                self.log(
-                    f"    ... {len(failed_entries) - 20} more omitted from dialog",
-                    "note",
-                )
         warning_occurrences = self.totalInterfaceWarningOccurrences()
         self.log(
             "  MO2 warnings captured: "
@@ -4631,7 +4684,7 @@ class stepInstallMods(QDialog):
         if report_path:
             self.log(f"  Warning report: {report_path}", "note")
         guide_path = self.writeFomodChoiceGuide(
-            organizer, failed_entries, report_timestamp
+            organizer, review_entries, report_timestamp
         )
         self.fomod_guide_path = guide_path
         self.open_fomod_guide_btn.setEnabled(bool(guide_path))
@@ -4644,9 +4697,11 @@ class stepInstallMods(QDialog):
         )
 
         self.install_finished = True
-        self.install_successful = not cancelled and failed_count == 0
+        self.install_successful = (
+            not cancelled and failed_count == 0 and queued_recovery_count == 0
+        )
 
-        if failed_entries:
+        if review_entries:
             self.log("", "note")
             self.log(
                 "Some mods were not installed. Use Retry Failed Manually to retry "
@@ -4655,11 +4710,11 @@ class stepInstallMods(QDialog):
                 "note",
             )
 
-        self.last_failed_entries = list(failed_entries)
+        self.last_failed_entries = list(review_entries)
         self.close_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
-        self.manual_install_btn.setEnabled(bool(failed_entries))
-        if shouldAutoCloseInstallSummary(
+        self.manual_install_btn.setEnabled(bool(review_entries))
+        if not queued_recovery_count and shouldAutoCloseInstallSummary(
             self.auto_close_on_success, cancelled, failed_count, recovery_count
         ):
             self.log(
@@ -4679,17 +4734,8 @@ class stepInstallMods(QDialog):
                 "Successful recovery install; summary left open for review.",
                 "note",
             )
-        if (
-            failed_entries
-            and not cancelled
-            and not manual_install_pass
-            and not normal_dialog_retry_pass
-            and context.get(
-                "auto_advance_fomod_defaults",
-                INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"],
-            )
-        ):
-            batch_entries = self.fomodProbeBatchEntries(failed_entries)
+        if queued_fomod_recovery_entries:
+            batch_entries = list(queued_fomod_recovery_entries)
             if batch_entries:
                 batch_entries.append(
                     {
@@ -4711,22 +4757,6 @@ class stepInstallMods(QDialog):
                         entries
                     ),
                 )
-
-    def fomodProbeBatchEntries(self, failed_entries):
-        batch_entries = []
-        for entry in failed_entries:
-            if not shouldQueueFomodProbeRetry(entry):
-                continue
-            archive = entry.get("archive")
-            target = entry.get("target_mod_name") or entry.get("mod")
-            batch_entries.append(
-                {
-                    "archive": str(archive),
-                    "target": str(target) if target else None,
-                    "observe": False,
-                }
-            )
-        return batch_entries
 
     def reconcileCollectionPriorityOrder(self, modlist, installed_mods):
         ordered_mods = list(dict.fromkeys(installed_mods))

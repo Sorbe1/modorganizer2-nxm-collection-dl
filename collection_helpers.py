@@ -982,6 +982,36 @@ def shouldQueueFomodProbeRetry(failed_entry):
     return True
 
 
+def splitQueuedFomodRecoveryEntries(failed_entries, enabled):
+    """Separate review failures from entries queued for FOMOD recovery probes."""
+    queued_entries = []
+    queued_keys = set()
+    if enabled:
+        for entry in failed_entries or []:
+            if not shouldQueueFomodProbeRetry(entry):
+                continue
+            archive = entry.get("archive")
+            target = entry.get("target_mod_name") or entry.get("mod")
+            queued_entry = {
+                "archive": str(archive),
+                "target": str(target) if target else None,
+                "observe": False,
+            }
+            queued_entries.append(queued_entry)
+            queued_keys.add((queued_entry["archive"], queued_entry["target"]))
+
+    review_entries = []
+    for entry in failed_entries or []:
+        key = (
+            str(entry.get("archive")),
+            str(entry.get("target_mod_name") or entry.get("mod")),
+        )
+        if key in queued_keys:
+            continue
+        review_entries.append(entry)
+    return review_entries, queued_entries
+
+
 def headlessArchivePreflightFallback(layout_plan):
     """Return the next route when a candidate archive is not headless-safe."""
     reason = str((layout_plan or {}).get("reason") or "").casefold()
