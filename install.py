@@ -1131,6 +1131,11 @@ class stepInstallMods(QDialog):
             if self.install_context
             else []
         )
+        no_applicable_entries = (
+            self.install_context.get("no_applicable_entries", [])
+            if self.install_context
+            else []
+        )
         collection_metadata = (
             self.install_context.get("collection_metadata", {})
             if self.install_context
@@ -1145,6 +1150,7 @@ class stepInstallMods(QDialog):
             not self.install_warnings
             and not failed_entries
             and not root_level_entries
+            and not no_applicable_entries
             and recovery_count <= 0
         ):
             return None
@@ -1166,6 +1172,7 @@ class stepInstallMods(QDialog):
             "warnings": self.install_warnings,
             "failed_entries": failed_entries,
             "root_level_entries": root_level_entries,
+            "no_applicable_entries": no_applicable_entries,
             "add_collection_launch_count": collection_metadata.get(
                 "addCollectionLaunchCount", 0
             ),
@@ -2189,6 +2196,7 @@ class stepInstallMods(QDialog):
                 "installed_mods": [],
                 "failed_entries": [],
                 "root_level_entries": [],
+                "no_applicable_entries": [],
                 "mods_to_activate": [],
                 "used_mod_names": set(modlist.allMods()),
                 "mod_name_counts": {},
@@ -2753,6 +2761,7 @@ class stepInstallMods(QDialog):
                 "installed_mods": [],
                 "failed_entries": [],
                 "root_level_entries": [],
+                "no_applicable_entries": [],
                 "mods_to_activate": [],
                 "used_mod_names": set(modlist.allMods()),
                 "mod_name_counts": {},
@@ -2872,6 +2881,9 @@ class stepInstallMods(QDialog):
             "installed_mods": list(previous_context["installed_mods"]),
             "failed_entries": [],
             "root_level_entries": list(previous_context.get("root_level_entries", [])),
+            "no_applicable_entries": list(
+                previous_context.get("no_applicable_entries", [])
+            ),
             "mods_to_activate": list(previous_context["mods_to_activate"]),
             "used_mod_names": set(previous_context["modlist"].allMods()),
             "mod_name_counts": {},
@@ -3330,13 +3342,30 @@ class stepInstallMods(QDialog):
                         self.log(
                             "  "
                             f"{EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON}; "
-                            "leaving empty container disabled.",
+                            "leaving archive downloaded-only and empty container "
+                            "disabled.",
                             "note",
                         )
-                        used_mod_names.add(internal_name)
-                        installed_mods.append(internal_name)
-                        installed_map[install_key] = internal_name
-                        self.markInstalledDownloadMetadata(context, install_key)
+                        try:
+                            modlist.setActive(internal_name, False)
+                        except Exception as e:
+                            self.logInstallIssue(
+                                f"Could not disable no-op FOMOD container "
+                                f"{internal_name}: {e}",
+                                expected=True,
+                            )
+                        context.setdefault("no_applicable_entries", []).append(
+                            {
+                                "mod": mod_name,
+                                "file": file_name,
+                                "mod_id": int(mod_id),
+                                "file_id": int(file_id),
+                                "archive": str(install_source_path),
+                                "installed_name": internal_name,
+                                "reason": EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON,
+                            }
+                        )
+                        self.markDownloadedOnlyMetadata(context, install_key)
                         self.log("")
                         QTimer.singleShot(
                             INSTALL_NEXT_DELAY_MS, self.installNextMod
@@ -4031,6 +4060,37 @@ class stepInstallMods(QDialog):
         """Set MO2's downloaded archive sidecar to installed=true for one key."""
         return self.markInstalledDownloadMetadataKeys(context, {install_key})
 
+    def markDownloadedOnlyMetadata(self, context, install_key):
+        """Set MO2's downloaded archive sidecar to installed=false for one key."""
+        try:
+            result = repairDownloadMetadataInstalledFlags(
+                Path(context["organizer"].downloadsPath()),
+                {install_key},
+                desired_installed=False,
+                expected_file_names=context.get("expected_file_names", {}),
+            )
+        except Exception as e:
+            self.logInstallIssue(
+                "Could not mark download metadata downloaded-only for "
+                f"{install_key}: {e}",
+                expected=True,
+            )
+            return {"checked": 0, "repaired": 0, "failed": 1}
+
+        if result.get("repaired"):
+            self.log(
+                "  Marked MO2 download metadata downloaded-only for "
+                f"{result['repaired']} Nexus file(s)",
+                "note",
+            )
+        if result.get("failed"):
+            self.logInstallIssue(
+                f"Could not mark {result['failed']} download metadata file(s) "
+                f"downloaded-only for {install_key}",
+                expected=True,
+            )
+        return result
+
     def markInstalledDownloadMetadataKeys(self, context, install_keys):
         """Set MO2's downloaded archive sidecars to installed=true in one pass."""
         try:
@@ -4069,6 +4129,11 @@ class stepInstallMods(QDialog):
         downloads_path = Path(organizer.downloadsPath())
         expected_file_names = context.get("expected_file_names", {})
         expected_keys = set(context.get("expected_nexus_keys", set()))
+        no_applicable_keys = {
+            (int(entry["mod_id"]), int(entry["file_id"]))
+            for entry in context.get("no_applicable_entries", [])
+            if entry.get("mod_id") is not None and entry.get("file_id") is not None
+        }
         installed_records = installedModRecordsFromDirectory(
             mods_path,
             downloads_path,
@@ -4078,6 +4143,7 @@ class stepInstallMods(QDialog):
         expected_installed_keys = (
             expected_keys & installed_keys if expected_keys else installed_keys
         )
+        expected_installed_keys -= no_applicable_keys
 
         installed_map = context["installed_map"]
         installed_mods = context["installed_mods"]
@@ -4207,6 +4273,7 @@ class stepInstallMods(QDialog):
         installed_mods = context["installed_mods"]
         failed_entries = context["failed_entries"]
         root_level_entries = context.get("root_level_entries", [])
+        no_applicable_entries = context.get("no_applicable_entries", [])
         manual_install_pass = context.get("manual_install_pass", False)
         normal_dialog_retry_pass = context.get("normal_dialog_retry_pass", False)
         mods_to_activate = context["mods_to_activate"]
@@ -4372,6 +4439,7 @@ class stepInstallMods(QDialog):
         installed_containers = len(set(installed_mods))
         review_count = len(failed_entries)
         root_level_count = len(root_level_entries)
+        no_applicable_count = len(no_applicable_entries)
         total_entries = context.get("collection_total_entries", len(mods_to_install))
         collection_metadata = context.get("collection_metadata", {})
         recovery_count = 0
@@ -4403,6 +4471,12 @@ class stepInstallMods(QDialog):
         if root_level_count:
             self.log(
                 f"  Root/game-directory entries noted: {root_level_count}",
+                "note",
+            )
+        if no_applicable_count:
+            self.log(
+                "  Entries left downloaded-only/no applicable files: "
+                f"{no_applicable_count}",
                 "note",
             )
         self.log(f"  MO2 mod containers touched: {installed_containers}")
@@ -4458,6 +4532,22 @@ class stepInstallMods(QDialog):
             if len(root_level_entries) > 10:
                 self.log(
                     f"    ... {len(root_level_entries) - 10} more omitted from dialog",
+                    "note",
+                )
+        if no_applicable_entries:
+            self.log("  Downloaded-only/no applicable file entries:", "note")
+            for entry in no_applicable_entries[:10]:
+                self.log(
+                    "    "
+                    f"{safeDisplayText(entry['mod'])} - "
+                    f"{safeDisplayText(entry['file'])}: "
+                    f"{safeDisplayText(entry['reason'])}",
+                    "note",
+                )
+            if len(no_applicable_entries) > 10:
+                self.log(
+                    f"    ... {len(no_applicable_entries) - 10} more omitted "
+                    "from dialog",
                     "note",
                 )
             if len(failed_entries) > 20:
