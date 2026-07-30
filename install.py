@@ -1701,6 +1701,51 @@ class stepInstallMods(QDialog):
             "native-archive-worker.heartbeat.json"
         )
 
+    def nativeArchiveWorkerScriptPath(self):
+        return Path(__file__).resolve().parent / "scripts" / "native_archive_worker.py"
+
+    def nativeArchiveWorkerPythonExecutable(self):
+        return shutil.which("python3") or shutil.which("python") or "python3"
+
+    def startNativeArchiveWorker(self, organizer):
+        """Start the native archive worker used for non-ZIP headless installs."""
+        request_dir = self.nativeArchiveWorkerDirectory(organizer)
+        request_dir.mkdir(parents=True, exist_ok=True)
+        worker_path = self.nativeArchiveWorkerScriptPath()
+        if not worker_path.exists():
+            self.log(
+                f"Native archive worker script missing: {worker_path}",
+                "debug",
+            )
+            return False
+
+        process = getattr(self, "_native_archive_worker_process", None)
+        if process is not None and process.poll() is None:
+            return True
+
+        try:
+            self._native_archive_worker_process = subprocess.Popen(
+                [
+                    self.nativeArchiveWorkerPythonExecutable(),
+                    str(worker_path),
+                    str(request_dir),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                cwd=str(Path(__file__).resolve().parent),
+                start_new_session=True,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            self.log(f"Native archive worker launch failed: {e}", "debug")
+            return False
+
+        self.log(
+            f"Started native archive worker for headless archive installs: {worker_path}",
+            "debug",
+        )
+        return True
+
     def nativeArchiveWorkerAvailable(
         self, organizer, max_age_seconds=30.0, attempts=5, retry_delay_seconds=0.05
     ):
@@ -1790,6 +1835,10 @@ class stepInstallMods(QDialog):
         request_dir = self.nativeArchiveWorkerDirectory(organizer)
         request_dir.mkdir(parents=True, exist_ok=True)
         if not self.nativeArchiveWorkerAvailable(organizer):
+            self.startNativeArchiveWorker(organizer)
+        if not self.nativeArchiveWorkerAvailable(
+            organizer, attempts=20, retry_delay_seconds=0.1
+        ):
             return {
                 "ok": False,
                 "worker_unavailable": True,
