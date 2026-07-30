@@ -1005,6 +1005,12 @@ class stepDownloadProgress(QDialog):
             return
 
         retry_filter = set(only_keys or []) if only_keys else None
+        if self.reconcile_completed_downloads_from_disk():
+            self.update_progress()
+            self.finish_if_complete()
+            if not self.is_tracking:
+                return
+
         pending = []
         for mod in self.mods_to_download:
             key = self.mod_key(mod)
