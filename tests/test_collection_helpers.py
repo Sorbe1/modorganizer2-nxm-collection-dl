@@ -96,6 +96,7 @@ from collection_helpers import (
     shouldDelayTerminalDownloadFailure,
     staleAlreadyStartedAction,
     adaptiveDownloadTailGraceSeconds,
+    downloadProgressIsStalled,
     downloadTailBoundaryReached,
     staleOrphanUnfinishedDownloadEntries,
     staleDownloadStartAction,
@@ -1355,6 +1356,12 @@ class DownloadTailBoundaryTests(unittest.TestCase):
         self.assertGreaterEqual(small, 20)
         self.assertGreater(large, small)
         self.assertLessEqual(large, 180)
+
+    def test_progress_stall_waits_while_recent_progress_exists(self):
+        self.assertFalse(downloadProgressIsStalled(100, 119, 20))
+
+    def test_progress_stall_trips_after_quiet_window(self):
+        self.assertTrue(downloadProgressIsStalled(100, 120, 20))
 
 
 class CoerceDownloadIdTests(unittest.TestCase):

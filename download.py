@@ -42,6 +42,7 @@ from .collection_helpers import (
     downloadedArchiveNameKeys,
     downloadCompletionChoices,
     downloadCompletionPlan,
+    downloadProgressIsStalled,
     downloadTailBoundaryReached,
     downloadProgressCanClose,
     downloadProgressFormat,
@@ -862,6 +863,8 @@ class stepDownloadProgress(QDialog):
         self.queue_pump_active = False
         self.queue_backoff_until = 0
         self.queue_throttle_log_at = 0
+        self.last_download_progress_at = time.time()
+        self.last_download_progress_count = 0
         self.tail_boundary_started_at = None
         self.tail_boundary_completion_ratio = 0.75
         self.tail_boundary_grace_seconds = adaptiveDownloadTailGraceSeconds(
@@ -1248,6 +1251,16 @@ class stepDownloadProgress(QDialog):
         self.failed_count = state["failed"]
         return state
 
+    def note_download_progress(self):
+        """Record that the collection made terminal progress."""
+        state = self.refresh_progress_counts()
+        progress_count = state["successful"] + state["failed"]
+        if progress_count > self.last_download_progress_count:
+            self.last_download_progress_count = progress_count
+            self.last_download_progress_at = time.time()
+            self.tail_boundary_started_at = None
+        return state
+
     def mark_key_completed(self, key, reason):
         """Count a collection entry as complete after its archive is on disk."""
         if key in self.completed_keys:
@@ -1258,7 +1271,7 @@ class stepDownloadProgress(QDialog):
         self.restart_required_reasons.pop(key, None)
         self.completed_keys.add(key)
         self.prune_pending_queue_keys({key})
-        self.refresh_progress_counts()
+        self.note_download_progress()
         qDebug(f"[NXMColDL Progress] {reason}: ModID {key[0]}, FileID {key[1]}")
         return True
 
@@ -1285,7 +1298,7 @@ class stepDownloadProgress(QDialog):
             return False
 
         self.failed_keys.add(key)
-        self.refresh_progress_counts()
+        self.note_download_progress()
         qDebug(f"[NXMColDL Progress] {reason}: ModID {key[0]}, FileID {key[1]}")
         return True
 
@@ -1296,7 +1309,6 @@ class stepDownloadProgress(QDialog):
         entries = unfinishedDownloadEntries(downloads_dir).get(key)
         removed += removeUnfinishedEntries(entries)
         self.clear_pending_state_for_key(key)
-        self.stop_queueing_for_resume_boundary()
         self.restart_required_keys.add(key)
         self.restart_required_reasons[key] = reason
         if self.mark_key_failed(key, reason):
@@ -1405,8 +1417,8 @@ class stepDownloadProgress(QDialog):
         extra_orphans = max(0, active_orphan_count - len(active_orphan_keys))
         return len(unresolved_keys) + extra_orphans
 
-    def unresolved_queue_keys(self):
-        """Return known pending keys contributing to MO2 queue pressure."""
+    def stalled_queue_keys(self):
+        """Return pending keys with stale MO2 queue/download evidence."""
         entries_by_key = unfinishedDownloadEntries(downloadDirectory())
         pending_keys = set(self.key_counts) - self.completed_keys - self.failed_keys
         keys = set()
@@ -1421,6 +1433,14 @@ class stepDownloadProgress(QDialog):
     def apply_download_tail_boundary(self, unresolved, now):
         """Stop a mostly complete run from waiting forever on MO2 queue laggards."""
         state = self.refresh_progress_counts()
+        if not downloadProgressIsStalled(
+            self.last_download_progress_at,
+            now,
+            self.tail_boundary_grace_seconds,
+        ):
+            self.tail_boundary_started_at = None
+            return False
+
         if not self.tail_boundary_started_at:
             if downloadTailBoundaryReached(
                 self.total_mods,
@@ -1454,11 +1474,11 @@ class stepDownloadProgress(QDialog):
         ):
             return False
 
-        tail_keys = self.unresolved_queue_keys()
-        pending_queue_keys = {self.mod_key(mod) for mod in self.queue_pending_mods}
-        tail_keys.update(
-            pending_queue_keys - self.completed_keys - self.failed_keys
-        )
+        tail_keys = self.stalled_queue_keys()
+        if not tail_keys:
+            self.tail_boundary_started_at = None
+            return False
+
         marked = self.mark_keys_restart_required(
             tail_keys,
             "Download tail exceeded retry/grace budget; rerun collection to resume laggards",

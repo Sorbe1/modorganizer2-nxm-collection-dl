@@ -3370,6 +3370,17 @@ def adaptiveDownloadTailGraceSeconds(
     return min(maximum, max(minimum, size_seconds + retry_seconds + stale_seconds))
 
 
+def downloadProgressIsStalled(last_progress_at, now, stall_seconds):
+    """Return True when no overall download progress happened inside the window."""
+    try:
+        last_progress_at = float(last_progress_at)
+        now = float(now)
+        stall_seconds = max(0.0, float(stall_seconds or 0))
+    except (TypeError, ValueError):
+        return False
+    return now - last_progress_at >= stall_seconds
+
+
 def coerceDownloadId(download_id):
     """Return a usable MO2 download id, or None for failed queue-start values."""
     try:
