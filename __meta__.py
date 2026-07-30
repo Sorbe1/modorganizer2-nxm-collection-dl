@@ -262,50 +262,21 @@ def runInstallProbeFinalize(organizer: mobase.IOrganizer, payload):
     plugin_already_active = 0
     plugin_blocked = 0
     if activate_plugins and mod_names:
-        plugin_name_set = set()
         plugin_names_from_dirs = []
         try:
-            organizer.refresh(True)
-        except Exception as e:
-            var.debug(f"[NXMColDL Probe] finalize refresh failed: {e}")
-        try:
-            plugin_list = organizer.pluginList()
-            mod_name_set = {str(name).casefold() for name in mod_names}
             plugin_names_from_dirs = collectionPluginNamesFromModDirs(
                 Path(organizer.modsPath()), mod_names
             )
-            plugin_name_set = {name.casefold() for name in plugin_names_from_dirs}
-            for plugin_name in plugin_list.pluginNames():
-                try:
-                    if (
-                        str(plugin_list.origin(plugin_name)).casefold()
-                        not in mod_name_set
-                        and plugin_name.casefold() not in plugin_name_set
-                    ):
-                        continue
-                    if plugin_list.state(plugin_name) == mobase.PluginState.ACTIVE:
-                        plugin_already_active += 1
-                        continue
-                    plugin_list.setState(plugin_name, mobase.PluginState.ACTIVE)
-                    if plugin_list.state(plugin_name) == mobase.PluginState.ACTIVE:
-                        plugin_activated += 1
-                    else:
-                        plugin_blocked += 1
-                except Exception as e:
-                    plugin_blocked += 1
-                    var.debug(
-                        "[NXMColDL Probe] finalize plugin activation failed: "
-                        f"{plugin_name}: {e}"
-                    )
         except Exception as e:
-            var.debug(f"[NXMColDL Probe] finalize failed: pluginList unavailable: {e}")
+            var.debug(f"[NXMColDL Probe] finalize plugin discovery failed: {e}")
         try:
             profile_plugins_path = Path(organizer.profilePath()) / "plugins.txt"
             file_repair = repairPluginEnabledStates(
                 profile_plugins_path, plugin_names_from_dirs
             )
-            if file_repair.get("enabled"):
-                plugin_activated = max(plugin_activated, file_repair["enabled"])
+            plugin_activated += file_repair.get("enabled", 0)
+            plugin_already_active += file_repair.get("already_enabled", 0)
+            if file_repair.get("enabled") or file_repair.get("already_enabled"):
                 organizer.refresh(True)
             if file_repair.get("failed"):
                 plugin_blocked += file_repair["failed"]
