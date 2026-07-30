@@ -3035,6 +3035,64 @@ class MoveHeadlessArchivePayloadTests(unittest.TestCase):
             )
             self.assertFalse((target_dir / "Example").exists())
 
+    def test_moves_fomod_selected_file_by_unique_nested_basename(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            extract_root = tmp_path / "extract"
+            target_dir = tmp_path / "mod"
+            source = extract_root / "JK's Interiors Patch Collection" / "Elgrims"
+            source.mkdir(parents=True)
+            (source / "JKs Elgrims Elixirs - Bee and Barb Patch.esp").write_text(
+                "plugin",
+                encoding="utf-8",
+            )
+
+            count = moveHeadlessArchivePayload(
+                extract_root,
+                target_dir,
+                {
+                    "fomod_selection": True,
+                    "mappings": [
+                        {
+                            "type": "file",
+                            "source": "JKs Elgrims Elixirs - Bee and Barb Patch.esp",
+                            "destination": "",
+                        }
+                    ],
+                },
+            )
+
+            self.assertEqual(count, 1)
+            self.assertTrue(
+                (target_dir / "JKs Elgrims Elixirs - Bee and Barb Patch.esp").exists()
+            )
+
+    def test_refuses_ambiguous_fomod_nested_basename(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            extract_root = tmp_path / "extract"
+            target_dir = tmp_path / "mod"
+            for folder in ("Patch A", "Patch B"):
+                source = extract_root / folder
+                source.mkdir(parents=True)
+                (source / "Example Patch.esp").write_text("plugin", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "Ambiguous selected FOMOD"):
+                moveHeadlessArchivePayload(
+                    extract_root,
+                    target_dir,
+                    {
+                        "fomod_selection": True,
+                        "mappings": [
+                            {
+                                "type": "file",
+                                "source": "Example Patch.esp",
+                                "destination": "",
+                            }
+                        ],
+                    },
+                )
+
 
 class HeadlessPayloadRootValidationTests(unittest.TestCase):
     def test_accepts_top_level_plugin_or_known_data_directory(self):

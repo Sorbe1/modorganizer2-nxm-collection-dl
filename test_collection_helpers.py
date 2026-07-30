@@ -1968,6 +1968,64 @@ class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
             self.assertTrue((target / "Example.esp").exists())
             self.assertTrue((target / "meshes" / "example.nif").exists())
 
+    def test_moves_selected_file_by_unique_nested_basename(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            extract_root = root / "extract"
+            target = root / "target"
+            source = extract_root / "JK's Interiors Patch Collection" / "Elgrims"
+            source.mkdir(parents=True)
+            (source / "JKs Elgrims Elixirs - Bee and Barb Patch.esp").write_text(
+                "plugin",
+                encoding="utf-8",
+            )
+
+            moved = moveHeadlessFomodSelectionPayload(
+                extract_root,
+                target,
+                {
+                    "fomod_selection": True,
+                    "mappings": [
+                        {
+                            "type": "file",
+                            "source": "JKs Elgrims Elixirs - Bee and Barb Patch.esp",
+                            "destination": "",
+                        }
+                    ],
+                },
+            )
+
+            self.assertEqual(moved, 1)
+            self.assertTrue(
+                (target / "JKs Elgrims Elixirs - Bee and Barb Patch.esp").exists()
+            )
+
+    def test_refuses_ambiguous_nested_basename(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            extract_root = root / "extract"
+            target = root / "target"
+            for folder in ("Patch A", "Patch B"):
+                source = extract_root / folder
+                source.mkdir(parents=True)
+                (source / "Example Patch.esp").write_text("plugin", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "Ambiguous selected FOMOD"):
+                moveHeadlessFomodSelectionPayload(
+                    extract_root,
+                    target,
+                    {
+                        "fomod_selection": True,
+                        "mappings": [
+                            {
+                                "type": "file",
+                                "source": "Example Patch.esp",
+                                "destination": "",
+                            }
+                        ],
+                    },
+                )
+
 
 class NativeArchiveWorkerTests(unittest.TestCase):
     def test_reports_missing_archive_path(self):

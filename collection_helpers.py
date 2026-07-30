@@ -266,6 +266,47 @@ def moveHeadlessArchivePayload(extract_root, target_dir, layout_plan):
     return extracted
 
 
+def resolveHeadlessFomodSourcePath(extract_root, source):
+    """Resolve a FOMOD source path inside an extracted archive tree."""
+    extract_root = Path(extract_root).resolve()
+    source = normalizedArchiveMemberPath(source)
+    if not source:
+        raise RuntimeError("Unsafe FOMOD source path.")
+
+    direct_path = (extract_root / source).resolve()
+    try:
+        direct_path.relative_to(extract_root)
+    except ValueError:
+        raise RuntimeError(f"Unsafe FOMOD source path: {source}") from None
+    if direct_path.exists():
+        return direct_path
+
+    normalized_source = source.casefold()
+    source_name = Path(source).name.casefold()
+    matches = []
+    for candidate in extract_root.rglob("*"):
+        try:
+            relative = candidate.relative_to(extract_root).as_posix()
+        except ValueError:
+            continue
+        normalized_relative = normalizedArchiveMemberPath(relative).casefold()
+        if normalized_relative == normalized_source:
+            matches.append(candidate)
+            continue
+        if normalized_relative.endswith("/" + normalized_source):
+            matches.append(candidate)
+            continue
+        if "/" not in normalized_source and candidate.name.casefold() == source_name:
+            matches.append(candidate)
+
+    unique_matches = list(dict.fromkeys(matches))
+    if len(unique_matches) == 1:
+        return unique_matches[0].resolve()
+    if unique_matches:
+        raise RuntimeError(f"Ambiguous selected FOMOD source: {source}")
+    raise RuntimeError(f"Selected FOMOD source not found: {source}")
+
+
 def moveHeadlessFomodSelectionPayload(extract_root, target_dir, layout_plan):
     """Move selected FOMOD file/folder mappings into ``target_dir``."""
     extract_root = Path(extract_root)
@@ -279,13 +320,7 @@ def moveHeadlessFomodSelectionPayload(extract_root, target_dir, layout_plan):
         if not source:
             raise RuntimeError("Unsafe FOMOD source path.")
 
-        source_path = (extract_root / source).resolve()
-        try:
-            source_path.relative_to(extract_root.resolve())
-        except ValueError:
-            raise RuntimeError(f"Unsafe FOMOD source path: {source}") from None
-        if not source_path.exists():
-            raise RuntimeError(f"Selected FOMOD source not found: {source}")
+        source_path = resolveHeadlessFomodSourcePath(extract_root, source)
 
         if source_path.is_file():
             output_name = "/".join(
