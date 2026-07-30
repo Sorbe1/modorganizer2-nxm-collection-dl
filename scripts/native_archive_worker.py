@@ -79,9 +79,26 @@ def seven_zip_module_config_path(listing_text):
 def write_result(path, payload):
     result_path = Path(path)
     result_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = result_path.with_name(result_path.name + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    tmp_path.replace(result_path)
+    serialized = json.dumps(payload, indent=2)
+    for attempt in range(3):
+        tmp_path = result_path.with_name(
+            f"{result_path.name}.{os.getpid()}.{time.time_ns()}.{attempt}.tmp"
+        )
+        try:
+            tmp_path.write_text(serialized, encoding="utf-8")
+            os.replace(tmp_path, result_path)
+            return
+        except FileNotFoundError:
+            if result_path.exists():
+                return
+            continue
+        finally:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+    result_path.write_text(serialized, encoding="utf-8")
 
 
 def heartbeat_path(request_dir):

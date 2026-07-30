@@ -1678,6 +1678,20 @@ class NativeArchiveWorkerTests(unittest.TestCase):
             "Wrapper/FOMOD/MODULECONFIG.XML",
         )
 
+    def test_write_result_uses_temp_file_without_leaving_tmp_artifacts(self):
+        from scripts.native_archive_worker import write_result
+
+        with TemporaryDirectory() as tmp:
+            result_path = Path(tmp) / "result.json"
+
+            write_result(result_path, {"ok": True, "value": 7})
+
+            self.assertEqual(
+                json.loads(result_path.read_text(encoding="utf-8")),
+                {"ok": True, "value": 7},
+            )
+            self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
+
     def test_processes_one_json_request(self):
         with TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -2350,6 +2364,9 @@ class DownloadCompletionPlanTests(unittest.TestCase):
 class InstallSummaryAutoCloseTests(unittest.TestCase):
     def test_auto_closes_successful_automatic_install_summary(self):
         self.assertTrue(shouldAutoCloseInstallSummary(True, False, 0))
+
+    def test_keeps_recovery_success_summary_visible(self):
+        self.assertFalse(shouldAutoCloseInstallSummary(True, False, 0, 1))
 
     def test_keeps_manual_install_summary_visible(self):
         self.assertFalse(shouldAutoCloseInstallSummary(False, False, 0))

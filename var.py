@@ -109,6 +109,22 @@ def saveCollectionMetadata(base_path: Path):
     # Create metadata file path: <collection>_<revision>.json
     metadata_file = collections_dir / f"{collection}_{revision}.json"
 
+    preserved_metadata = {}
+    if metadata_file.exists():
+        try:
+            with open(metadata_file, "r", encoding="utf-8") as f:
+                existing_metadata = json.load(f)
+            for key in (
+                "addCollectionLaunchCount",
+                "addCollectionRecoveryCount",
+                "addCollectionLaunchMode",
+                "addCollectionLaunches",
+            ):
+                if key in existing_metadata:
+                    preserved_metadata[key] = existing_metadata[key]
+        except (OSError, json.JSONDecodeError):
+            preserved_metadata = {}
+
     # Prepare metadata
     metadata = {
         "uri": uri,
@@ -125,6 +141,7 @@ def saveCollectionMetadata(base_path: Path):
         "timestamp": datetime.now().isoformat(),
         "totalMods": len(essentialMods) + len(chosenOptional),
     }
+    metadata.update(preserved_metadata)
 
     # Save to file
     with open(metadata_file, "w", encoding="utf-8") as f:

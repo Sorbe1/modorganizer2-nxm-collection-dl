@@ -1885,9 +1885,16 @@ def downloadCompletionPlan(failed_count, has_on_complete, close_on_success, dela
     }
 
 
-def shouldAutoCloseInstallSummary(auto_close_on_success, cancelled, failed_count):
+def shouldAutoCloseInstallSummary(
+    auto_close_on_success, cancelled, failed_count, recovery_count=0
+):
     """Return True when a successful automatic install summary can close itself."""
-    return bool(auto_close_on_success) and not cancelled and int(failed_count or 0) == 0
+    return (
+        bool(auto_close_on_success)
+        and not cancelled
+        and int(failed_count or 0) == 0
+        and int(recovery_count or 0) == 0
+    )
 
 
 def installPlanExecutionAction(fast_finish):

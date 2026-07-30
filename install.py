@@ -4464,7 +4464,7 @@ class stepInstallMods(QDialog):
         self.cancel_btn.setEnabled(False)
         self.manual_install_btn.setEnabled(bool(failed_entries))
         if shouldAutoCloseInstallSummary(
-            self.auto_close_on_success, cancelled, failed_count
+            self.auto_close_on_success, cancelled, failed_count, recovery_count
         ):
             self.log(
                 "Successful automatic install; closing summary dialog.",
@@ -4473,6 +4473,16 @@ class stepInstallMods(QDialog):
             qDebug("[NXMColDL] Successful automatic install summary closing")
             QTimer.singleShot(250, self.accept)
             return
+        if (
+            self.auto_close_on_success
+            and not cancelled
+            and failed_count == 0
+            and recovery_count > 0
+        ):
+            self.log(
+                "Successful recovery install; summary left open for review.",
+                "note",
+            )
         if (
             failed_entries
             and not cancelled
