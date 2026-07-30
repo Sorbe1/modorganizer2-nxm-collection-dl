@@ -131,12 +131,24 @@ final audit.
     the previously unstarred `MoonstoneCastle.esp` on disk and reported
     `1` plugin activated, `11` already active, and `0` blocked without an MO2
     plugin-not-found modal.
+  - `4vz5sn` revision `7` (`Community Shaders 2026`, 53 collection file
+    entries): original Add Collection replay finished `53/53`
+    installed/root-handled with `0` failed/skipped. The run installed the
+    NAT/TrueStorms FOMOD compatibility archive headlessly after dependency
+    evidence selected `True Storms Pure - Water's Edge Fix`, repaired collection
+    priority order, and activated/repaired the expected plugins without MO2
+    warnings.
 - Focused post-proof gate after the `egtcmf` and `lwpfm1` fixes:
   - `python3 -m unittest tests.test_collection_helpers.SevenZipArchiveMemberPathsTests tests.test_collection_helpers.HeadlessZipInstallLayoutTests tests.test_collection_helpers.ExtractHeadlessZipArchiveTests tests.test_collection_helpers.MoveHeadlessArchivePayloadTests tests.test_collection_helpers.DownloadProgressStateTests`
   - `python3 -m unittest test_collection_helpers.SevenZipArchiveMemberPathsTests test_collection_helpers.HeadlessZipInstallLayoutTests test_collection_helpers.ExtractHeadlessZipArchiveTests test_collection_helpers.MoveHeadlessArchivePayloadTests test_collection_helpers.DownloadProgressStateTests`
   - `python3 -m py_compile collection_helpers.py install.py download.py scripts/native_archive_worker.py`
   - `python3 -m unittest tests.test_collection_helpers.SevenZipArchiveMemberPathsTests tests.test_collection_helpers.HeadlessZipInstallLayoutTests tests.test_collection_helpers.DownloadProgressStateTests`
   - `python3 -m py_compile install.py collection_helpers.py download.py scripts/native_archive_worker.py`
+- Focused post-proof gate after the `4vz5sn` fixes:
+  - `python3 -m unittest tests.test_collection_helpers`
+  - `python3 -m unittest test_collection_helpers`
+  - `python3 -m py_compile download.py collection_helpers.py install.py scripts/native_archive_worker.py`
+  - `git diff --check`
 
 ## Measured timings
 
@@ -157,6 +169,7 @@ Observed collection-level completion results:
 | `8vdyr1` rev `12` | 75 | `75/75` installed/root-handled, `0` failed | Stacked after the larger collection |
 | `egtcmf` rev `9` | 26 | `26/26` installed/root-handled, `0` failed | Original Add Collection replay after downloads were present; includes variant `Data` archive handling |
 | `lwpfm1` rev `2` | 13 | `13/13` installed/root-handled, `0` failed | Original Add Collection proof plus recovery replay; profile plugin repair enabled `MoonstoneCastle.esp` without MO2 modal |
+| `4vz5sn` rev `7` | 53 | `53/53` installed/root-handled, `0` failed | Community Shaders proof; NAT/TrueStorms FOMOD selected from profile evidence and installed headlessly |
 
 Observed final proof timings from MO2 log timestamps:
 
@@ -168,6 +181,8 @@ Observed final proof timings from MO2 log timestamps:
 | `8vdyr1` stacked download/restart proof | 22:56:36 | 23:07:19 | 10m 43s | Stacked after `xxsqm4`; includes two restart/resume cycles for stale zero-byte MO2 queue state |
 | `8vdyr1` install + activation | 23:07:27 | 23:07:56 | 29s | `75` headless archives, no FOMOD/manual entries |
 | Both collections stacked | 22:17:28 | 23:07:56 | 50m 28s | `634/634` combined downloaded archives, `0` unfinished files |
+| `4vz5sn` final replay | 16:24:22 | 16:24:32 | 10s | `53/53`, `0` failed/skipped; NAT/TrueStorms repaired via headless FOMOD dependency selection |
+| `4vz5sn` fast replay | 16:34:37 | 16:34:45 | 8s | `53/53`, `0` failed/skipped; no install work remained, activation audit clean |
 
 ## Follow-up
 
