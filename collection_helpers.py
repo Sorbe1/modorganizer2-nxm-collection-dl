@@ -1850,6 +1850,21 @@ def contentTreeWarningDialogAction(window_title, labels, buttons):
     return None
 
 
+def knownPostInstallErrorDialogMessage(labels):
+    """Return durable text for MO2 post-install error dialogs we auto-dismiss."""
+    parts = [
+        str(label or "").strip()
+        for label in (labels or [])
+        if str(label or "").strip()
+    ]
+    if not parts:
+        return None
+    message = "\n".join(parts)
+    if "invalid origin name:" in message or "Plugin not found:" in message:
+        return message
+    return None
+
+
 def installNoResultReason(invalid_content_cancelled, warning_messages):
     """Return a useful reason when MO2 returns no installed mod object."""
     if invalid_content_cancelled:

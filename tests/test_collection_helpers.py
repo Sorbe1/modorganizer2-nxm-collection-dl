@@ -60,6 +60,7 @@ from collection_helpers import (
     installerDefaultActionLabel,
     installedModHasCompletionPayload,
     installedPayloadFileCount,
+    knownPostInstallErrorDialogMessage,
     isBenignEmptyFomodInstallerResult,
     isRequiredFomodGroupTitle,
     isQuotaLimitText,
@@ -1970,6 +1971,27 @@ class ContentTreeWarningDialogActionTests(unittest.TestCase):
                 ],
                 [("Ignore", False), ("Cancel", True)],
             )
+        )
+
+
+class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
+    def test_captures_plugin_not_found_dialog_text(self):
+        self.assertEqual(
+            knownPostInstallErrorDialogMessage(
+                ["Plugin not found: New Hagravens.esp", ""]
+            ),
+            "Plugin not found: New Hagravens.esp",
+        )
+
+    def test_captures_invalid_origin_dialog_text(self):
+        self.assertEqual(
+            knownPostInstallErrorDialogMessage(["invalid origin name: Example"]),
+            "invalid origin name: Example",
+        )
+
+    def test_ignores_unrelated_error_dialog_text(self):
+        self.assertIsNone(
+            knownPostInstallErrorDialogMessage(["failed to receive data"])
         )
 
 

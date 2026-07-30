@@ -70,6 +70,7 @@ from .collection_helpers import (
     installPlanExecutionAction,
     installerDefaultActionLabel,
     isBenignEmptyFomodInstallerResult,
+    knownPostInstallErrorDialogMessage,
     isRequiredFomodGroupTitle,
     isSafeSingletonFomodOption,
     isTransientManualFomodPlanFailure,
@@ -107,6 +108,23 @@ EXPECTED_INSTALL_EXCEPTION_PATTERNS = (
     "invalid origin name:",
     "Plugin not found:",
 )
+
+
+def resilientRmtree(path, attempts=5, delay_seconds=0.05):
+    """Remove a tree across transient Windows/Proton directory-handle races."""
+    path = Path(path)
+    for attempt in range(max(1, int(attempts or 1))):
+        try:
+            shutil.rmtree(path)
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError:
+            if attempt >= max(1, int(attempts or 1)) - 1:
+                raise
+            QApplication.processEvents()
+            time.sleep(max(0.0, float(delay_seconds or 0)))
+    return not path.exists()
 
 INSTALL_NEXT_DELAY_MS = AUTOMATED_INSTALL_CADENCE_DEFAULTS["next_mod_delay_ms"]
 INSTALL_DIALOG_HANDLER_INITIAL_DELAY_MS = AUTOMATED_INSTALL_CADENCE_DEFAULTS[
@@ -283,36 +301,48 @@ def acceptQuickInstallDialog():
                 return
 
 
-def dismissKnownPostInstallErrorDialog(remaining=20):
+def dismissKnownPostInstallErrorDialog(remaining=20, on_dismiss=None):
     if remaining <= 0:
-        return
+        return False
 
     for widget in QApplication.topLevelWidgets():
         if not widget.isVisible() or widget.windowTitle() != "Error":
             continue
 
-        labels = widget.findChildren(QLabel)
-        if not any(
-            "invalid origin name:" in label.text()
-            or "Plugin not found:" in label.text()
-            for label in labels
-        ):
+        message = knownPostInstallErrorDialogMessage(
+            [label.text() for label in widget.findChildren(QLabel)]
+        )
+        if not message:
             continue
 
         for button_box in widget.findChildren(QDialogButtonBox):
             button = button_box.button(QDialogButtonBox.StandardButton.Ok)
             if button and button.isEnabled():
-                qDebug("[NXMColDL Install] Dismissing known post-install error dialog")
+                qDebug(
+                    "[NXMColDL Install] Dismissing known post-install error dialog: "
+                    f"{message}"
+                )
+                if on_dismiss is not None:
+                    on_dismiss(message)
                 suppressDialogAndClick(widget, button)
-                return
+                return True
 
         for button in widget.findChildren(QPushButton):
             if normalizedButtonLabel(button.text()) == "ok" and button.isEnabled():
-                qDebug("[NXMColDL Install] Dismissing known post-install error dialog")
+                qDebug(
+                    "[NXMColDL Install] Dismissing known post-install error dialog: "
+                    f"{message}"
+                )
+                if on_dismiss is not None:
+                    on_dismiss(message)
                 suppressDialogAndClick(widget, button)
-                return
+                return True
 
-    QTimer.singleShot(250, lambda: dismissKnownPostInstallErrorDialog(remaining - 1))
+    QTimer.singleShot(
+        250,
+        lambda: dismissKnownPostInstallErrorDialog(remaining - 1, on_dismiss),
+    )
+    return False
 
 
 def handleModExistsDialog(action="merge"):
@@ -575,6 +605,7 @@ def scheduleInstallDialogHandlers(
     existing_mod_target_name=None,
     should_run=None,
     remaining_ticks=1200,
+    on_post_install_error=None,
 ):
     def run_tick(remaining):
         if should_run is not None and not should_run():
@@ -583,7 +614,10 @@ def scheduleInstallDialogHandlers(
         if auto_accept_quick_install:
             acceptQuickInstallDialog()
         if auto_dismiss_known_post_install_errors:
-            dismissKnownPostInstallErrorDialog(remaining=1)
+            dismissKnownPostInstallErrorDialog(
+                remaining=1,
+                on_dismiss=on_post_install_error,
+            )
         acceptContentTreeWarningDialog()
         if auto_cancel_invalid_install_content:
             cancelInvalidInstallContentDialog()
@@ -603,14 +637,21 @@ def scheduleInstallDialogHandlers(
     )
 
 
-def scheduleKnownPostInstallErrorDismissal(should_run=None, remaining_ticks=1200):
+def scheduleKnownPostInstallErrorDismissal(
+    should_run=None,
+    remaining_ticks=1200,
+    on_post_install_error=None,
+):
     """Keep known MO2 post-install error modals from blocking later phases."""
 
     def run_tick(remaining):
         if should_run is not None and not should_run():
             return
 
-        dismissKnownPostInstallErrorDialog(remaining=1)
+        dismissKnownPostInstallErrorDialog(
+            remaining=1,
+            on_dismiss=on_post_install_error,
+        )
 
         if remaining > 0:
             QTimer.singleShot(
@@ -1104,6 +1145,29 @@ class stepInstallMods(QDialog):
         except OSError as e:
             qDebug(f"[NXMColDL Install] Could not read MO2 interface log: {e}")
         return captured
+
+    def recordSuppressedPostInstallError(self, message, mod_name, file_name):
+        normalized = self.normalizedInterfaceWarning(message)
+        category = self.interfaceWarningCategory(message)
+        key = (mod_name or "post-install", file_name or "", normalized)
+        if key in self.install_warning_index:
+            self.install_warnings[self.install_warning_index[key]][
+                "occurrences"
+            ] += 1
+        else:
+            self.install_warning_index[key] = len(self.install_warnings)
+            self.install_warnings.append(
+                {
+                    "mod": key[0],
+                    "file": key[1],
+                    "message": message,
+                    "normalized_message": normalized,
+                    "category": category,
+                    "occurrences": 1,
+                    "source": "suppressed_dialog",
+                }
+            )
+        self.install_warning_summary[category] += 1
 
     def normalizedInterfaceWarning(self, message):
         return re.sub(r"^\[[^\]]+\]\s+[A-Z]\]\s+", "", str(message)).strip()
@@ -1642,10 +1706,10 @@ class stepInstallMods(QDialog):
         if target_dir.exists():
             if not replace_empty_target or installedModHasCompletionPayload(target_dir):
                 raise RuntimeError(f"Target mod directory already exists: {target_dir}")
-            shutil.rmtree(target_dir)
+            resilientRmtree(target_dir)
         for transient_dir in (temp_dir, extract_dir):
             if transient_dir.exists():
-                shutil.rmtree(transient_dir)
+                resilientRmtree(transient_dir)
         temp_dir.mkdir(parents=True)
         extract_dir.mkdir(parents=True)
 
@@ -1675,13 +1739,13 @@ class stepInstallMods(QDialog):
             return target_mod_name
         except Exception:
             if temp_dir.exists():
-                shutil.rmtree(temp_dir)
+                resilientRmtree(temp_dir)
             if extract_dir.exists():
-                shutil.rmtree(extract_dir)
+                resilientRmtree(extract_dir)
             raise
         finally:
             if extract_dir.exists():
-                shutil.rmtree(extract_dir)
+                resilientRmtree(extract_dir)
 
     def writeHeadlessInstallMeta(
         self,
@@ -3269,6 +3333,13 @@ class stepInstallMods(QDialog):
                 lambda generation=dialog_handler_generation: (
                     generation == self.dialog_handler_generation
                 ),
+                on_post_install_error=(
+                    lambda message, mod_name=mod_name, file_name=file_name: (
+                        self.recordSuppressedPostInstallError(
+                            message, mod_name, file_name
+                        )
+                    )
+                ),
             )
             should_advance_fomod = (
                 context.get(
@@ -3690,6 +3761,13 @@ class stepInstallMods(QDialog):
                         lambda generation=generation: (
                             generation == self.dialog_handler_generation
                         ),
+                        on_post_install_error=(
+                            lambda message, mod_name=mod_name, file_name=file_name: (
+                                self.recordSuppressedPostInstallError(
+                                    message, mod_name, file_name
+                                )
+                            )
+                        ),
                     )
                 slash_started = time.monotonic()
                 installed_mod = self.callInstallMod(
@@ -4085,7 +4163,14 @@ class stepInstallMods(QDialog):
         scheduleKnownPostInstallErrorDismissal(
             lambda generation=dialog_handler_generation: (
                 generation == self.dialog_handler_generation
-            )
+            ),
+            on_post_install_error=(
+                lambda message, internal_name=internal_name: (
+                    self.recordSuppressedPostInstallError(
+                        message, internal_name, "activation"
+                    )
+                )
+            ),
         )
         try:
             modlist.setActive(internal_name, True)
@@ -4439,7 +4524,12 @@ class stepInstallMods(QDialog):
             scheduleKnownPostInstallErrorDismissal(
                 lambda generation=dialog_handler_generation: (
                     generation == self.dialog_handler_generation
-                )
+                ),
+                on_post_install_error=(
+                    lambda message: self.recordSuppressedPostInstallError(
+                        message, "post-install activation", ""
+                    )
+                ),
             )
             for internal_name in mods_to_activate:
                 try:
@@ -4464,7 +4554,12 @@ class stepInstallMods(QDialog):
             scheduleKnownPostInstallErrorDismissal(
                 lambda generation=dialog_handler_generation: (
                     generation == self.dialog_handler_generation
-                )
+                ),
+                on_post_install_error=(
+                    lambda message: self.recordSuppressedPostInstallError(
+                        message, "plugin activation", ""
+                    )
+                ),
             )
             final_plugin_activation = self.activatePluginsForMods(
                 organizer, plugin_activation_targets
