@@ -3223,13 +3223,15 @@ def repairModlistDisabledStates(modlist_path, mod_names, backup_dir=None):
     return result
 
 
-def repairPluginEnabledStates(plugins_path, plugin_names, backup_dir=None):
+def repairPluginEnabledStates(
+    plugins_path, plugin_names, backup_dir=None, append_missing=False
+):
     """Enable matching MO2 profile plugin entries while preserving load order.
 
     MO2 can expose newly discovered plugins in the live plugin model before the
-    profile ``plugins.txt`` file contains an entry for them. Appending missing
-    collection plugins makes replay/finalization idempotent across that delayed
-    serialization boundary.
+    profile ``plugins.txt`` file contains an entry for them. Callers that have
+    independently verified a plugin exists may opt into appending missing names;
+    the default is strict so stale plugin names remain visible as blocked work.
     """
     result = {
         "checked": 0,
@@ -3281,7 +3283,7 @@ def repairPluginEnabledStates(plugins_path, plugin_names, backup_dir=None):
         changed = True
 
     result["missing"] = sorted(requested_names[key] for key in plugin_names - seen)
-    if result["missing"]:
+    if result["missing"] and append_missing:
         if lines and not lines[-1].endswith(("\n", "\r\n")):
             lines[-1] += "\n"
         for plugin_name in result["missing"]:

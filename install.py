@@ -4969,11 +4969,19 @@ class stepInstallMods(QDialog):
         )
         activated = file_repair.get("enabled", 0)
         already_active = file_repair.get("already_enabled", 0)
+        missing_plugins = file_repair.get("missing", [])
         if file_repair.get("enabled"):
             self.log(
                 "  Profile plugin list repaired: "
                 f"{file_repair['enabled']} plugin(s) enabled on disk",
                 "success",
+            )
+        if missing_plugins:
+            blocked += len(missing_plugins)
+            self.logInstallIssue(
+                "Plugin(s) not present in profile plugin list after refresh: "
+                + ", ".join(safeDisplayText(name) for name in missing_plugins[:10]),
+                expected=True,
             )
         if file_repair.get("failed"):
             blocked += file_repair["failed"]

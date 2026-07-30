@@ -975,12 +975,28 @@ class RepairPluginEnabledStatesTests(unittest.TestCase):
                 plugins.read_text(encoding="utf-8"), "*WD03OTrainers.esp\n"
             )
 
-    def test_appends_missing_plugins_as_enabled_entries(self):
+    def test_reports_missing_plugins_without_appending_by_default(self):
         with TemporaryDirectory() as tmp:
             plugins = Path(tmp) / "plugins.txt"
             plugins.write_text("*Other.esp\n", encoding="utf-8")
 
             result = repairPluginEnabledStates(plugins, {"WD03OTrainers.esp"})
+
+            self.assertEqual(result["enabled"], 0)
+            self.assertEqual(result["missing"], ["WD03OTrainers.esp"])
+            self.assertNotIn(
+                "WD03OTrainers.esp",
+                plugins.read_text(encoding="utf-8"),
+            )
+
+    def test_appends_missing_plugins_when_requested(self):
+        with TemporaryDirectory() as tmp:
+            plugins = Path(tmp) / "plugins.txt"
+            plugins.write_text("*Other.esp\n", encoding="utf-8")
+
+            result = repairPluginEnabledStates(
+                plugins, {"WD03OTrainers.esp"}, append_missing=True
+            )
 
             self.assertEqual(result["enabled"], 1)
             self.assertEqual(result["missing"], [])
