@@ -6,6 +6,7 @@ import subprocess
 import unicodedata
 import zipfile
 from configparser import ConfigParser
+from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from xml.etree import ElementTree
@@ -2147,6 +2148,44 @@ def collectionMetadataFromFile(collection_file):
         return json.loads(Path(collection_file).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def recordCollectionLinkLaunch(metadata_file, launched_at=None):
+    """Record one Nexus Add Collection launch against saved metadata.
+
+    A second or later launch for the same collection revision is useful, but it
+    is a recovery signal. Persisting that count keeps reruns visible in the
+    installer summary and warning reports.
+    """
+    metadata_file = Path(metadata_file)
+    metadata = collectionMetadataFromFile(metadata_file) or {}
+
+    previous_count = metadata.get("addCollectionLaunchCount", 0)
+    try:
+        previous_count = int(previous_count)
+    except (TypeError, ValueError):
+        previous_count = 0
+    launch_count = max(0, previous_count) + 1
+
+    launch_record = {
+        "count": launch_count,
+        "timestamp": launched_at or datetime.now().isoformat(timespec="seconds"),
+        "mode": "recovery" if launch_count > 1 else "primary",
+    }
+    launches = metadata.get("addCollectionLaunches")
+    if not isinstance(launches, list):
+        launches = []
+    launches.append(launch_record)
+
+    metadata["addCollectionLaunchCount"] = launch_count
+    metadata["addCollectionRecoveryCount"] = max(0, launch_count - 1)
+    metadata["addCollectionLaunchMode"] = launch_record["mode"]
+    metadata["addCollectionLaunches"] = launches[-20:]
+
+    with open(metadata_file, "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2, ensure_ascii=False)
+
+    return metadata
 
 
 def collectionMetadataFiles(base_path, game="skyrimspecialedition"):

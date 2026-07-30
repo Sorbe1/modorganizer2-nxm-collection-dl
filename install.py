@@ -41,6 +41,7 @@ from .collection_helpers import (
     allocateUniqueModName,
     archiveInspectionSubprocessKwargs,
     collectionInvalidPayloadModNames,
+    collectionMetadataFromFile,
     collectionInstallRoute,
     collectionPluginNamesFromModDirs,
     coerceBoolSetting,
@@ -132,6 +133,18 @@ def loadMetadataIntoVar(metadata):
     var.essentialMods = metadata.get("essentialMods", [])
     var.chosenOptional = metadata.get("chosenOptional", [])
     var.externalMods = metadata.get("externalMods", [])
+
+
+def currentCollectionMetadataFromOrganizer(organizer):
+    if not organizer or not var.game or not var.collection or var.revision is None:
+        return {}
+    metadata_file = (
+        Path(organizer.basePath())
+        / "collections"
+        / str(var.game)
+        / f"{var.collection}_{var.revision}.json"
+    )
+    return collectionMetadataFromFile(metadata_file) or {}
 
 
 def installCollectionMetadata(metadata, parent=None, auto_close_on_success=False):
@@ -1093,7 +1106,22 @@ class stepInstallMods(QDialog):
             if self.install_context
             else []
         )
-        if not self.install_warnings and not failed_entries and not root_level_entries:
+        collection_metadata = (
+            self.install_context.get("collection_metadata", {})
+            if self.install_context
+            else {}
+        )
+        recovery_count = collection_metadata.get("addCollectionRecoveryCount", 0)
+        try:
+            recovery_count = int(recovery_count)
+        except (TypeError, ValueError):
+            recovery_count = 0
+        if (
+            not self.install_warnings
+            and not failed_entries
+            and not root_level_entries
+            and recovery_count <= 0
+        ):
             return None
 
         if timestamp is None:
@@ -1113,6 +1141,15 @@ class stepInstallMods(QDialog):
             "warnings": self.install_warnings,
             "failed_entries": failed_entries,
             "root_level_entries": root_level_entries,
+            "add_collection_launch_count": collection_metadata.get(
+                "addCollectionLaunchCount", 0
+            ),
+            "add_collection_recovery_count": collection_metadata.get(
+                "addCollectionRecoveryCount", 0
+            ),
+            "add_collection_launches": collection_metadata.get(
+                "addCollectionLaunches", []
+            ),
         }
         with open(report_path, "w", encoding="utf-8") as report_file:
             json.dump(report, report_file, indent=2)
@@ -2115,6 +2152,9 @@ class stepInstallMods(QDialog):
                 "organizer": organizer,
                 "modlist": modlist,
                 "game_root_path": self.gameRootPath(organizer),
+                "collection_metadata": currentCollectionMetadataFromOrganizer(
+                    organizer
+                ),
                 "mods_to_install": mods_to_install,
                 "expected_nexus_keys": expected_nexus_keys,
                 "expected_file_names": expected_file_names,
@@ -2673,6 +2713,9 @@ class stepInstallMods(QDialog):
                 "organizer": organizer,
                 "modlist": modlist,
                 "game_root_path": self.gameRootPath(organizer),
+                "collection_metadata": currentCollectionMetadataFromOrganizer(
+                    organizer
+                ),
                 "mods_to_install": mods_to_install,
                 "expected_nexus_keys": expected_nexus_keys,
                 "expected_file_names": expected_file_names,
@@ -2786,6 +2829,7 @@ class stepInstallMods(QDialog):
             "modlist": previous_context["modlist"],
             "game_root_path": previous_context.get("game_root_path")
             or self.gameRootPath(organizer),
+            "collection_metadata": previous_context.get("collection_metadata", {}),
             "mods_to_install": mods_to_install,
             "collection_total_entries": len(previous_context["mods_to_install"]),
             "expected_nexus_keys": set(
@@ -4273,7 +4317,24 @@ class stepInstallMods(QDialog):
         review_count = len(failed_entries)
         root_level_count = len(root_level_entries)
         total_entries = context.get("collection_total_entries", len(mods_to_install))
+        collection_metadata = context.get("collection_metadata", {})
+        recovery_count = 0
+        launch_count = 0
+        try:
+            recovery_count = int(
+                collection_metadata.get("addCollectionRecoveryCount", 0)
+            )
+            launch_count = int(collection_metadata.get("addCollectionLaunchCount", 0))
+        except (TypeError, ValueError):
+            recovery_count = 0
+            launch_count = 0
         self.log(f"  Collection file entries: {total_entries}")
+        if recovery_count > 0:
+            self.log(
+                "  Add Collection recovery launches: "
+                f"{recovery_count} recovery after {launch_count} total launches",
+                "warning",
+            )
         completed_entries = len(mods_to_install) - review_count
         self.log(f"  Entries completed/root-handled: {completed_entries}")
         if review_count:

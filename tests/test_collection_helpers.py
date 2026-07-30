@@ -80,6 +80,7 @@ from collection_helpers import (
     repairInstalledCollectionModMetadata,
     repairModlistEnabledStates,
     repairSingleWrapperPayload,
+    recordCollectionLinkLaunch,
     retryAfterSeconds,
     quotaLimitMessage,
     quotaResumeDelaySeconds,
@@ -933,6 +934,46 @@ class CollectionDownloadExpectedSizesTests(unittest.TestCase):
         self.assertEqual(result["installed_keys"], {(123, 456)})
         self.assertEqual(result["missing_keys"], {(999, 111)})
         self.assertEqual(result["mod_names"], ["Example Mod"])
+
+    def test_record_collection_link_launch_marks_first_launch_primary(self):
+        with TemporaryDirectory() as tmp:
+            metadata_file = Path(tmp) / "example_1.json"
+            metadata_file.write_text(
+                json.dumps({"collection": "example", "revision": 1}),
+                encoding="utf-8",
+            )
+
+            metadata = recordCollectionLinkLaunch(
+                metadata_file, launched_at="2026-07-30T01:02:03"
+            )
+
+            self.assertEqual(metadata["addCollectionLaunchCount"], 1)
+            self.assertEqual(metadata["addCollectionRecoveryCount"], 0)
+            self.assertEqual(metadata["addCollectionLaunchMode"], "primary")
+            self.assertEqual(metadata["addCollectionLaunches"][0]["mode"], "primary")
+            self.assertEqual(
+                collectionMetadataFromFile(metadata_file)["addCollectionLaunchCount"],
+                1,
+            )
+
+    def test_record_collection_link_launch_marks_rerun_as_recovery(self):
+        with TemporaryDirectory() as tmp:
+            metadata_file = Path(tmp) / "example_1.json"
+            metadata_file.write_text(
+                json.dumps({"collection": "example", "revision": 1}),
+                encoding="utf-8",
+            )
+
+            recordCollectionLinkLaunch(metadata_file, launched_at="first")
+            metadata = recordCollectionLinkLaunch(metadata_file, launched_at="second")
+
+            self.assertEqual(metadata["addCollectionLaunchCount"], 2)
+            self.assertEqual(metadata["addCollectionRecoveryCount"], 1)
+            self.assertEqual(metadata["addCollectionLaunchMode"], "recovery")
+            self.assertEqual(
+                [entry["mode"] for entry in metadata["addCollectionLaunches"]],
+                ["primary", "recovery"],
+            )
 
     def test_extracts_expected_download_sizes(self):
         mods = [

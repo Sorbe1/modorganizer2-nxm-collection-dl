@@ -60,6 +60,7 @@ from .collection_helpers import (
     orphanUnfinishedDownloadEntries,
     parseCollectionAddress,
     readDownloadMetaKey,
+    recordCollectionLinkLaunch,
     repairDownloadMetadataInstalledFlags,
     removeOrphanUnfinishedEntries,
     removeOrphanUnfinishedDownloadsForKeys,
@@ -3632,8 +3633,14 @@ class stepCollectionLinkFlow(QDialog):
         try:
             base_path = Path(plugin_instance._organizer.basePath())
             metadata_file = var.saveCollectionMetadata(base_path)
-            self.metadata = var.loadCollectionMetadata(
-                base_path, var.game, var.collection, var.revision
+            self.metadata = recordCollectionLinkLaunch(metadata_file)
+            launch_count = self.metadata.get("addCollectionLaunchCount", 1)
+            recovery_count = self.metadata.get("addCollectionRecoveryCount", 0)
+            qDebug(
+                "[NXMColDL] Add Collection launch recorded: "
+                f"collection={var.collection}, revision={var.revision}, "
+                f"launch_count={launch_count}, recovery_count={recovery_count}, "
+                f"mode={self.metadata.get('addCollectionLaunchMode')}"
             )
             qDebug(f"[NXMColDL] Collection metadata saved to: {metadata_file}")
         except (ValueError, IOError) as e:
