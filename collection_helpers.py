@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 import shutil
@@ -3532,18 +3533,26 @@ def downloadTailBoundaryReached(
     except (TypeError, ValueError):
         return False
 
-    if total <= 0 or unresolved_limit <= 0 or unresolved < unresolved_limit:
+    try:
+        completion_ratio = float(completion_ratio)
+    except (TypeError, ValueError):
+        completion_ratio = 0.75
+    completion_ratio = min(1.0, max(0.0, completion_ratio))
+
+    if total <= 0 or unresolved_limit <= 0:
+        return False
+    adaptive_unresolved_limit = max(
+        1,
+        total - int(math.ceil(total * completion_ratio)),
+    )
+    effective_unresolved_limit = min(unresolved_limit, adaptive_unresolved_limit)
+    if unresolved < effective_unresolved_limit:
         return False
 
     terminal = max(0, successful) + max(0, failed)
     if terminal <= 0:
         return False
 
-    try:
-        completion_ratio = float(completion_ratio)
-    except (TypeError, ValueError):
-        completion_ratio = 0.75
-    completion_ratio = min(1.0, max(0.0, completion_ratio))
     if terminal / total < completion_ratio:
         return False
 

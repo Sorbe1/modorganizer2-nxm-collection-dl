@@ -1532,6 +1532,16 @@ class DownloadTailBoundaryTests(unittest.TestCase):
             downloadTailBoundaryReached(100, 75, 0, 16, 16, 100, 120, 20)
         )
 
+    def test_stops_small_collection_tail_after_adaptive_threshold(self):
+        self.assertTrue(
+            downloadTailBoundaryReached(18, 14, 0, 4, 16, 100, 160, 60)
+        )
+
+    def test_waits_below_small_collection_adaptive_tail_threshold(self):
+        self.assertFalse(
+            downloadTailBoundaryReached(18, 15, 0, 3, 16, 100, 200, 60)
+        )
+
     def test_adaptive_grace_scales_but_stays_bounded(self):
         small = adaptiveDownloadTailGraceSeconds(50, 16, 0, 30)
         large = adaptiveDownloadTailGraceSeconds(800, 16, 2, 600)
