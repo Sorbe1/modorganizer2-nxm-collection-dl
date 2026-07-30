@@ -106,6 +106,14 @@ def pendingInstallProbeFiles(organizer: mobase.IOrganizer):
     ]
 
 
+def pendingNexusFileFiles(organizer: mobase.IOrganizer):
+    """Return rendezvous paths for one-shot Nexus file download requests."""
+    return [
+        Path(organizer.basePath()) / "collections" / "pending-nexus-file.json",
+        Path(__file__).parent / "pending-nexus-file.json",
+    ]
+
+
 def queueInstallProbeBatch(entries):
     """Queue archive installs to run from MO2's normal event-loop watcher."""
     queued = 0
@@ -633,6 +641,48 @@ def consumePendingCollectionLink(organizer: mobase.IOrganizer, parent):
     flow.activateWindow()
 
 
+def consumePendingNexusFile(organizer: mobase.IOrganizer):
+    request = None
+    consumed_from = None
+    for pending_file in pendingNexusFileFiles(organizer):
+        try:
+            if not pending_file.exists():
+                continue
+            request = json.loads(pending_file.read_text(encoding="utf-8"))
+            pending_file.unlink()
+            consumed_from = pending_file
+            break
+        except (OSError, json.JSONDecodeError) as e:
+            qDebug(f"[NXMColDL] Failed to consume pending Nexus file request: {e}")
+            return
+
+    if not isinstance(request, dict):
+        return
+
+    try:
+        mod_id = int(request.get("mod_id") or request.get("modId"))
+        file_id = int(request.get("file_id") or request.get("fileId"))
+    except (TypeError, ValueError) as e:
+        qDebug(f"[NXMColDL] Ignoring invalid pending Nexus file request: {e}")
+        return
+
+    try:
+        download_id = organizer.downloadManager().startDownloadNexusFile(
+            mod_id,
+            file_id,
+        )
+        qDebug(
+            "[NXMColDL] Started pending Nexus file download: "
+            f"mod_id={mod_id}, file_id={file_id}, download_id={download_id}, "
+            f"file={consumed_from}"
+        )
+    except Exception as e:
+        qDebug(
+            "[NXMColDL] Failed to start pending Nexus file download: "
+            f"mod_id={mod_id}, file_id={file_id}, error={e}"
+        )
+
+
 def startPendingLinkWatcher(plugin):
     if getattr(plugin, "_pending_link_timer", None):
         return
@@ -646,6 +696,7 @@ def startPendingLinkWatcher(plugin):
         except Exception as e:
             var.debug(f"[NXMColDL Probe] Pending probe check failed: {e}")
         consumePendingInstallProbe(plugin._organizer)
+        consumePendingNexusFile(plugin._organizer)
         consumePendingCollectionLink(plugin._organizer, plugin._parent)
 
     plugin._pending_link_timer = QTimer()
