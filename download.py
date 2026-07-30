@@ -1146,7 +1146,10 @@ class stepDownloadProgress(QDialog):
                 "[NXMColDL Progress] Waiting for MO2 queue to drain before "
                 f"retrying missing downloads: {unresolved} unresolved item(s)"
             )
-            return False
+            if self.apply_download_tail_boundary(unresolved, time.time()):
+                return True
+            QTimer.singleShot(self.queue_interval_ms, self.pump_next_download)
+            return True
 
         retry_keys = set()
         failed_keys = set()
