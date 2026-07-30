@@ -1,4 +1,5 @@
 from pathlib import Path
+import importlib.util
 import json
 import subprocess
 import sys
@@ -66,6 +67,7 @@ from collection_helpers import (
     isRequiredFomodGroupTitle,
     isQuotaLimitText,
     isSafeSingletonFomodOption,
+    isTransientManualFomodPlanFailure,
     matchingPartialOrphanUnfinishedEntries,
     mo2CategoryField,
     mo2CategoryNameMap,
@@ -120,9 +122,17 @@ from collection_helpers import (
     steamShaderCacheDisabled,
     steamShaderProcessingQueue,
     unfinishedDownloadEntries,
+    zeroByteDownloadStartIsStalled,
     zeroByteUnfinishedEntries,
     zipArchiveMemberPaths,
 )
+
+_WORKER_PATH = Path(__file__).resolve().parent / "scripts" / "native_archive_worker.py"
+_WORKER_SPEC = importlib.util.spec_from_file_location(
+    "native_archive_worker", _WORKER_PATH
+)
+native_archive_worker = importlib.util.module_from_spec(_WORKER_SPEC)
+_WORKER_SPEC.loader.exec_module(native_archive_worker)
 
 
 class ParseCollectionAddressTests(unittest.TestCase):
@@ -801,6 +811,50 @@ class GameRootPathResolutionTests(unittest.TestCase):
             )
 
 
+class ManualFomodPlanFailureCacheTests(unittest.TestCase):
+    def test_treats_native_worker_failures_as_transient(self):
+        self.assertTrue(
+            isTransientManualFomodPlanFailure(
+                "Native archive worker is not running; start scripts/native_archive_worker.py"
+            )
+        )
+        self.assertTrue(
+            isTransientManualFomodPlanFailure("Native archive worker timed out")
+        )
+        self.assertTrue(
+            isTransientManualFomodPlanFailure(
+                "Could not list archive with subprocess 7z: [WinError 6] Invalid handle"
+            )
+        )
+        self.assertTrue(
+            isTransientManualFomodPlanFailure(
+                "FOMOD XML parse error: not well-formed (invalid token): "
+                "line 1, column 0"
+            )
+        )
+        self.assertFalse(
+            isTransientManualFomodPlanFailure(
+                "FOMOD contains unresolved required choices"
+            )
+        )
+
+
+class NativeArchiveWorkerTests(unittest.TestCase):
+    def test_decodes_utf16_fomod_xml_from_7z_stdout(self):
+        payload = (
+            b"\xff\xfe<\x00c\x00o\x00n\x00f\x00i\x00g\x00>\x00"
+            b"<\x00m\x00o\x00d\x00u\x00l\x00e\x00N\x00a\x00m\x00e\x00>\x00"
+            b"N\x00A\x00T\x00<\x00/\x00m\x00o\x00d\x00u\x00l\x00e\x00N\x00"
+            b"a\x00m\x00e\x00>\x00<\x00/\x00c\x00o\x00n\x00f\x00i\x00g\x00>\x00"
+        )
+
+        decoded = native_archive_worker.decode_7z_stdout(payload)
+
+        self.assertTrue(decoded.startswith("<config>"))
+        self.assertIn("<moduleName>NAT</moduleName>", decoded)
+        self.assertNotIn("\x00", decoded[:100])
+
+
 class RepairModlistEnabledStatesTests(unittest.TestCase):
     def test_enables_matching_disabled_entries_without_touching_others(self):
         with TemporaryDirectory() as tmp:
@@ -1387,12 +1441,23 @@ class StaleDownloadStartActionTests(unittest.TestCase):
         self.assertEqual(staleDownloadStartAction(21, 20), "restart_required")
 
 
+class ZeroByteDownloadStartIsStalledTests(unittest.TestCase):
+    def test_keeps_fresh_placeholder_inside_grace_window(self):
+        self.assertFalse(zeroByteDownloadStartIsStalled(100.0, 114.9, 15))
+
+    def test_stalls_after_grace_window(self):
+        self.assertTrue(zeroByteDownloadStartIsStalled(100.0, 115.0, 15))
+
+    def test_invalid_timestamps_are_not_stalled(self):
+        self.assertFalse(zeroByteDownloadStartIsStalled(None, 115.0, 15))
+
+
 class StaleAlreadyStartedActionTests(unittest.TestCase):
     def test_waits_when_mo2_has_metadata_backed_unfinished_entry(self):
         self.assertEqual(staleAlreadyStartedAction(True), "wait")
 
-    def test_restart_boundary_when_already_started_has_no_metadata_entry(self):
-        self.assertEqual(staleAlreadyStartedAction(False), "restart_required")
+    def test_waits_when_already_started_has_no_metadata_entry(self):
+        self.assertEqual(staleAlreadyStartedAction(False), "wait")
 
 
 class CoerceDownloadIdTests(unittest.TestCase):
@@ -1705,6 +1770,50 @@ class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
             ],
         )
 
+    def test_selects_unique_best_select_at_most_one_patch_option(self):
+        module_config = """\
+<config>
+  <installSteps>
+    <installStep name="Select patches">
+      <optionalFileGroups>
+        <group name="Main Versions" type="SelectAtMostOne">
+          <plugins>
+            <plugin name="True Storms Pure">
+              <files><folder source="03TrueStormsPure" destination="" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="True Storms Pure - Water's Edge Fix">
+              <files><folder source="06TrueStormsPure_WaterFix" destination="" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+  </installSteps>
+</config>
+"""
+
+        plan = headlessFomodDependencyInstallLayout(
+            module_config,
+            "NAT - TrueStorms Merged Compatibility/FOMod/ModuleConfig.xml",
+            [
+                "NAT - TrueStorms Merged Compatibility/03TrueStormsPure/example.esp",
+                "NAT - TrueStorms Merged Compatibility/06TrueStormsPure_WaterFix/example.esp",
+            ],
+            ["TrueStormsSE.esp", "Cathedral - Water.esp", "NAT.esp"],
+        )
+
+        self.assertTrue(plan["installable"])
+        self.assertEqual(
+            plan["selected_options"],
+            ["True Storms Pure - Water's Edge Fix"],
+        )
+        self.assertEqual(
+            plan["mappings"][0]["source"],
+            "NAT - TrueStorms Merged Compatibility/06TrueStormsPure_WaterFix",
+        )
+
     def test_refuses_ambiguous_single_choice_theme_picker(self):
         module_config = """\
 <config>
@@ -1784,6 +1893,24 @@ class NativeArchiveWorkerTests(unittest.TestCase):
             {"ok": False, "error": "Request missing archive path."},
         )
 
+    def test_finds_fomod_module_config_path(self):
+        from scripts.native_archive_worker import seven_zip_module_config_path
+
+        listing = "\n".join(
+            [
+                "Path = Example.7z",
+                "Type = 7z",
+                "----------",
+                "Path = Wrapper/FOMOD\\MODULECONFIG.XML",
+                "Size = 42",
+            ]
+        )
+
+        self.assertEqual(
+            seven_zip_module_config_path(listing),
+            "Wrapper/FOMOD/MODULECONFIG.XML",
+        )
+
     def test_processes_one_json_request(self):
         with TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1809,7 +1936,7 @@ class NativeArchiveWorkerTests(unittest.TestCase):
                     str(request_dir),
                     "--once",
                 ],
-                cwd=Path(__file__).resolve().parent.parent,
+                cwd=Path(__file__).resolve().parent,
                 check=True,
             )
 
@@ -1817,6 +1944,26 @@ class NativeArchiveWorkerTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertIn("Unsupported action", result["error"])
             self.assertFalse(request_path.exists())
+
+    def test_once_mode_writes_worker_heartbeat(self):
+        with TemporaryDirectory() as tmp:
+            request_dir = Path(tmp) / "requests"
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/native_archive_worker.py",
+                    str(request_dir),
+                    "--once",
+                ],
+                cwd=Path(__file__).resolve().parent,
+                check=True,
+            )
+
+            heartbeat = request_dir / "native-archive-worker.heartbeat.json"
+            payload = json.loads(heartbeat.read_text(encoding="utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertIn("time", payload)
 
 
 class NativePathForArchiveInspectionTests(unittest.TestCase):
@@ -2456,15 +2603,15 @@ class InstallPlanExecutionActionTests(unittest.TestCase):
 
 
 class FastFinishMetadataRepairKeysTests(unittest.TestCase):
-    def test_excludes_installed_entries_repaired_by_postcondition_sweep(self):
+    def test_includes_installed_entries_because_fast_finish_skips_sweep(self):
         self.assertEqual(
             fastFinishMetadataRepairKeys(
                 [{"status": "installed", "install_key": (123, 456)}]
             ),
-            set(),
+            {(123, 456)},
         )
 
-    def test_returns_root_entries_without_mo2_mod_containers(self):
+    def test_returns_installed_and_root_entries_without_failed_entries(self):
         self.assertEqual(
             fastFinishMetadataRepairKeys(
                 [
@@ -2473,7 +2620,7 @@ class FastFinishMetadataRepairKeysTests(unittest.TestCase):
                     {"status": "failed", "install_key": (999, 111)},
                 ]
             ),
-            {(321, 654)},
+            {(123, 456), (321, 654)},
         )
 
 
@@ -2974,6 +3121,28 @@ class HeadlessZipInstallLayoutTests(unittest.TestCase):
         self.assertTrue(plan["installable"])
         self.assertEqual(plan["strip_prefix"], "Data/")
 
+    def test_accepts_community_shaders_root(self):
+        plan = headlessZipInstallLayout(
+            [
+                "Shaders/Features/CloudShadows.ini",
+                "Shaders/CloudShadows/CloudShadows.hlsli",
+            ]
+        )
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["reason"], "mod root layout")
+        self.assertEqual(plan["strip_prefix"], "")
+
+    def test_accepts_particle_light_root_with_preview_image(self):
+        plan = headlessZipInstallLayout(
+            [
+                "before-after.png",
+                "ParticleLights/candleglow01.ini",
+            ]
+        )
+        self.assertTrue(plan["installable"])
+        self.assertEqual(plan["reason"], "mod root layout")
+        self.assertEqual(plan["strip_prefix"], "")
+
     def test_strips_lowercase_data_folder_wrapper(self):
         plan = headlessZipInstallLayout(
             ["data/meshes/road.nif", "data/textures/road.dds"]
@@ -3145,6 +3314,20 @@ class HeadlessPayloadRootValidationTests(unittest.TestCase):
                 netscript_root / "NetScriptFramework" / "Plugins" / "GrassControl.dll"
             ).write_text("", encoding="utf-8")
             self.assertTrue(headlessPayloadRootValid(netscript_root))
+
+            kreate_root = root / "kreate"
+            (kreate_root / "KreatE" / "Presets" / "Aethos" / "CellLighting").mkdir(
+                parents=True
+            )
+            (
+                kreate_root
+                / "KreatE"
+                / "Presets"
+                / "Aethos"
+                / "CellLighting"
+                / "Dragonsreach.ini"
+            ).write_text("", encoding="utf-8")
+            self.assertTrue(headlessPayloadRootValid(kreate_root))
 
     def test_rejects_plugin_hidden_under_unstripped_wrapper(self):
         with TemporaryDirectory() as tmp:

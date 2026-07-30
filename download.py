@@ -68,6 +68,7 @@ from .collection_helpers import (
     staleOrphanUnfinishedDownloadEntries,
     staleUnfinishedEntries,
     unfinishedDownloadEntries,
+    zeroByteDownloadStartIsStalled,
     zeroByteUnfinishedEntries,
 )
 
@@ -821,6 +822,7 @@ class stepDownloadProgress(QDialog):
         self.prompt_context_expires_at = 0
         self.download_ids = {}
         self.ambiguous_download_ids = set()
+        self.ambiguous_download_keys = {}
         self.completed_keys = set()
         self.failed_keys = set()
         self.restart_required_keys = set()
@@ -829,6 +831,7 @@ class stepDownloadProgress(QDialog):
         self.duplicate_declined_archive_complete_keys = set()
         self.already_started_keys = set()
         self.already_started_at = {}
+        self.completed_callback_at = {}
         self.paused_keys = {}
         self.paused_download_stall_seconds = 30
         self.already_started_cleanup_attempts = set()
@@ -847,7 +850,7 @@ class stepDownloadProgress(QDialog):
         self.waiting_partial_keys = set()
         self.queue_interval_ms = 50
         self.queue_start_timeout_seconds = 10
-        self.zero_byte_start_timeout_seconds = 3
+        self.zero_byte_start_timeout_seconds = 15
         self.zero_byte_start_max_retries = 20
         self.zero_byte_restart_threshold = 999
         self.zero_byte_orphan_stale_seconds = 3
@@ -1333,9 +1336,16 @@ class stepDownloadProgress(QDialog):
             if now - queued_at < self.queue_start_timeout_seconds
         }
         tracked_download_keys = set(self.download_ids.values())
+        ambiguous_recent_keys = self.recent_ambiguous_download_keys(now)
+        validation_pending_keys = self.recent_completed_callback_keys(now)
         stalled_zero_keys = self.stalled_zero_byte_keys(
             entries_by_key,
-            tracked_download_keys | set(self.queued_at),
+            (
+                tracked_download_keys
+                | set(self.queued_at)
+            )
+            - ambiguous_recent_keys
+            - validation_pending_keys,
             now,
             self.queue_start_timeout_seconds,
         )
@@ -1347,6 +1357,8 @@ class stepDownloadProgress(QDialog):
             - active_partial_keys
             - active_orphan_keys
             - tracked_download_keys
+            - ambiguous_recent_keys
+            - validation_pending_keys
         )
         for key in stale_queue_keys:
             self.queued_at.pop(key, None)
@@ -1362,6 +1374,8 @@ class stepDownloadProgress(QDialog):
             | active_orphan_keys
             | recent_queue_keys
             | tracked_download_keys
+            | ambiguous_recent_keys
+            | validation_pending_keys
         )
         unresolved_keys.difference_update(self.completed_keys)
         unresolved_keys.difference_update(self.failed_keys)
@@ -1381,7 +1395,7 @@ class stepDownloadProgress(QDialog):
                 key,
                 self.queued_at.get(key, now),
             )
-            if now - first_seen >= timeout_seconds:
+            if zeroByteDownloadStartIsStalled(first_seen, now, timeout_seconds):
                 stalled.add(key)
 
         for key in list(self.zero_byte_seen_at):
@@ -1402,6 +1416,13 @@ class stepDownloadProgress(QDialog):
             return 0
 
         now = time.time()
+        ambiguous_recent_keys = self.recent_ambiguous_download_keys(now)
+        validation_pending_keys = self.recent_completed_callback_keys(now)
+        candidate_keys.difference_update(ambiguous_recent_keys)
+        candidate_keys.difference_update(validation_pending_keys)
+        if not candidate_keys:
+            return 0
+
         stalled_keys = self.stalled_zero_byte_keys(
             entries_by_key,
             candidate_keys,
@@ -1563,10 +1584,12 @@ class stepDownloadProgress(QDialog):
 
     def record_waiting_for_existing_download(self, key, message):
         """Track a file MO2 is already downloading instead of prompting again."""
+        now = time.time()
         self.queued_keys.add(key)
-        self.queued_at.setdefault(key, time.time())
+        self.queued_at[key] = now
+        self.zero_byte_seen_at.pop(key, None)
         self.waiting_partial_keys.add(key)
-        self.already_started_at.setdefault(key, time.time())
+        self.already_started_at[key] = now
         self.detail_label.setText(message)
         self.detail_label.setStyleSheet("color: orange;")
 
@@ -1603,11 +1626,65 @@ class stepDownloadProgress(QDialog):
             self.download_ids.pop(download_id, None)
             self.ambiguous_download_ids.discard(download_id)
 
+    def mark_ambiguous_download_key(self, key, now=None):
+        now = time.time() if now is None else now
+        self.ambiguous_download_keys[key] = now
+        self.queued_keys.add(key)
+        self.queued_at[key] = now
+        self.zero_byte_seen_at.pop(key, None)
+
+    def recent_ambiguous_download_keys(self, now=None):
+        now = time.time() if now is None else now
+        grace_seconds = max(
+            self.stale_unfinished_seconds,
+            self.queue_start_timeout_seconds,
+            self.zero_byte_start_timeout_seconds,
+        )
+        recent = set()
+        for key, marked_at in list(self.ambiguous_download_keys.items()):
+            if key in self.completed_keys or key in self.failed_keys:
+                self.ambiguous_download_keys.pop(key, None)
+                continue
+            if now - marked_at < grace_seconds:
+                recent.add(key)
+            else:
+                self.ambiguous_download_keys.pop(key, None)
+        return recent
+
+    def mark_completed_callback_pending(self, key, now=None):
+        now = time.time() if now is None else now
+        self.completed_callback_at[key] = now
+        self.queued_keys.add(key)
+        self.queued_at[key] = now
+        self.zero_byte_seen_at.pop(key, None)
+        self.waiting_partial_keys.add(key)
+
+    def recent_completed_callback_keys(self, now=None):
+        now = time.time() if now is None else now
+        grace_seconds = max(
+            self.stale_unfinished_seconds,
+            self.queue_start_timeout_seconds,
+            self.zero_byte_start_timeout_seconds,
+        )
+        recent = set()
+        for key, marked_at in list(self.completed_callback_at.items()):
+            if key in self.completed_keys or key in self.failed_keys:
+                self.completed_callback_at.pop(key, None)
+                continue
+            if now - marked_at < grace_seconds:
+                recent.add(key)
+            else:
+                self.completed_callback_at.pop(key, None)
+        return recent
+
     def track_download_id(self, download_id, key):
+        now = time.time()
         existing_key = self.download_ids.get(download_id)
         if existing_key is not None and existing_key != key:
             self.ambiguous_download_ids.add(download_id)
             self.download_ids.pop(download_id, None)
+            self.mark_ambiguous_download_key(existing_key, now)
+            self.mark_ambiguous_download_key(key, now)
             qDebug(
                 "[NXMColDL Progress] Ignoring non-unique MO2 download ID "
                 f"{download_id}; existing ModID {existing_key[0]}, "
@@ -1615,6 +1692,7 @@ class stepDownloadProgress(QDialog):
             )
             return False
         if download_id in self.ambiguous_download_ids:
+            self.mark_ambiguous_download_key(key, now)
             qDebug(
                 "[NXMColDL Progress] Ignoring reused MO2 download ID "
                 f"{download_id} for ModID {key[0]}, FileID {key[1]}"
@@ -1641,6 +1719,8 @@ class stepDownloadProgress(QDialog):
         self.queued_at.pop(key, None)
         self.zero_byte_seen_at.pop(key, None)
         self.waiting_partial_keys.discard(key)
+        self.ambiguous_download_keys.pop(key, None)
+        self.completed_callback_at.pop(key, None)
         self.already_started_keys.discard(key)
         self.already_started_at.pop(key, None)
         self.paused_keys.pop(key, None)
@@ -2283,6 +2363,7 @@ class stepDownloadProgress(QDialog):
             key,
             "Waiting for MO2 to finish writing the completed archive...",
         )
+        self.mark_completed_callback_pending(key)
         qDebug(
             "[NXMColDL Progress] Download-complete callback fired before archive "
             f"validated for ModID {key[0]}, FileID {key[1]}"
@@ -2602,9 +2683,11 @@ class stepDownloadProgress(QDialog):
         handled_keys = set()
         retry_keys = set()
         tracked_download_keys = set(self.download_ids.values())
+        ambiguous_recent_keys = self.recent_ambiguous_download_keys(now)
+        validation_pending_keys = self.recent_completed_callback_keys(now)
         stalled_zero_keys = self.stalled_zero_byte_keys(
             entries_by_key,
-            pending_keys,
+            pending_keys - ambiguous_recent_keys - validation_pending_keys,
             now,
             self.zero_byte_start_timeout_seconds,
         )
@@ -2630,6 +2713,9 @@ class stepDownloadProgress(QDialog):
                 return
 
         for key in pending_keys:
+            if key in ambiguous_recent_keys or key in validation_pending_keys:
+                continue
+
             started_at = self.already_started_at.get(key)
             if (
                 key in self.already_started_keys

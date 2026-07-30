@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -62,12 +63,62 @@ def seven_zip_member_paths(listing_text):
     return paths
 
 
+def seven_zip_module_config_path(listing_text):
+    """Return the FOMOD ModuleConfig path from a 7z ``l -slt`` listing."""
+    if isinstance(listing_text, bytes):
+        listing_text = listing_text.decode("utf-8", errors="replace")
+    for raw_line in str(listing_text).splitlines():
+        if not raw_line.startswith("Path = "):
+            continue
+        candidate = raw_line[7:].strip().replace("\\", "/")
+        if candidate.casefold().endswith("fomod/moduleconfig.xml"):
+            return candidate
+    return None
+
+
 def write_result(path, payload):
     result_path = Path(path)
     result_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = result_path.with_name(result_path.name + ".tmp")
     tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     tmp_path.replace(result_path)
+
+
+def heartbeat_path(request_dir):
+    return Path(request_dir) / "native-archive-worker.heartbeat.json"
+
+
+def write_heartbeat(request_dir):
+    write_result(
+        heartbeat_path(request_dir),
+        {
+            "ok": True,
+            "pid": os.getpid() if hasattr(os, "getpid") else None,
+            "time": time.time(),
+        },
+    )
+
+
+def decode_7z_stdout(data):
+    """Decode 7z stdout, preserving UTF-16 XML extracted with ``-so``."""
+    raw = bytes(data or b"")
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        try:
+            return raw.decode("utf-16")
+        except UnicodeError:
+            pass
+
+    sample = raw[:200]
+    if sample and sample.count(b"\x00") > max(4, len(sample) // 8):
+        for encoding in ("utf-16", "utf-16-le", "utf-16-be"):
+            try:
+                decoded = raw.decode(encoding)
+            except UnicodeError:
+                continue
+            if "\x00" not in decoded[:100]:
+                return decoded
+
+    return raw.decode("utf-8", errors="replace")
 
 
 def run_7z(args, timeout):
@@ -90,7 +141,7 @@ def run_7z(args, timeout):
     except Exception as e:
         return {"ok": False, "stdout": "", "error": f"Could not run 7z: {e}"}
 
-    output = (result.stdout or b"").decode("utf-8", errors="replace")
+    output = decode_7z_stdout(result.stdout)
     if result.returncode != 0:
         return {
             "ok": False,
@@ -111,6 +162,30 @@ def handle_request(payload):
         if not result["ok"]:
             return {"ok": False, "error": result["error"]}
         return {"ok": True, "members": seven_zip_member_paths(result["stdout"])}
+
+    if action == "fomod":
+        listing = run_7z(["l", "-slt", archive], timeout=60)
+        if not listing["ok"]:
+            return {"ok": False, "error": listing["error"]}
+        module_path = seven_zip_module_config_path(listing["stdout"])
+        if not module_path:
+            return {
+                "ok": True,
+                "has_fomod": False,
+                "module_config": None,
+                "module_xml": None,
+            }
+        extraction = run_7z(["x", "-so", archive, module_path], timeout=60)
+        if not extraction["ok"]:
+            return {"ok": False, "error": extraction["error"]}
+        if not extraction["stdout"]:
+            return {"ok": False, "error": "7z did not return FOMOD XML content."}
+        return {
+            "ok": True,
+            "has_fomod": True,
+            "module_config": module_path,
+            "module_xml": extraction["stdout"],
+        }
 
     if action == "extract":
         target_dir = str(payload.get("target_dir") or "").strip()
@@ -164,11 +239,14 @@ def main():
 
     request_dir = Path(args.request_dir)
     request_dir.mkdir(parents=True, exist_ok=True)
+    write_heartbeat(request_dir)
     if args.once:
         run_once(request_dir)
+        write_heartbeat(request_dir)
         return 0
 
     while True:
+        write_heartbeat(request_dir)
         run_once(request_dir)
         time.sleep(max(args.poll_ms, 10) / 1000.0)
 

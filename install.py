@@ -69,6 +69,7 @@ from .collection_helpers import (
     installerDefaultActionLabel,
     isRequiredFomodGroupTitle,
     isSafeSingletonFomodOption,
+    isTransientManualFomodPlanFailure,
     moveHeadlessArchivePayload,
     normalizedButtonLabel,
     nativePathForArchiveInspection,
@@ -551,6 +552,27 @@ def scheduleInstallDialogHandlers(
         if existing_mod_action:
             handleModExistsDialog(existing_mod_action)
             acceptModNameDialog(existing_mod_target_name)
+
+        if remaining > 0:
+            QTimer.singleShot(
+                INSTALL_DIALOG_HANDLER_INTERVAL_MS,
+                lambda: run_tick(remaining - 1),
+            )
+
+    QTimer.singleShot(
+        INSTALL_DIALOG_HANDLER_INITIAL_DELAY_MS,
+        lambda: run_tick(remaining_ticks),
+    )
+
+
+def scheduleKnownPostInstallErrorDismissal(should_run=None, remaining_ticks=1200):
+    """Keep known MO2 post-install error modals from blocking later phases."""
+
+    def run_tick(remaining):
+        if should_run is not None and not should_run():
+            return
+
+        dismissKnownPostInstallErrorDialog(remaining=1)
 
         if remaining > 0:
             QTimer.singleShot(
@@ -1170,8 +1192,10 @@ class stepInstallMods(QDialog):
         if not archive_path.exists():
             return {"error": f"Archive not found: {archive_path}"}
 
+        organizer = (self.install_context or {}).get("organizer")
         module_config, module_path, error = self.readArchiveFomodModuleConfig(
-            archive_path
+            archive_path,
+            organizer=organizer,
         )
         if module_config is None:
             return {"archive": str(archive_path), "error": error}
@@ -1181,13 +1205,15 @@ class stepInstallMods(QDialog):
         guide["module_config"] = module_path
         return guide
 
-    def readArchiveFomodModuleConfig(self, archive_path):
+    def readArchiveFomodModuleConfig(self, archive_path, organizer=None):
         suffix = archive_path.suffix.lower()
         if suffix == ".zip":
             return self.readZipFomodModuleConfig(archive_path)
+        if organizer is not None:
+            return self.nativeArchiveWorkerFomod(organizer, archive_path)
         return self.readSevenZipFomodModuleConfig(archive_path)
 
-    def archiveHasFomodInstaller(self, archive_path):
+    def archiveHasFomodInstaller(self, archive_path, organizer=None):
         cached = self.cachedArchiveFomodGuide(archive_path)
         if cached is not None:
             archive_key = str(archive_path)
@@ -1206,7 +1232,8 @@ class stepInstallMods(QDialog):
             return False
 
         module_config, module_path, error = self.readArchiveFomodModuleConfig(
-            archive_path
+            archive_path,
+            organizer=organizer,
         )
         archive_key = str(archive_path)
         self.archive_fomod_errors.pop(archive_key, None)
@@ -1229,7 +1256,7 @@ class stepInstallMods(QDialog):
         )
         return False
 
-    def archiveFomodGuide(self, archive_path):
+    def archiveFomodGuide(self, archive_path, organizer=None):
         cached = self.cachedArchiveFomodGuide(archive_path)
         if cached is not None and cached.get("has_fomod"):
             guide = dict(cached)
@@ -1242,7 +1269,8 @@ class stepInstallMods(QDialog):
             return guide
 
         module_config, module_path, error = self.readArchiveFomodModuleConfig(
-            archive_path
+            archive_path,
+            organizer=organizer,
         )
         if module_config is None:
             return {
@@ -1361,6 +1389,8 @@ class stepInstallMods(QDialog):
         reason = entry.get("reason")
         if not reason:
             return None
+        if isTransientManualFomodPlanFailure(reason):
+            return None
         return str(reason)
 
     def rememberManualFomodPlanFailure(
@@ -1372,6 +1402,8 @@ class stepInstallMods(QDialog):
     ):
         identity = self.archiveIdentityForManualFomodCache(archive_path)
         if identity is None or not reason:
+            return
+        if isTransientManualFomodPlanFailure(reason):
             return
         cache = self.loadManualFomodPlanCache(organizer)
         cache[self.manualFomodPlanCacheKey(install_key)] = {
@@ -1450,7 +1482,8 @@ class stepInstallMods(QDialog):
                 "fomod_selection": True,
             }
         module_config, module_path, error = self.readArchiveFomodModuleConfig(
-            archive_path
+            archive_path,
+            organizer=organizer,
         )
         if error:
             return {
@@ -1597,13 +1630,20 @@ class stepInstallMods(QDialog):
                     "error": f"Could not inspect zip archive: {e}",
                 }
 
+        if organizer is not None:
+            qDebug(
+                "[NXMColDL Install] Listing non-ZIP archive through native worker: "
+                f"archive={archive_path}"
+            )
+            return self.nativeArchiveWorkerList(
+                organizer,
+                archive_path,
+                "Native archive worker is required to inspect non-ZIP archives from MO2.",
+            )
+
         executable = self.sevenZipExecutable()
         if not executable:
             direct_error = "No 7z/7zz executable available to inspect this archive."
-            if organizer:
-                return self.nativeArchiveWorkerList(
-                    organizer, archive_path, direct_error
-                )
             return {"ok": False, "members": [], "error": direct_error}
 
         local_archive_path = nativePathForArchiveInspection(archive_path)
@@ -1612,12 +1652,6 @@ class stepInstallMods(QDialog):
             "list",
         )
         if not listing["ok"]:
-            if organizer:
-                return self.nativeArchiveWorkerList(
-                    organizer,
-                    archive_path,
-                    listing["error"],
-                )
             return {"ok": False, "members": [], "error": listing["error"]}
         members = sevenZipArchiveMemberPaths(listing["stdout"])
         return {"ok": True, "members": members, "error": None}
@@ -1662,6 +1696,33 @@ class stepInstallMods(QDialog):
     def nativeArchiveWorkerDirectory(self, organizer):
         return Path(organizer.basePath()) / "collections" / "native-archive-requests"
 
+    def nativeArchiveWorkerHeartbeatPath(self, organizer):
+        return self.nativeArchiveWorkerDirectory(organizer) / (
+            "native-archive-worker.heartbeat.json"
+        )
+
+    def nativeArchiveWorkerAvailable(
+        self, organizer, max_age_seconds=30.0, attempts=5, retry_delay_seconds=0.05
+    ):
+        heartbeat = self.nativeArchiveWorkerHeartbeatPath(organizer)
+        last_error = None
+        for attempt in range(max(1, int(attempts))):
+            try:
+                payload = json.loads(heartbeat.read_text(encoding="utf-8"))
+                heartbeat_time = float(payload.get("time"))
+                if time.time() - heartbeat_time <= max_age_seconds:
+                    return True
+            except (OSError, TypeError, ValueError, json.JSONDecodeError) as e:
+                last_error = e
+            if attempt + 1 < attempts:
+                time.sleep(retry_delay_seconds)
+        if last_error is not None:
+            self.log(
+                f"Native archive worker heartbeat unavailable: {last_error}",
+                "debug",
+            )
+        return False
+
     def nativeArchiveWorkerList(self, organizer, archive_path, direct_error):
         result = self.runNativeArchiveWorkerRequest(
             organizer,
@@ -1701,9 +1762,42 @@ class stepInstallMods(QDialog):
             return {"ok": False, "error": result.get("error") or direct_error}
         return {"ok": True, "error": None}
 
+    def nativeArchiveWorkerFomod(self, organizer, archive_path):
+        result = self.runNativeArchiveWorkerRequest(
+            organizer,
+            {
+                "action": "fomod",
+                "archive": nativePathForArchiveInspection(archive_path),
+            },
+            timeout_seconds=10,
+        )
+        if not result.get("ok"):
+            qDebug(
+                "[NXMColDL Install] Native archive worker FOMOD inspection failed: "
+                f"archive={archive_path}, error={result.get('error')}"
+            )
+            return None, None, result.get("error") or (
+                "Native archive worker could not inspect FOMOD XML."
+            )
+        if not result.get("has_fomod"):
+            return None, None, "No fomod/ModuleConfig.xml found in archive."
+        module_xml = result.get("module_xml")
+        if not module_xml:
+            return None, None, "Native archive worker did not return FOMOD XML content."
+        return module_xml, result.get("module_config"), None
+
     def runNativeArchiveWorkerRequest(self, organizer, payload, timeout_seconds=60):
         request_dir = self.nativeArchiveWorkerDirectory(organizer)
         request_dir.mkdir(parents=True, exist_ok=True)
+        if not self.nativeArchiveWorkerAvailable(organizer):
+            return {
+                "ok": False,
+                "worker_unavailable": True,
+                "error": (
+                    "Native archive worker is not running; start "
+                    "scripts/native_archive_worker.py for headless archive installs."
+                ),
+            }
         request_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex}"
         request_path = request_dir / f"{request_id}.request.json"
         result_path = request_dir / f"{request_id}.result.json"
@@ -1732,6 +1826,11 @@ class stepInstallMods(QDialog):
                 return result
             time.sleep(0.05)
 
+        for stale_path in (request_path, result_path, tmp_path):
+            try:
+                stale_path.unlink()
+            except OSError:
+                pass
         return {
             "ok": False,
             "error": (
@@ -2136,7 +2235,8 @@ class stepInstallMods(QDialog):
                 archive_key = str(install_source_path)
                 if archive_key not in fomod_archive_cache:
                     fomod_archive_cache[archive_key] = self.archiveHasFomodInstaller(
-                        install_source_path
+                        install_source_path,
+                        organizer=organizer,
                     )
                 fomod_state = fomod_archive_cache[archive_key]
                 if fomod_state is True and install_source_path != download_path:
@@ -3710,6 +3810,13 @@ class stepInstallMods(QDialog):
 
         log_path, log_offset = self.captureInterfaceLogPosition(organizer)
         warning_start = len(self.install_warnings)
+        self.dialog_handler_generation += 1
+        dialog_handler_generation = self.dialog_handler_generation
+        scheduleKnownPostInstallErrorDismissal(
+            lambda generation=dialog_handler_generation: (
+                generation == self.dialog_handler_generation
+            )
+        )
         try:
             modlist.setActive(internal_name, True)
             context["activated_mods"].append(internal_name)
@@ -4019,6 +4126,13 @@ class stepInstallMods(QDialog):
             log_path, log_offset = self.captureInterfaceLogPosition(organizer)
             warning_start = len(self.install_warnings)
             activation_failure_start = len(activation_failures)
+            self.dialog_handler_generation += 1
+            dialog_handler_generation = self.dialog_handler_generation
+            scheduleKnownPostInstallErrorDismissal(
+                lambda generation=dialog_handler_generation: (
+                    generation == self.dialog_handler_generation
+                )
+            )
             for internal_name in mods_to_activate:
                 try:
                     modlist.setActive(internal_name, True)
@@ -4037,6 +4151,13 @@ class stepInstallMods(QDialog):
             installed_mods, mods_to_activate
         )
         if activation_enabled and plugin_activation_targets:
+            self.dialog_handler_generation += 1
+            dialog_handler_generation = self.dialog_handler_generation
+            scheduleKnownPostInstallErrorDismissal(
+                lambda generation=dialog_handler_generation: (
+                    generation == self.dialog_handler_generation
+                )
+            )
             final_plugin_activation = self.activatePluginsForMods(
                 organizer, plugin_activation_targets
             )

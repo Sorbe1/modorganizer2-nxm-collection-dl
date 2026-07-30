@@ -49,8 +49,11 @@ DIRECT_INSTALL_MARKER_DIRS = {
     "mcm",
     "music",
     "netscriptframework",
+    "particlelights",
+    "kreate",
     "scripts",
     "seq",
+    "shaders",
     "skse",
     "sound",
     "strings",
@@ -875,6 +878,22 @@ def headlessArchivePreflightFallback(layout_plan):
     return "manual"
 
 
+def isTransientManualFomodPlanFailure(reason):
+    """Return True for retryable FOMOD planning infrastructure failures."""
+    reason_text = str(reason or "").casefold()
+    return (
+        "native archive worker is not running" in reason_text
+        or "native archive worker timed out" in reason_text
+        or "native archive worker result unreadable" in reason_text
+        or "could not list archive with subprocess 7z" in reason_text
+        or "invalid handle" in reason_text
+        or (
+            "fomod xml parse error" in reason_text
+            and "line 1, column 0" in reason_text
+        )
+    )
+
+
 def nativePathForArchiveInspection(path_text, wineprefix=None):
     """Convert Wine drive paths to native host paths for external 7z/7zz."""
     text = str(path_text)
@@ -1244,6 +1263,7 @@ def _fomodSelectionEvidenceLabel(text):
     normalized = Path(normalized.replace("\\", "/")).name
     normalized = re.sub(r"\.[Ee][Ss][PpMmLl]$", "", normalized)
     normalized = re.sub(r"^\s*\d+[\s._-]+", "", normalized)
+    normalized = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", normalized)
     normalized = normalized.casefold()
     normalized = re.sub(r"\b(patch|patches)\s+for\b", " ", normalized)
     normalized = re.sub(r"\b(patch|patches|locations|location)\b", " ", normalized)
@@ -1253,7 +1273,7 @@ def _fomodSelectionEvidenceLabel(text):
 
 
 def _fomodMeaningfulTokens(label):
-    stop_words = {"a", "an", "and", "for", "of", "the", "to", "with"}
+    stop_words = {"a", "an", "and", "for", "of", "se", "sse", "the", "to", "with"}
     return [
         token
         for token in _fomodSelectionEvidenceLabel(label).split()
@@ -1281,6 +1301,31 @@ def _fomodOptionMatchesEvidence(option_name, evidence_labels):
         if len(evidence_tokens) >= 2 and evidence_text in option_text:
             return True
     return False
+
+
+def _fomodOptionEvidenceScore(option_name, evidence_labels):
+    option_tokens = _fomodMeaningfulTokens(option_name)
+    if not option_tokens:
+        return 0
+    option_text = " ".join(option_tokens)
+    score = 0
+    for evidence_label in evidence_labels:
+        evidence_tokens = _fomodMeaningfulTokens(evidence_label)
+        if not evidence_tokens:
+            continue
+        evidence_text = " ".join(evidence_tokens)
+        if option_text == evidence_text:
+            score += 100 + len(option_tokens)
+            continue
+        if len(option_tokens) >= 2 and option_text in evidence_text:
+            score += 10 + len(option_tokens)
+            continue
+        if len(evidence_tokens) >= 2 and evidence_text in option_text:
+            score += 10 + len(evidence_tokens)
+            continue
+        common_tokens = set(option_tokens).intersection(evidence_tokens)
+        score += len(common_tokens)
+    return score
 
 
 def _fomodPluginFileMappings(plugin, module_base_prefix):
@@ -1346,15 +1391,19 @@ def headlessFomodDependencyInstallLayout(
         for name in (evidence_names or [])
         if _fomodSelectionEvidenceLabel(name)
     ]
-    selected_mappings = []
-    selected_options = []
+    selected_records = []
     ambiguous_groups = []
 
     for group in root.iter():
         if _xmlLocalName(group.tag) != "group":
             continue
         group_type = group.attrib.get("type", "")
-        if group_type not in {"SelectAny", "SelectExactlyOne", "SelectAtLeastOne"}:
+        if group_type not in {
+            "SelectAny",
+            "SelectExactlyOne",
+            "SelectAtLeastOne",
+            "SelectAtMostOne",
+        }:
             continue
 
         plugins = []
@@ -1382,18 +1431,34 @@ def headlessFomodDependencyInstallLayout(
             ):
                 continue
             if _fomodOptionMatchesEvidence(option_name, evidence_labels):
-                candidates.append((option_name, mappings))
+                candidates.append(
+                    (
+                        option_name,
+                        mappings,
+                        _fomodOptionEvidenceScore(option_name, evidence_labels),
+                    )
+                )
 
         if group_type == "SelectAny":
-            for option_name, mappings in candidates:
-                selected_options.append(option_name)
-                selected_mappings.extend(mappings)
+            for option_name, mappings, score in candidates:
+                selected_records.append((option_name, mappings, score))
             continue
 
-        if len(candidates) == 1 and len(plugins) == 1:
-            option_name, mappings = candidates[0]
-            selected_options.append(option_name)
-            selected_mappings.extend(mappings)
+        selected_candidate = None
+        if len(candidates) == 1:
+            selected_candidate = candidates[0]
+        elif candidates:
+            ranked_candidates = sorted(
+                candidates,
+                key=lambda candidate: candidate[2],
+                reverse=True,
+            )
+            if ranked_candidates[0][2] > ranked_candidates[1][2]:
+                selected_candidate = ranked_candidates[0]
+
+        if selected_candidate:
+            option_name, mappings, score = selected_candidate
+            selected_records.append((option_name, mappings, score))
         elif candidates:
             ambiguous_groups.append(group.attrib.get("name", ""))
 
@@ -1405,6 +1470,27 @@ def headlessFomodDependencyInstallLayout(
             "mappings": [],
             "fomod_selection": True,
         }
+    pruned_records = []
+    for option_name, mappings, score in selected_records:
+        option_tokens = set(_fomodMeaningfulTokens(option_name))
+        superseded = False
+        for other_name, _other_mappings, other_score in selected_records:
+            if other_name == option_name or other_score <= score:
+                continue
+            other_tokens = set(_fomodMeaningfulTokens(other_name))
+            if option_tokens and option_tokens < other_tokens:
+                superseded = True
+                break
+        if not superseded:
+            pruned_records.append((option_name, mappings, score))
+
+    selected_options = [option_name for option_name, _mappings, _score in pruned_records]
+    selected_mappings = [
+        mapping
+        for _option_name, mappings, _score in pruned_records
+        for mapping in mappings
+    ]
+
     if not selected_mappings:
         return {
             "installable": False,
@@ -3193,9 +3279,23 @@ def staleDownloadStartAction(attempts, max_retries):
     return "restart_required"
 
 
+def zeroByteDownloadStartIsStalled(first_seen_at, now, timeout_seconds):
+    """Return True when a zero-byte MO2 placeholder has exceeded its grace."""
+    try:
+        first_seen_at = float(first_seen_at)
+        now = float(now)
+    except (TypeError, ValueError):
+        return False
+    try:
+        timeout_seconds = max(0, float(timeout_seconds or 0))
+    except (TypeError, ValueError):
+        timeout_seconds = 0
+    return now - first_seen_at >= timeout_seconds
+
+
 def staleAlreadyStartedAction(has_metadata_entry):
     """Return the action for an expired MO2 Already Started prompt."""
-    return "wait" if has_metadata_entry else "restart_required"
+    return "wait"
 
 
 def coerceDownloadId(download_id):
