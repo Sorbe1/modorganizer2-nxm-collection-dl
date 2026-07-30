@@ -984,6 +984,40 @@ class stepInstallMods(QDialog):
             "note",
         )
 
+    def recordNoApplicableFomodEntry(
+        self,
+        context,
+        mod_name,
+        file_name,
+        mod_id,
+        file_id,
+        archive_path,
+        install_key,
+        reason=EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON,
+        installed_name=None,
+    ):
+        """Record a FOMOD that produced no files for this active profile."""
+        entry = {
+            "mod": mod_name,
+            "file": file_name,
+            "mod_id": int(mod_id),
+            "file_id": int(file_id),
+            "archive": str(archive_path),
+            "reason": reason,
+        }
+        if installed_name:
+            entry["installed_name"] = installed_name
+        context.setdefault("no_applicable_entries", []).append(entry)
+        if installed_name:
+            try:
+                context["modlist"].setActive(installed_name, False)
+            except Exception as e:
+                self.logInstallIssue(
+                    f"Could not disable no-op FOMOD container {installed_name}: {e}",
+                    expected=True,
+                )
+        self.markDownloadedOnlyMetadata(context, install_key)
+
     def isExpectedInstallException(self, error):
         message = str(error)
         return any(
@@ -3166,20 +3200,52 @@ class stepInstallMods(QDialog):
                     else:
                         mods_to_activate.append(internal_name)
             except Exception as e:
-                self.logInstallIssue(
-                    f"Headless archive install failed: {e}; retry with MO2 installer",
-                    expected=True,
-                )
-                failed_entries.append(
-                    {
-                        "mod": mod_name,
-                        "file": file_name,
-                        "mod_id": int(mod_id),
-                        "file_id": int(file_id),
-                        "archive": str(install_source_path),
-                        "reason": f"headless archive install failed: {e}",
-                    }
-                )
+                error_text = str(e)
+                empty_fomod_guide = None
+                if (
+                    fomod_state is True
+                    and (headless_archive_layout or {}).get("fomod_selection")
+                    and "invalid MO2 game data" in error_text
+                ):
+                    empty_fomod_guide = self.archiveFomodGuide(
+                        install_source_path,
+                        organizer=organizer,
+                    )
+                if isBenignEmptyFomodInstallerResult(
+                    fomod_state,
+                    empty_fomod_guide,
+                ):
+                    self.log(
+                        "  "
+                        f"{EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON}; "
+                        "leaving archive downloaded-only.",
+                        "note",
+                    )
+                    self.recordNoApplicableFomodEntry(
+                        context,
+                        mod_name,
+                        file_name,
+                        mod_id,
+                        file_id,
+                        install_source_path,
+                        install_key,
+                    )
+                else:
+                    self.logInstallIssue(
+                        f"Headless archive install failed: {e}; "
+                        "retry with MO2 installer",
+                        expected=True,
+                    )
+                    failed_entries.append(
+                        {
+                            "mod": mod_name,
+                            "file": file_name,
+                            "mod_id": int(mod_id),
+                            "file_id": int(file_id),
+                            "archive": str(install_source_path),
+                            "reason": f"headless archive install failed: {e}",
+                        }
+                    )
             self.log("")
             QTimer.singleShot(INSTALL_NEXT_DELAY_MS, self.installNextMod)
             return
@@ -3346,26 +3412,16 @@ class stepInstallMods(QDialog):
                             "disabled.",
                             "note",
                         )
-                        try:
-                            modlist.setActive(internal_name, False)
-                        except Exception as e:
-                            self.logInstallIssue(
-                                f"Could not disable no-op FOMOD container "
-                                f"{internal_name}: {e}",
-                                expected=True,
-                            )
-                        context.setdefault("no_applicable_entries", []).append(
-                            {
-                                "mod": mod_name,
-                                "file": file_name,
-                                "mod_id": int(mod_id),
-                                "file_id": int(file_id),
-                                "archive": str(install_source_path),
-                                "installed_name": internal_name,
-                                "reason": EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON,
-                            }
+                        self.recordNoApplicableFomodEntry(
+                            context,
+                            mod_name,
+                            file_name,
+                            mod_id,
+                            file_id,
+                            install_source_path,
+                            install_key,
+                            installed_name=internal_name,
                         )
-                        self.markDownloadedOnlyMetadata(context, install_key)
                         self.log("")
                         QTimer.singleShot(
                             INSTALL_NEXT_DELAY_MS, self.installNextMod
