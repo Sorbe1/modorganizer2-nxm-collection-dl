@@ -3295,7 +3295,7 @@ def zeroByteDownloadStartIsStalled(first_seen_at, now, timeout_seconds):
 
 def staleAlreadyStartedAction(has_metadata_entry):
     """Return the action for an expired MO2 Already Started prompt."""
-    return "wait"
+    return "wait" if has_metadata_entry else "restart_required"
 
 
 def coerceDownloadId(download_id):

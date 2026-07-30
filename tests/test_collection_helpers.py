@@ -1317,8 +1317,8 @@ class StaleAlreadyStartedActionTests(unittest.TestCase):
     def test_waits_when_mo2_has_metadata_backed_unfinished_entry(self):
         self.assertEqual(staleAlreadyStartedAction(True), "wait")
 
-    def test_waits_when_already_started_has_no_metadata_entry(self):
-        self.assertEqual(staleAlreadyStartedAction(False), "wait")
+    def test_escalates_when_already_started_has_no_metadata_entry(self):
+        self.assertEqual(staleAlreadyStartedAction(False), "restart_required")
 
 
 class CoerceDownloadIdTests(unittest.TestCase):
