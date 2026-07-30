@@ -1704,8 +1704,32 @@ class stepInstallMods(QDialog):
     def nativeArchiveWorkerScriptPath(self):
         return Path(__file__).resolve().parent / "scripts" / "native_archive_worker.py"
 
-    def nativeArchiveWorkerPythonExecutable(self):
-        return shutil.which("python3") or shutil.which("python") or "python3"
+    def nativeArchiveWorkerLaunchCommands(self, worker_path, request_dir):
+        """Return candidate commands for launching the host-side archive worker."""
+        worker_native = nativePathForArchiveInspection(worker_path)
+        request_native = nativePathForArchiveInspection(request_dir)
+        commands = []
+        for executable in (
+            os.environ.get("NXM_COLLECTION_NATIVE_PYTHON"),
+            shutil.which("python3"),
+            shutil.which("python"),
+            "/usr/bin/python3",
+            "/usr/bin/python",
+        ):
+            if executable:
+                commands.append([executable, worker_native, request_native])
+
+        # MO2 runs under Wine/Proton. When CreateProcess cannot execute a Unix
+        # interpreter directly, Wine's start.exe can bridge to a host process.
+        for start_exe in (
+            r"C:\windows\command\start.exe",
+            r"C:\windows\system32\start.exe",
+            "start",
+        ):
+            commands.append(
+                [start_exe, "/unix", "/usr/bin/python3", worker_native, request_native]
+            )
+        return commands
 
     def startNativeArchiveWorker(self, organizer):
         """Start the native archive worker used for non-ZIP headless installs."""
@@ -1722,29 +1746,41 @@ class stepInstallMods(QDialog):
         process = getattr(self, "_native_archive_worker_process", None)
         if process is not None and process.poll() is None:
             return True
-
-        try:
-            self._native_archive_worker_process = subprocess.Popen(
-                [
-                    self.nativeArchiveWorkerPythonExecutable(),
-                    str(worker_path),
-                    str(request_dir),
-                ],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                cwd=str(Path(__file__).resolve().parent),
-                start_new_session=True,
-            )
-        except (OSError, subprocess.SubprocessError) as e:
-            self.log(f"Native archive worker launch failed: {e}", "debug")
+        if getattr(self, "_native_archive_worker_launch_failed", False):
             return False
 
+        errors = []
+        for command in self.nativeArchiveWorkerLaunchCommands(worker_path, request_dir):
+            try:
+                kwargs = {
+                    "stdin": subprocess.DEVNULL,
+                    "stdout": subprocess.DEVNULL,
+                    "stderr": subprocess.DEVNULL,
+                }
+                if os.name != "nt":
+                    kwargs["start_new_session"] = True
+                self._native_archive_worker_process = subprocess.Popen(
+                    command,
+                    **kwargs,
+                )
+            except (OSError, subprocess.SubprocessError) as e:
+                errors.append(f"{command[0]}: {e}")
+                continue
+
+            self.log(
+                "Started native archive worker for headless archive installs: "
+                + " ".join(str(part) for part in command),
+                "debug",
+            )
+            return True
+
+        self._native_archive_worker_launch_failed = True
         self.log(
-            f"Started native archive worker for headless archive installs: {worker_path}",
+            "Native archive worker launch failed for all candidates: "
+            + "; ".join(errors),
             "debug",
         )
-        return True
+        return False
 
     def nativeArchiveWorkerAvailable(
         self, organizer, max_age_seconds=30.0, attempts=5, retry_delay_seconds=0.05
