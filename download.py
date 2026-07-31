@@ -43,6 +43,7 @@ from .collection_helpers import (
     downloadCompletionChoices,
     downloadCompletionPlan,
     downloadProgressIsStalled,
+    downloadTailLaggardPlan,
     downloadTailBoundaryReached,
     downloadProgressCanClose,
     downloadProgressFormat,
@@ -869,6 +870,7 @@ class stepDownloadProgress(QDialog):
         self.last_download_progress_count = 0
         self.tail_boundary_started_at = None
         self.tail_boundary_completion_ratio = 0.75
+        self.tail_boundary_retry_budget = max(1, min(3, self.max_retries + 1))
         self.tail_boundary_grace_seconds = adaptiveDownloadTailGraceSeconds(
             self.total_mods,
             self.max_unresolved_queue_submissions,
@@ -1492,10 +1494,38 @@ class stepDownloadProgress(QDialog):
             self.tail_boundary_started_at = None
             return False
 
-        marked = self.mark_keys_restart_required(
+        plan = downloadTailLaggardPlan(
             tail_keys,
+            self.retry_attempts,
+            self.tail_boundary_retry_budget,
+        )
+        retry_keys = plan["retry"]
+        restart_required_keys = plan["restart_required"]
+        for key in sorted(retry_keys):
+            attempts = self.retry_attempts.get(key, 0)
+            self.retry_attempts[key] = attempts + 1
+            self.retry_count += 1
+            self.clear_pending_state_for_key(key)
+        marked = self.mark_keys_restart_required(
+            restart_required_keys,
             "Download tail exceeded retry/grace budget; rerun collection to resume laggards",
         )
+        if retry_keys:
+            qDebug(
+                "[NXMColDL Progress] Download tail boundary retrying laggards: "
+                f"{len(retry_keys)} key(s), "
+                f"budget={self.tail_boundary_retry_budget}"
+            )
+            self.detail_label.setText(
+                f"Retrying {len(retry_keys)} lagging download(s); "
+                "completed files remain eligible for install."
+            )
+            self.detail_label.setStyleSheet("color: orange;")
+            self.tail_boundary_started_at = None
+            self.enqueue_retry_keys(retry_keys, delay_ms=0)
+            self.update_progress()
+            return True
+
         qDebug(
             "[NXMColDL Progress] Download tail boundary applied: "
             f"{marked} key(s) moved to restart/manual review after "

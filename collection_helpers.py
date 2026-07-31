@@ -3722,6 +3722,31 @@ def downloadProgressIsStalled(last_progress_at, now, stall_seconds):
     return now - last_progress_at >= stall_seconds
 
 
+def downloadTailLaggardPlan(stalled_keys, retry_attempts, retry_budget):
+    """Partition stalled tail keys into retryable and exhausted work."""
+    try:
+        retry_budget = max(0, int(retry_budget or 0))
+    except (TypeError, ValueError):
+        retry_budget = 0
+
+    retry_keys = set()
+    restart_required_keys = set()
+    for key in set(stalled_keys or []):
+        try:
+            attempts = int((retry_attempts or {}).get(key, 0) or 0)
+        except (TypeError, ValueError, AttributeError):
+            attempts = 0
+        if attempts < retry_budget:
+            retry_keys.add(key)
+        else:
+            restart_required_keys.add(key)
+
+    return {
+        "retry": retry_keys,
+        "restart_required": restart_required_keys,
+    }
+
+
 def coerceDownloadId(download_id):
     """Return a usable MO2 download id, or None for failed queue-start values."""
     try:

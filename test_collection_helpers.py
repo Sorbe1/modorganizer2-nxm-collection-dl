@@ -116,6 +116,7 @@ from collection_helpers import (
     staleAlreadyStartedAction,
     adaptiveDownloadTailGraceSeconds,
     downloadProgressIsStalled,
+    downloadTailLaggardPlan,
     downloadTailBoundaryReached,
     staleOrphanUnfinishedDownloadEntries,
     staleDownloadStartAction,
@@ -1573,6 +1574,38 @@ class DownloadTailBoundaryTests(unittest.TestCase):
 
     def test_progress_stall_trips_after_quiet_window(self):
         self.assertTrue(downloadProgressIsStalled(100, 120, 20))
+
+
+class DownloadTailLaggardPlanTests(unittest.TestCase):
+    def test_retries_laggards_with_remaining_budget(self):
+        plan = downloadTailLaggardPlan(
+            {(1, 10), (2, 20)},
+            {(1, 10): 0, (2, 20): 1},
+            retry_budget=2,
+        )
+
+        self.assertEqual(plan["retry"], {(1, 10), (2, 20)})
+        self.assertEqual(plan["restart_required"], set())
+
+    def test_marks_exhausted_laggards_restart_required(self):
+        plan = downloadTailLaggardPlan(
+            {(1, 10), (2, 20)},
+            {(1, 10): 2, (2, 20): 4},
+            retry_budget=2,
+        )
+
+        self.assertEqual(plan["retry"], set())
+        self.assertEqual(plan["restart_required"], {(1, 10), (2, 20)})
+
+    def test_partitions_mixed_tail_by_attempt_budget(self):
+        plan = downloadTailLaggardPlan(
+            {(1, 10), (2, 20), (3, 30)},
+            {(1, 10): 0, (2, 20): 2, (3, 30): "bad"},
+            retry_budget=2,
+        )
+
+        self.assertEqual(plan["retry"], {(1, 10), (3, 30)})
+        self.assertEqual(plan["restart_required"], {(2, 20)})
 
 
 class CoerceDownloadIdTests(unittest.TestCase):
