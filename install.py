@@ -3095,6 +3095,7 @@ class stepInstallMods(QDialog):
                 "install_source_path"
             )
             install_source = plan_entry.get("install_source_path")
+            self.markDownloadedOnlyMetadata(context, install_key)
             failed_entries.append(
                 {
                     "mod": mod_name,
@@ -3292,6 +3293,7 @@ class stepInstallMods(QDialog):
                         "retry with MO2 installer",
                         expected=True,
                     )
+                    self.markDownloadedOnlyMetadata(context, install_key)
                     failed_entries.append(
                         {
                             "mod": mod_name,
@@ -3538,6 +3540,7 @@ class stepInstallMods(QDialog):
                         "duplicate MO2 mod container for archive-default FOMOD "
                         "install; needs manual rename/merge choice"
                     )
+                self.markDownloadedOnlyMetadata(context, install_key)
                 failed_entries.append(
                     {
                         "mod": mod_name,
@@ -3568,6 +3571,7 @@ class stepInstallMods(QDialog):
                 f"Installation issue: {e}",
                 expected=self.isExpectedInstallException(e),
             )
+            self.markDownloadedOnlyMetadata(context, install_key)
             failed_entries.append(
                 {
                     "mod": mod_name,
