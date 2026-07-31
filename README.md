@@ -113,10 +113,18 @@ the files to your MO2 plugins directory to test.
 Useful focused checks for this code path:
 
 ```bash
-uv run ruff check __meta__.py api.py collection_helpers.py download.py install.py var.py tests/test_collection_helpers.py tests/test_reset_collection_state.py scripts/native_archive_worker.py scripts/reset_collection_state.py
-uv run ruff format --check __meta__.py api.py collection_helpers.py download.py install.py var.py tests/test_collection_helpers.py tests/test_reset_collection_state.py scripts/native_archive_worker.py scripts/reset_collection_state.py
-python -m py_compile __meta__.py api.py collection_helpers.py download.py install.py var.py scripts/native_archive_worker.py scripts/reset_collection_state.py
-uv run python -m unittest tests.test_collection_helpers tests.test_reset_collection_state -v
+uv run ruff check __meta__.py api.py collection_helpers.py download.py install.py var.py tests/test_collection_helpers.py tests/test_reset_collection_state.py tests/test_snapshot_profile_state.py scripts/native_archive_worker.py scripts/reset_collection_state.py scripts/snapshot_profile_state.py
+uv run ruff format --check __meta__.py api.py collection_helpers.py download.py install.py var.py tests/test_collection_helpers.py tests/test_reset_collection_state.py tests/test_snapshot_profile_state.py scripts/native_archive_worker.py scripts/reset_collection_state.py scripts/snapshot_profile_state.py
+python -m py_compile __meta__.py api.py collection_helpers.py download.py install.py var.py scripts/native_archive_worker.py scripts/reset_collection_state.py scripts/snapshot_profile_state.py
+uv run python -m unittest tests.test_collection_helpers tests.test_reset_collection_state tests.test_snapshot_profile_state -v
+```
+
+The profile snapshot helper copies `modlist.txt`, `plugins.txt`, and
+`loadorder.txt` plus a compact manifest. Use it before and after in-game
+validated order changes.
+
+```bash
+python scripts/snapshot_profile_state.py --base /path/to/mo2-instance --label known-good-before-regroup
 ```
 
 The reset helper used for live proof runs deletes collection-owned mod
