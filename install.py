@@ -3494,6 +3494,7 @@ class stepInstallMods(QDialog):
                         "installer completed but produced an empty mod container; "
                         "review FOMOD/manual choices"
                     )
+                    self.markDownloadedOnlyMetadata(context, install_key)
                     failed_entries.append(
                         {
                             "mod": mod_name,
