@@ -69,6 +69,7 @@ from .collection_helpers import (
     installPlanExecutionAction,
     installerDefaultActionLabel,
     isBenignEmptyFomodInstallerResult,
+    isCollectionTransientModDirName,
     knownPostInstallErrorDialogMessage,
     warningsAfterCleanInstallDiscard,
     isRequiredFomodGroupTitle,
@@ -125,6 +126,29 @@ def resilientRmtree(path, attempts=5, delay_seconds=0.05):
             QApplication.processEvents()
             time.sleep(max(0.0, float(delay_seconds or 0)))
     return not path.exists()
+
+
+def removeStaleCollectionTransientDirs(mods_path):
+    """Remove interrupted collection extraction/install directories from MO2 mods."""
+    removed = []
+    failed = []
+    try:
+        entries = list(Path(mods_path).iterdir())
+    except OSError as e:
+        return {"removed": removed, "failed": [f"<scan failed: {e}>"]}
+
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+        if not isCollectionTransientModDirName(entry.name):
+            continue
+        try:
+            resilientRmtree(entry)
+            removed.append(entry.name)
+        except OSError as e:
+            failed.append(f"{entry.name}: {e}")
+    return {"removed": removed, "failed": failed}
+
 
 INSTALL_NEXT_DELAY_MS = AUTOMATED_INSTALL_CADENCE_DEFAULTS["next_mod_delay_ms"]
 INSTALL_DIALOG_HANDLER_INITIAL_DELAY_MS = AUTOMATED_INSTALL_CADENCE_DEFAULTS[
@@ -2250,6 +2274,29 @@ class stepInstallMods(QDialog):
 
             # Get initial mod count to determine starting priority
             # Collection mods will be placed at the end of the current mod list
+            transient_cleanup = removeStaleCollectionTransientDirs(
+                Path(organizer.modsPath())
+            )
+            if transient_cleanup["removed"]:
+                self.log(
+                    "Removed stale collection transient mod folder(s): "
+                    f"{len(transient_cleanup['removed'])}",
+                    "note",
+                )
+                try:
+                    organizer.refresh(True)
+                except Exception as e:
+                    self.logInstallIssue(
+                        f"Could not refresh MO2 after stale transient cleanup: {e}",
+                        expected=True,
+                    )
+            for cleanup_failure in transient_cleanup["failed"]:
+                self.logInstallIssue(
+                    f"Could not remove stale collection transient folder: "
+                    f"{cleanup_failure}",
+                    expected=True,
+                )
+
             initial_mod_count = len(modlist.allMods())
             base_priority = initial_mod_count
             self.log(f"Existing mods in list: {initial_mod_count}")
@@ -4509,6 +4556,26 @@ class stepInstallMods(QDialog):
             )
         else:
             postcondition_state = self.refreshInstalledCollectionState(context)
+        transient_cleanup = removeStaleCollectionTransientDirs(Path(organizer.modsPath()))
+        if transient_cleanup["removed"]:
+            self.log(
+                "Removed stale collection transient mod folder(s): "
+                f"{len(transient_cleanup['removed'])}",
+                "note",
+            )
+            try:
+                organizer.refresh(True)
+            except Exception as e:
+                self.logInstallIssue(
+                    f"Could not refresh MO2 after stale transient cleanup: {e}",
+                    expected=True,
+                )
+        for cleanup_failure in transient_cleanup["failed"]:
+            self.logInstallIssue(
+                f"Could not remove stale collection transient folder: "
+                f"{cleanup_failure}",
+                expected=True,
+            )
         invalid_payload_mods = set(postcondition_state.get("invalid_payload_mods", []))
         if invalid_payload_mods:
             mods_to_activate = [

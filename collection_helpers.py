@@ -28,6 +28,10 @@ EMPTY_INSTALLER_OUTPUT_REASON = (
 EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON = (
     "FOMOD completed with no applicable files for the active profile"
 )
+COLLECTION_TRANSIENT_MOD_DIR_PREFIXES = (
+    ".nxm-collection-installing-",
+    ".nxm-collection-extracting-",
+)
 
 INSTALLER_SETTING_DEFAULTS = {
     "auto_accept_quick_install": True,
@@ -2262,6 +2266,11 @@ def safeDisplayText(text):
         safe_chars.append(char)
 
     return " ".join("".join(safe_chars).split()) or "Unknown Collection"
+
+
+def isCollectionTransientModDirName(name):
+    """Return True for plugin-owned temporary MO2 mod directories."""
+    return str(name or "").startswith(COLLECTION_TRANSIENT_MOD_DIR_PREFIXES)
 
 
 def coerceBoolSetting(value, default=False):

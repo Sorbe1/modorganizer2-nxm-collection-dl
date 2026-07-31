@@ -63,6 +63,7 @@ from collection_helpers import (
     knownPostInstallErrorDialogMessage,
     warningsAfterCleanInstallDiscard,
     isBenignEmptyFomodInstallerResult,
+    isCollectionTransientModDirName,
     isRequiredFomodGroupTitle,
     isQuotaLimitText,
     isSafeSingletonFomodOption,
@@ -2522,6 +2523,20 @@ class InstallSummaryAutoCloseTests(unittest.TestCase):
 
     def test_keeps_cancelled_install_summary_visible(self):
         self.assertFalse(shouldAutoCloseInstallSummary(True, True, 0))
+
+
+class CollectionTransientModDirNameTests(unittest.TestCase):
+    def test_detects_plugin_owned_installing_and_extracting_dirs(self):
+        self.assertTrue(
+            isCollectionTransientModDirName(".nxm-collection-installing-Example")
+        )
+        self.assertTrue(
+            isCollectionTransientModDirName(".nxm-collection-extracting-Example")
+        )
+
+    def test_does_not_match_normal_hidden_or_visible_mod_dirs(self):
+        self.assertFalse(isCollectionTransientModDirName(".nxm-collection-cache"))
+        self.assertFalse(isCollectionTransientModDirName("Example Collection Mod"))
 
 
 class InstallPlanExecutionActionTests(unittest.TestCase):
