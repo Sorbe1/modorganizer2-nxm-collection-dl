@@ -2041,6 +2041,118 @@ def pluginActivationReviewEntries(missing_plugins, source="plugin activation"):
     return entries
 
 
+def pluginMasterDependencyAudit(
+    target_plugins, available_plugins, active_plugins, masters_by_plugin
+):
+    """Return active target plugins whose masters are missing or inactive."""
+    available_by_key = {}
+    for plugin_name in available_plugins or []:
+        plugin_name = str(plugin_name or "").strip()
+        if not plugin_name:
+            continue
+        available_by_key.setdefault(plugin_name.casefold(), plugin_name)
+
+    active_by_key = {}
+    for plugin_name in active_plugins or []:
+        plugin_name = str(plugin_name or "").strip()
+        if not plugin_name:
+            continue
+        active_by_key.setdefault(plugin_name.casefold(), plugin_name)
+
+    target_by_key = {}
+    for plugin_name in target_plugins or []:
+        plugin_name = str(plugin_name or "").strip()
+        if not plugin_name:
+            continue
+        target_by_key.setdefault(plugin_name.casefold(), plugin_name)
+
+    problems = []
+    for plugin_key, plugin_name in target_by_key.items():
+        if plugin_key not in active_by_key:
+            continue
+
+        missing = []
+        inactive = []
+        seen_masters = set()
+        for master_name in (masters_by_plugin or {}).get(plugin_name, []):
+            master_name = str(master_name or "").strip()
+            if not master_name:
+                continue
+            master_key = master_name.casefold()
+            if master_key in seen_masters:
+                continue
+            seen_masters.add(master_key)
+            if master_key not in available_by_key:
+                missing.append(master_name)
+            elif master_key not in active_by_key:
+                inactive.append(available_by_key[master_key])
+
+        if missing or inactive:
+            problems.append(
+                {
+                    "plugin": plugin_name,
+                    "missing_masters": missing,
+                    "inactive_masters": inactive,
+                }
+            )
+    return problems
+
+
+def pluginMasterDependencyReviewEntries(
+    dependency_problems, source="plugin dependency audit"
+):
+    """Return review entries for plugins with missing or inactive masters."""
+    entries = []
+    seen = set()
+    source = str(source or "plugin dependency audit")
+    for problem in dependency_problems or []:
+        if not isinstance(problem, dict):
+            continue
+        plugin_name = str(problem.get("plugin") or "").strip()
+        if not plugin_name:
+            continue
+        missing = [
+            str(name).strip()
+            for name in problem.get("missing_masters") or []
+            if str(name).strip()
+        ]
+        inactive = [
+            str(name).strip()
+            for name in problem.get("inactive_masters") or []
+            if str(name).strip()
+        ]
+        if not missing and not inactive:
+            continue
+        key = (
+            plugin_name.casefold(),
+            tuple(name.casefold() for name in missing),
+            tuple(name.casefold() for name in inactive),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+
+        details = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if inactive:
+            details.append("inactive " + ", ".join(inactive))
+        entries.append(
+            {
+                "mod": source,
+                "file": plugin_name,
+                "mod_id": "unknown",
+                "file_id": "unknown",
+                "archive": "",
+                "reason": (
+                    "plugin has unresolved master dependencies: "
+                    + "; ".join(details)
+                ),
+            }
+        )
+    return entries
+
+
 def pluginRepairFailureReviewEntries(failed_count, source="plugin activation"):
     """Return review entries for plugin profile repairs that failed on disk."""
     try:

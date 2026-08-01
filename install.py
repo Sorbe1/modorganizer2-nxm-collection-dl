@@ -83,6 +83,8 @@ from .collection_helpers import (
     nativeArchiveWorkerHeartbeatStatus,
     nativePathForArchiveInspection,
     pluginActivationReviewEntries,
+    pluginMasterDependencyAudit,
+    pluginMasterDependencyReviewEntries,
     pluginRepairFailureReviewEntries,
     preferredCanonicalDownloadArchive,
     mo2CategoryNameMap,
@@ -5300,6 +5302,9 @@ class stepInstallMods(QDialog):
                         continue
                     seen_review_entries.add(key)
                     failed_entries.append(entry)
+        blocked += self.auditPluginMasterDependencies(
+            organizer, plugin_names_from_dirs, failed_entries=failed_entries
+        )
         self.log(
             f"  Plugin activation: {activated} activated, "
             f"{already_active} already active, {blocked} blocked"
@@ -5309,6 +5314,112 @@ class stepInstallMods(QDialog):
             "already_active": already_active,
             "blocked": blocked,
         }
+
+    def auditPluginMasterDependencies(
+        self, organizer, plugin_names, failed_entries=None
+    ):
+        target_plugins = [str(name or "").strip() for name in plugin_names or []]
+        target_plugins = [name for name in target_plugins if name]
+        if not target_plugins:
+            return 0
+
+        try:
+            plugin_list = organizer.pluginList()
+        except Exception as e:
+            self.logInstallIssue(
+                f"Could not inspect MO2 plugin master dependencies: {e}",
+                expected=True,
+            )
+            return 0
+
+        try:
+            available_plugins = list(plugin_list.pluginNames())
+        except Exception as e:
+            self.logInstallIssue(
+                f"Could not read MO2 plugin list for dependency audit: {e}",
+                expected=True,
+            )
+            return 0
+
+        active_plugins = []
+        for plugin_name in available_plugins:
+            try:
+                if plugin_list.state(plugin_name) == mobase.PluginState.ACTIVE:
+                    active_plugins.append(plugin_name)
+            except Exception as e:
+                self.logInstallIssue(
+                    "Could not read plugin state during dependency audit: "
+                    f"{safeDisplayText(plugin_name)} ({e})",
+                    expected=True,
+                )
+
+        available_by_key = {
+            str(plugin_name or "").casefold(): str(plugin_name or "")
+            for plugin_name in available_plugins
+            if str(plugin_name or "").strip()
+        }
+        masters_by_plugin = {}
+        for plugin_name in target_plugins:
+            canonical_name = available_by_key.get(plugin_name.casefold(), plugin_name)
+            try:
+                masters_by_plugin[plugin_name] = list(
+                    plugin_list.masters(canonical_name)
+                )
+            except Exception as e:
+                self.logInstallIssue(
+                    "Could not read plugin masters during dependency audit: "
+                    f"{safeDisplayText(plugin_name)} ({e})",
+                    expected=True,
+                )
+
+        problems = pluginMasterDependencyAudit(
+            target_plugins, available_plugins, active_plugins, masters_by_plugin
+        )
+        if not problems:
+            return 0
+
+        for problem in problems[:10]:
+            details = []
+            missing = problem.get("missing_masters") or []
+            inactive = problem.get("inactive_masters") or []
+            if missing:
+                details.append(
+                    "missing "
+                    + ", ".join(safeDisplayText(name) for name in missing[:5])
+                )
+            if inactive:
+                details.append(
+                    "inactive "
+                    + ", ".join(safeDisplayText(name) for name in inactive[:5])
+                )
+            self.logInstallIssue(
+                "Plugin master dependency issue: "
+                f"{safeDisplayText(problem.get('plugin'))} "
+                + "; ".join(details),
+                expected=True,
+            )
+
+        if failed_entries is not None:
+            seen_review_entries = {
+                (
+                    str(entry.get("mod") or ""),
+                    str(entry.get("file") or ""),
+                    str(entry.get("reason") or ""),
+                )
+                for entry in failed_entries
+                if isinstance(entry, dict)
+            }
+            for entry in pluginMasterDependencyReviewEntries(problems):
+                key = (
+                    str(entry.get("mod") or ""),
+                    str(entry.get("file") or ""),
+                    str(entry.get("reason") or ""),
+                )
+                if key in seen_review_entries:
+                    continue
+                seen_review_entries.add(key)
+                failed_entries.append(entry)
+        return len(problems)
 
     def buildDownloadMap(self, downloads_path: Path):
         download_map = {}

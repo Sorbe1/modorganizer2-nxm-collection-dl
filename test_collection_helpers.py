@@ -90,6 +90,8 @@ from collection_helpers import (
     orphanUnfinishedDownloadEntries,
     parseCollectionAddress,
     pluginActivationReviewEntries,
+    pluginMasterDependencyAudit,
+    pluginMasterDependencyReviewEntries,
     pluginRepairFailureReviewEntries,
     popDownloadKey,
     preferredCanonicalDownloadArchive,
@@ -2967,6 +2969,61 @@ class PluginActivationReviewEntriesTests(unittest.TestCase):
         self.assertEqual(entries[0]["mod"], "post-install activation")
         self.assertEqual(entries[0]["file"], "plugins.txt")
         self.assertIn("2 failure(s)", entries[0]["reason"])
+
+    def test_master_dependency_audit_reports_missing_and_inactive_masters(self):
+        problems = pluginMasterDependencyAudit(
+            ["Patch.esp", "Other.esp"],
+            ["Patch.esp", "Other.esp", "Inactive.esm", "Skyrim.esm"],
+            ["Patch.esp", "Other.esp", "Skyrim.esm"],
+            {
+                "Patch.esp": ["Skyrim.esm", "Missing.esm", "Inactive.esm"],
+                "Other.esp": ["Skyrim.esm"],
+            },
+        )
+
+        self.assertEqual(
+            problems,
+            [
+                {
+                    "plugin": "Patch.esp",
+                    "missing_masters": ["Missing.esm"],
+                    "inactive_masters": ["Inactive.esm"],
+                }
+            ],
+        )
+
+    def test_master_dependency_audit_ignores_inactive_target_plugins(self):
+        problems = pluginMasterDependencyAudit(
+            ["Patch.esp"],
+            ["Patch.esp"],
+            [],
+            {"Patch.esp": ["Missing.esm"]},
+        )
+
+        self.assertEqual(problems, [])
+
+    def test_master_dependency_review_entries_deduplicate_plugins(self):
+        entries = pluginMasterDependencyReviewEntries(
+            [
+                {
+                    "plugin": "Patch.esp",
+                    "missing_masters": ["Missing.esm"],
+                    "inactive_masters": ["Inactive.esm"],
+                },
+                {
+                    "plugin": "patch.esp",
+                    "missing_masters": ["missing.esm"],
+                    "inactive_masters": ["inactive.esm"],
+                },
+            ],
+            source="post-install dependency audit",
+        )
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["mod"], "post-install dependency audit")
+        self.assertEqual(entries[0]["file"], "Patch.esp")
+        self.assertIn("missing Missing.esm", entries[0]["reason"])
+        self.assertIn("inactive Inactive.esm", entries[0]["reason"])
 
 
 class InstallNoResultReasonTests(unittest.TestCase):
