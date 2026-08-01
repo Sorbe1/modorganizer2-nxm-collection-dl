@@ -2232,9 +2232,20 @@ class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
             "invalid origin name: Example",
         )
 
+    def test_captures_secondary_process_error_dialog_text(self):
+        self.assertEqual(
+            knownPostInstallErrorDialogMessage(
+                [
+                    "failed to receive data from secondary process: Unknown error",
+                    "",
+                ]
+            ),
+            "failed to receive data from secondary process: Unknown error",
+        )
+
     def test_ignores_unrelated_error_dialog_text(self):
         self.assertIsNone(
-            knownPostInstallErrorDialogMessage(["failed to receive data"])
+            knownPostInstallErrorDialogMessage(["unrelated transient warning"])
         )
 
     def test_suppressed_plugin_errors_become_review_entries(self):
@@ -2253,6 +2264,24 @@ class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["mod"], "post-install activation")
         self.assertIn("Plugin not found: Missing.esp", entries[0]["reason"])
+
+    def test_suppressed_secondary_process_errors_become_review_entries(self):
+        entries = suppressedPostInstallErrorReviewEntries(
+            [
+                {
+                    "mod": "post-install",
+                    "file": "",
+                    "message": (
+                        "failed to receive data from secondary process: Unknown error"
+                    ),
+                    "category": "secondary_process_error",
+                    "source": "suppressed_dialog",
+                }
+            ]
+        )
+
+        self.assertEqual(len(entries), 1)
+        self.assertIn("secondary process", entries[0]["reason"])
 
     def test_suppressed_non_actionable_errors_do_not_block_summary(self):
         self.assertEqual(

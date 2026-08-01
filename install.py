@@ -109,6 +109,7 @@ qDebug = var.debug
 MO2_WARNING_PATTERNS = (
     "Plugin not found:",
     "invalid origin name:",
+    "failed to receive data from secondary process",
     "[fomodinstallerdialog.cpp:",
 )
 
@@ -1209,6 +1210,8 @@ class stepInstallMods(QDialog):
             return "plugin_state_missing"
         if "invalid origin name:" in text:
             return "invalid_origin_name"
+        if "failed to receive data from secondary process" in text:
+            return "secondary_process_error"
         if "[fomodinstallerdialog.cpp:" in text:
             if "Missing requirement:" in text:
                 return "fomod_missing_requirement"

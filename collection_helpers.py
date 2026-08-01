@@ -1967,7 +1967,11 @@ def knownPostInstallErrorDialogMessage(labels):
     if not parts:
         return None
     message = "\n".join(parts)
-    if "invalid origin name:" in message or "Plugin not found:" in message:
+    if (
+        "invalid origin name:" in message
+        or "Plugin not found:" in message
+        or "failed to receive data from secondary process" in message
+    ):
         return message
     return None
 
@@ -1976,7 +1980,11 @@ def suppressedPostInstallErrorReviewEntries(warnings):
     """Return review entries for actionable MO2 errors dismissed by automation."""
     entries = []
     seen = set()
-    blocking_categories = {"plugin_state_missing", "invalid_origin_name"}
+    blocking_categories = {
+        "plugin_state_missing",
+        "invalid_origin_name",
+        "secondary_process_error",
+    }
     for warning in warnings or []:
         if warning.get("source") != "suppressed_dialog":
             continue
