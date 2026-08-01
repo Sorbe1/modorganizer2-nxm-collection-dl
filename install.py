@@ -78,6 +78,7 @@ from .collection_helpers import (
     isTransientManualFomodPlanFailure,
     moveHeadlessArchivePayload,
     normalizedButtonLabel,
+    nativeArchiveWorkerHeartbeatStatus,
     nativePathForArchiveInspection,
     preferredCanonicalDownloadArchive,
     mo2CategoryNameMap,
@@ -1986,9 +1987,25 @@ class stepInstallMods(QDialog):
         for attempt in range(max(1, int(attempts))):
             try:
                 payload = json.loads(heartbeat.read_text(encoding="utf-8"))
-                heartbeat_time = float(payload.get("time"))
-                if time.time() - heartbeat_time <= max_age_seconds:
+                tracked_pid = None
+                tracked_exit_code = None
+                process = getattr(self, "_native_archive_worker_process", None)
+                if process is not None:
+                    tracked_pid = getattr(process, "pid", None)
+                    try:
+                        tracked_exit_code = process.poll()
+                    except Exception:
+                        tracked_exit_code = None
+                status = nativeArchiveWorkerHeartbeatStatus(
+                    payload,
+                    time.time(),
+                    max_age_seconds=max_age_seconds,
+                    tracked_pid=tracked_pid,
+                    tracked_exit_code=tracked_exit_code,
+                )
+                if status["ok"]:
                     return True
+                last_error = status["reason"]
             except (OSError, TypeError, ValueError, json.JSONDecodeError) as e:
                 last_error = e
             if attempt + 1 < attempts:

@@ -1994,6 +1994,43 @@ def suppressedPostInstallErrorReviewEntries(warnings):
     return entries
 
 
+def nativeArchiveWorkerHeartbeatStatus(
+    payload,
+    now,
+    max_age_seconds=30.0,
+    tracked_pid=None,
+    tracked_exit_code=None,
+):
+    """Return whether a native archive worker heartbeat is current and usable."""
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        return {"ok": False, "reason": "missing or unsuccessful heartbeat"}
+    try:
+        heartbeat_time = float(payload.get("time"))
+    except (TypeError, ValueError):
+        return {"ok": False, "reason": "heartbeat has invalid time"}
+    if float(now) - heartbeat_time > float(max_age_seconds):
+        return {"ok": False, "reason": "heartbeat is stale"}
+
+    heartbeat_pid = payload.get("pid")
+    try:
+        heartbeat_pid = int(heartbeat_pid)
+    except (TypeError, ValueError):
+        heartbeat_pid = None
+    try:
+        tracked_pid = int(tracked_pid)
+    except (TypeError, ValueError):
+        tracked_pid = None
+
+    if (
+        heartbeat_pid is not None
+        and tracked_pid is not None
+        and heartbeat_pid == tracked_pid
+        and tracked_exit_code is not None
+    ):
+        return {"ok": False, "reason": "tracked worker process exited"}
+    return {"ok": True, "reason": ""}
+
+
 def warningsAfterCleanInstallDiscard(warnings, warning_start):
     """Drop ordinary transient warnings while preserving dismissed error dialogs."""
     kept = list(warnings[:warning_start])

@@ -80,6 +80,7 @@ from collection_helpers import (
     moveModlistEntriesToUiBottom,
     moveHeadlessFomodSelectionPayload,
     nativeGameRootPathCandidate,
+    nativeArchiveWorkerHeartbeatStatus,
     nativePathForArchiveInspection,
     nexusQuotaRemainingFromText,
     nexusQuotaStateFromHeaders,
@@ -2439,6 +2440,60 @@ class NativeArchiveWorkerTests(unittest.TestCase):
             payload = json.loads(heartbeat.read_text(encoding="utf-8"))
             self.assertTrue(payload["ok"])
             self.assertIn("time", payload)
+
+
+class NativeArchiveWorkerHeartbeatStatusTests(unittest.TestCase):
+    def test_accepts_current_worker_heartbeat(self):
+        status = nativeArchiveWorkerHeartbeatStatus(
+            {"ok": True, "pid": 123, "time": 100.0},
+            now=101.0,
+            max_age_seconds=30.0,
+        )
+
+        self.assertTrue(status["ok"])
+
+    def test_rejects_stale_worker_heartbeat(self):
+        status = nativeArchiveWorkerHeartbeatStatus(
+            {"ok": True, "pid": 123, "time": 60.0},
+            now=101.0,
+            max_age_seconds=30.0,
+        )
+
+        self.assertFalse(status["ok"])
+        self.assertIn("stale", status["reason"])
+
+    def test_rejects_invalid_worker_heartbeat_time(self):
+        status = nativeArchiveWorkerHeartbeatStatus(
+            {"ok": True, "pid": 123, "time": "not-time"},
+            now=101.0,
+            max_age_seconds=30.0,
+        )
+
+        self.assertFalse(status["ok"])
+        self.assertIn("invalid time", status["reason"])
+
+    def test_rejects_tracked_worker_heartbeat_after_process_exit(self):
+        status = nativeArchiveWorkerHeartbeatStatus(
+            {"ok": True, "pid": 123, "time": 100.0},
+            now=101.0,
+            max_age_seconds=30.0,
+            tracked_pid=123,
+            tracked_exit_code=1,
+        )
+
+        self.assertFalse(status["ok"])
+        self.assertIn("exited", status["reason"])
+
+    def test_accepts_external_worker_heartbeat_with_different_pid(self):
+        status = nativeArchiveWorkerHeartbeatStatus(
+            {"ok": True, "pid": 456, "time": 100.0},
+            now=101.0,
+            max_age_seconds=30.0,
+            tracked_pid=123,
+            tracked_exit_code=1,
+        )
+
+        self.assertTrue(status["ok"])
 
 
 class NativePathForArchiveInspectionTests(unittest.TestCase):
