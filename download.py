@@ -3822,7 +3822,9 @@ class stepCollectionLinkFlow(QDialog):
             downloads_path,
             expected_file_names=expected_file_names,
         )
-        recovery = collectionRecoveryTargets(installed_records, expected_keys)
+        recovery = collectionRecoveryTargets(
+            installed_records, expected_keys, mods_dir=mods_path
+        )
         installed_keys = recovery["installed_keys"]
         mod_names = recovery["mod_names"]
         if not installed_keys and not mod_names:

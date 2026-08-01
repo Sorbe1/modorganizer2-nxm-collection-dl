@@ -1330,6 +1330,42 @@ class CollectionDownloadExpectedSizesTests(unittest.TestCase):
         self.assertEqual(result["missing_keys"], {(999, 111)})
         self.assertEqual(result["mod_names"], ["Example Mod"])
 
+    def test_collection_recovery_targets_ignore_invalid_payloads(self):
+        with TemporaryDirectory() as tmp:
+            mods_dir = Path(tmp)
+            invalid_mod = mods_dir / "Invalid Patch"
+            invalid_mod.mkdir()
+            (invalid_mod / "meta.ini").write_text("[General]\n", encoding="utf-8")
+
+            result = collectionRecoveryTargets(
+                {(123, 456): ["Invalid Patch"]},
+                expected_keys={(123, 456)},
+                mods_dir=mods_dir,
+            )
+
+            self.assertEqual(result["installed_keys"], set())
+            self.assertEqual(result["missing_keys"], {(123, 456)})
+            self.assertEqual(result["mod_names"], [])
+
+    def test_collection_recovery_targets_accept_valid_payloads(self):
+        with TemporaryDirectory() as tmp:
+            mods_dir = Path(tmp)
+            valid_mod = mods_dir / "Valid Patch"
+            scripts_dir = valid_mod / "scripts"
+            scripts_dir.mkdir(parents=True)
+            (valid_mod / "meta.ini").write_text("[General]\n", encoding="utf-8")
+            (scripts_dir / "example.pex").write_text("script", encoding="utf-8")
+
+            result = collectionRecoveryTargets(
+                {(123, 456): ["Valid Patch"]},
+                expected_keys={(123, 456)},
+                mods_dir=mods_dir,
+            )
+
+            self.assertEqual(result["installed_keys"], {(123, 456)})
+            self.assertEqual(result["missing_keys"], set())
+            self.assertEqual(result["mod_names"], ["Valid Patch"])
+
     def test_record_collection_link_launch_marks_first_launch_primary(self):
         with TemporaryDirectory() as tmp:
             metadata_file = Path(tmp) / "example_1.json"

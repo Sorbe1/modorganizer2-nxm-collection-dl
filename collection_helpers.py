@@ -2964,29 +2964,38 @@ def collectionExpectedStateFromMetadataFiles(collection_files):
     }
 
 
-def collectionRecoveryTargets(installed_records, expected_keys=None):
+def collectionRecoveryTargets(installed_records, expected_keys=None, mods_dir=None):
     """Return local recovery targets for already-installed collection files.
 
     ``installed_records`` maps Nexus ``(mod_id, file_id)`` identities to MO2
     mod container names. Recovery is intentionally conservative: it only returns
     downloads and mod containers for exact expected Nexus files that are already
-    installed locally.
+    installed locally. When ``mods_dir`` is supplied, local containers must also
+    contain valid MO2 game data before their download metadata is repaired.
     """
     installed_records = installed_records or {}
     installed_keys = set(installed_records)
     expected_keys = set(expected_keys or installed_keys)
-    recoverable_keys = expected_keys & installed_keys
+    candidate_keys = expected_keys & installed_keys
+    mods_dir = Path(mods_dir) if mods_dir is not None else None
+    recoverable_keys = set()
     mod_names = []
     seen_names = set()
-    for nexus_key in sorted(recoverable_keys):
+    for nexus_key in sorted(candidate_keys):
+        valid_names = []
         for mod_name in installed_records.get(nexus_key, []):
+            if mods_dir is not None and not headlessPayloadRootValid(mods_dir / mod_name):
+                continue
+            valid_names.append(mod_name)
             if mod_name in seen_names:
                 continue
             mod_names.append(mod_name)
             seen_names.add(mod_name)
+        if valid_names:
+            recoverable_keys.add(nexus_key)
     return {
         "installed_keys": recoverable_keys,
-        "missing_keys": expected_keys - installed_keys,
+        "missing_keys": expected_keys - recoverable_keys,
         "mod_names": mod_names,
     }
 
