@@ -1156,7 +1156,12 @@ class stepDownloadProgress(QDialog):
                 "[NXMColDL Progress] Waiting for MO2 queue to drain before "
                 f"retrying missing downloads: {unresolved} unresolved item(s)"
             )
-            if self.apply_download_tail_boundary(unresolved, time.time()):
+            if self.apply_download_tail_boundary(
+                unresolved,
+                time.time(),
+                unresolved_limit=1,
+                boundary_context="drained queue",
+            ):
                 return True
             QTimer.singleShot(self.queue_interval_ms, self.pump_next_download)
             return True
@@ -1446,9 +1451,16 @@ class stepDownloadProgress(QDialog):
         keys.update(key for key in self.already_started_keys if key in pending_keys)
         return keys
 
-    def apply_download_tail_boundary(self, unresolved, now):
+    def apply_download_tail_boundary(
+        self, unresolved, now, unresolved_limit=None, boundary_context="active queue"
+    ):
         """Stop a mostly complete run from waiting forever on MO2 queue laggards."""
         state = self.refresh_progress_counts()
+        effective_unresolved_limit = (
+            self.max_unresolved_queue_submissions
+            if unresolved_limit is None
+            else max(1, int(unresolved_limit or 1))
+        )
         if not downloadProgressIsStalled(
             self.last_download_progress_at,
             now,
@@ -1463,7 +1475,7 @@ class stepDownloadProgress(QDialog):
                 state["successful"],
                 state["failed"],
                 unresolved,
-                self.max_unresolved_queue_submissions,
+                effective_unresolved_limit,
                 now,
                 now,
                 0,
@@ -1477,6 +1489,8 @@ class stepDownloadProgress(QDialog):
                     "[NXMColDL Progress] Download tail boundary armed: "
                     f"successful={state['successful']}, failed={state['failed']}, "
                     f"total={self.total_mods}, unresolved={unresolved}, "
+                    f"limit={effective_unresolved_limit}, "
+                    f"context={boundary_context}, "
                     f"started_at={self.tail_boundary_started_at}"
                 )
             return False
@@ -1486,7 +1500,7 @@ class stepDownloadProgress(QDialog):
             state["successful"],
             state["failed"],
             unresolved,
-            self.max_unresolved_queue_submissions,
+            effective_unresolved_limit,
             self.tail_boundary_started_at,
             now,
             self.tail_boundary_grace_seconds,
@@ -1519,7 +1533,8 @@ class stepDownloadProgress(QDialog):
             qDebug(
                 "[NXMColDL Progress] Download tail boundary retrying laggards: "
                 f"{len(retry_keys)} key(s), "
-                f"budget={self.tail_boundary_retry_budget}"
+                f"budget={self.tail_boundary_retry_budget}, "
+                f"context={boundary_context}"
             )
             self.detail_label.setText(
                 f"Retrying {len(retry_keys)} lagging download(s); "
@@ -1534,7 +1549,8 @@ class stepDownloadProgress(QDialog):
         qDebug(
             "[NXMColDL Progress] Download tail boundary applied: "
             f"{marked} key(s) moved to restart/manual review after "
-            f"{self.tail_boundary_grace_seconds}s grace"
+            f"{self.tail_boundary_grace_seconds}s grace, "
+            f"context={boundary_context}"
         )
         self.detail_label.setText(
             f"{marked} lagging download(s) moved to review; "

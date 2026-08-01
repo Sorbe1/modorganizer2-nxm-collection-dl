@@ -1875,6 +1875,16 @@ class DownloadTailBoundaryTests(unittest.TestCase):
             downloadTailBoundaryReached(18, 15, 0, 3, 16, 100, 200, 60)
         )
 
+    def test_stops_single_laggard_when_queue_is_drained(self):
+        self.assertTrue(
+            downloadTailBoundaryReached(100, 99, 0, 1, 1, 100, 160, 60)
+        )
+
+    def test_waits_single_laggard_before_drained_queue_grace_expires(self):
+        self.assertFalse(
+            downloadTailBoundaryReached(100, 99, 0, 1, 1, 100, 159, 60)
+        )
+
     def test_adaptive_grace_scales_but_stays_bounded(self):
         small = adaptiveDownloadTailGraceSeconds(50, 16, 0, 30)
         large = adaptiveDownloadTailGraceSeconds(800, 16, 2, 600)
