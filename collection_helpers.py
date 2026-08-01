@@ -153,6 +153,17 @@ def archiveInspectionSubprocessKwargs(
     return kwargs
 
 
+def backgroundWorkerSubprocessKwargs():
+    """Return subprocess options safe for long-lived helper workers from MO2."""
+    kwargs = archiveInspectionSubprocessKwargs(
+        timeout=None, capture_stdout=False, stderr_to_stdout=False
+    )
+    kwargs.pop("timeout", None)
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+    return kwargs
+
+
 def sevenZipModuleConfigPathFromListing(listing_text):
     """Return the FOMOD ModuleConfig path from a 7z ``l -slt`` listing."""
     if isinstance(listing_text, bytes):

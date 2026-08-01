@@ -40,6 +40,7 @@ from .collection_helpers import (
     INSTALLER_SETTING_DEFAULTS,
     allocateUniqueModName,
     archiveInspectionSubprocessKwargs,
+    backgroundWorkerSubprocessKwargs,
     collectionMetadataFromFile,
     collectionInstallRoute,
     collectionPriorityOrderNeedsRepair,
@@ -2005,16 +2006,9 @@ class stepInstallMods(QDialog):
         errors = []
         for command in self.nativeArchiveWorkerLaunchCommands(worker_path, request_dir):
             try:
-                kwargs = {
-                    "stdin": subprocess.DEVNULL,
-                    "stdout": subprocess.DEVNULL,
-                    "stderr": subprocess.DEVNULL,
-                }
-                if os.name != "nt":
-                    kwargs["start_new_session"] = True
                 self._native_archive_worker_process = subprocess.Popen(
                     command,
-                    **kwargs,
+                    **backgroundWorkerSubprocessKwargs(),
                 )
             except (OSError, subprocess.SubprocessError) as e:
                 errors.append(f"{command[0]}: {e}")

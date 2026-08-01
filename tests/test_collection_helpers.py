@@ -15,6 +15,7 @@ from collection_helpers import (
     activeDownloadPromptKey,
     allocateUniqueModName,
     archiveInspectionSubprocessKwargs,
+    backgroundWorkerSubprocessKwargs,
     cleanupZeroByteUnfinishedDownloads,
     coerceBoolSetting,
     coerceDownloadId,
@@ -1843,6 +1844,14 @@ class ArchiveInspectionSubprocessKwargsTests(unittest.TestCase):
         self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
         self.assertEqual(kwargs["stdout"], subprocess.PIPE)
         self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)
+
+    def test_background_worker_redirects_handles_without_timeout(self):
+        kwargs = backgroundWorkerSubprocessKwargs()
+
+        self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(kwargs["stdout"], subprocess.DEVNULL)
+        self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)
+        self.assertNotIn("timeout", kwargs)
 
 
 class SevenZipModuleConfigPathFromListingTests(unittest.TestCase):
