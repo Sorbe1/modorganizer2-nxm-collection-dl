@@ -2351,6 +2351,26 @@ class stepInstallMods(QDialog):
         ]
         if entry.get("archive"):
             lines.append(f"- Archive: `{entry['archive']}`")
+        if entry.get("missing_masters"):
+            lines.append(
+                "- Missing masters: "
+                + ", ".join(
+                    f"`{safeDisplayText(name)}`"
+                    for name in entry.get("missing_masters") or []
+                )
+            )
+        if entry.get("inactive_masters"):
+            lines.append(
+                "- Inactive masters: "
+                + ", ".join(
+                    f"`{safeDisplayText(name)}`"
+                    for name in entry.get("inactive_masters") or []
+                )
+            )
+        if entry.get("suggested_action"):
+            lines.append(
+                f"- Suggested action: {safeDisplayText(entry.get('suggested_action'))}"
+            )
         if guide.get("module_config"):
             lines.append(f"- FOMOD XML: `{guide['module_config']}`")
         if guide.get("parse_error"):

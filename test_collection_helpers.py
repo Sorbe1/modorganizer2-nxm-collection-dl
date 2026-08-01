@@ -3221,6 +3221,11 @@ class PluginActivationReviewEntriesTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["mod"], "post-install dependency audit")
         self.assertEqual(entries[0]["file"], "Patch.esp")
+        self.assertEqual(entries[0]["missing_masters"], ["Missing.esm"])
+        self.assertEqual(entries[0]["inactive_masters"], ["Inactive.esm"])
+        self.assertIn("install the mod", entries[0]["suggested_action"])
+        self.assertIn("enable Inactive.esm", entries[0]["suggested_action"])
+        self.assertIn("disable Patch.esp", entries[0]["suggested_action"])
         self.assertIn("missing Missing.esm", entries[0]["reason"])
         self.assertIn("inactive Inactive.esm", entries[0]["reason"])
 

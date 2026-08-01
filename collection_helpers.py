@@ -2159,6 +2159,17 @@ def pluginMasterDependencyReviewEntries(
             details.append("missing " + ", ".join(missing))
         if inactive:
             details.append("inactive " + ", ".join(inactive))
+        recommendation_parts = []
+        if missing:
+            recommendation_parts.append(
+                "install the mod or optional patch source that provides "
+                + ", ".join(missing)
+            )
+        if inactive:
+            recommendation_parts.append("enable " + ", ".join(inactive))
+        recommendation_parts.append(
+            f"disable {plugin_name} if those masters are not intended"
+        )
         entries.append(
             {
                 "mod": source,
@@ -2166,6 +2177,9 @@ def pluginMasterDependencyReviewEntries(
                 "mod_id": "unknown",
                 "file_id": "unknown",
                 "archive": "",
+                "missing_masters": missing,
+                "inactive_masters": inactive,
+                "suggested_action": "; ".join(recommendation_parts),
                 "reason": (
                     "plugin has unresolved master dependencies: "
                     + "; ".join(details)
