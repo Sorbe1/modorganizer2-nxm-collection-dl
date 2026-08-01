@@ -25,6 +25,9 @@ FOMOD_ADVANCE_EXCLUDED_TITLES = {
 EMPTY_INSTALLER_OUTPUT_REASON = (
     "installer completed but produced an empty mod container"
 )
+INVALID_INSTALLER_OUTPUT_REASON = (
+    "installer completed but produced invalid MO2 game data"
+)
 EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON = (
     "FOMOD completed with no applicable files for the active profile"
 )
@@ -962,6 +965,15 @@ def installedPayloadFileCount(mod_dir):
 def installedModHasCompletionPayload(mod_dir):
     """Return True when an installer result contains files beyond MO2 metadata."""
     return installedPayloadFileCount(mod_dir) > 0
+
+
+def installedModCompletionIssueReason(mod_dir):
+    """Return why an installed mod container is not usable, or None."""
+    if not installedModHasCompletionPayload(mod_dir):
+        return EMPTY_INSTALLER_OUTPUT_REASON
+    if not headlessPayloadRootValid(mod_dir):
+        return INVALID_INSTALLER_OUTPUT_REASON
+    return None
 
 
 def isBenignEmptyFomodInstallerResult(fomod_state, guide):

@@ -54,6 +54,7 @@ from .collection_helpers import (
     detachedInstallCacheKeyFromPath,
     extractHeadlessZipArchive,
     fastFinishMetadataRepairKeys,
+    EMPTY_INSTALLER_OUTPUT_REASON,
     EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON,
     headlessArchiveInstallLayout,
     headlessFomodDependencyInstallLayout,
@@ -63,6 +64,7 @@ from .collection_helpers import (
     headlessInstallMetaIni,
     headlessPayloadRootValid,
     headlessArchivePreflightFallback,
+    installedModCompletionIssueReason,
     installedModHasCompletionPayload,
     installedPayloadFileCount,
     invalidInstallContentDialogAction,
@@ -3543,9 +3545,16 @@ class stepInstallMods(QDialog):
                 self.discardInterfaceWarningsFrom(warning_start)
                 internal_name = installed_mod.name()
                 installed_dir = Path(organizer.modsPath()) / internal_name
-                if not installedModHasCompletionPayload(installed_dir):
+                payload_issue_reason = installedModCompletionIssueReason(
+                    installed_dir
+                )
+                if payload_issue_reason:
                     empty_fomod_guide = None
-                    if fomod_state is True:
+                    if (
+                        payload_issue_reason
+                        == EMPTY_INSTALLER_OUTPUT_REASON
+                        and fomod_state is True
+                    ):
                         empty_fomod_guide = self.archiveFomodGuide(
                             install_source_path,
                             organizer=organizer,
@@ -3576,9 +3585,17 @@ class stepInstallMods(QDialog):
                             INSTALL_NEXT_DELAY_MS, self.installNextMod
                         )
                         return
+                    try:
+                        context["modlist"].setActive(internal_name, False)
+                    except Exception as e:
+                        self.logInstallIssue(
+                            "Could not disable invalid installer output "
+                            f"{internal_name}: {e}",
+                            expected=True,
+                        )
                     reason = (
-                        "installer completed but produced an empty mod container; "
-                        "review FOMOD/manual choices"
+                        f"{payload_issue_reason}; review archive layout/manual "
+                        "choices"
                     )
                     self.markDownloadedOnlyMetadata(context, install_key)
                     failed_entries.append(

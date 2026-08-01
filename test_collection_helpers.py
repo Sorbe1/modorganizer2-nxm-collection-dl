@@ -55,6 +55,7 @@ from collection_helpers import (
     headlessInstallMetaIni,
     headlessZipInstallLayout,
     inferModIdFromDownloadName,
+    installedModCompletionIssueReason,
     installedModHasCompletionPayload,
     installedPayloadFileCount,
     installedModRecordsFromDirectory,
@@ -3674,6 +3675,10 @@ class InvalidInstalledCollectionArchiveRetryTests(unittest.TestCase):
 
             self.assertEqual(installedPayloadFileCount(mod_dir), 1)
             self.assertTrue(installedModHasCompletionPayload(mod_dir))
+            self.assertEqual(
+                installedModCompletionIssueReason(mod_dir),
+                "installer completed but produced invalid MO2 game data",
+            )
 
     def test_empty_fomod_result_is_not_a_completed_install(self):
         with TemporaryDirectory() as tmp:
@@ -3682,6 +3687,20 @@ class InvalidInstalledCollectionArchiveRetryTests(unittest.TestCase):
             (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
 
             self.assertFalse(installedModHasCompletionPayload(mod_dir))
+            self.assertEqual(
+                installedModCompletionIssueReason(mod_dir),
+                "installer completed but produced an empty mod container",
+            )
+
+    def test_game_data_mod_directory_has_no_completion_issue(self):
+        with TemporaryDirectory() as tmp:
+            mod_dir = Path(tmp) / "Valid Mesh Mod"
+            mesh_dir = mod_dir / "meshes"
+            mesh_dir.mkdir(parents=True)
+            (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
+            (mesh_dir / "example.nif").write_text("mesh", encoding="utf-8")
+
+            self.assertIsNone(installedModCompletionIssueReason(mod_dir))
 
     def test_empty_fomod_without_required_choices_is_benign_noop(self):
         self.assertTrue(
