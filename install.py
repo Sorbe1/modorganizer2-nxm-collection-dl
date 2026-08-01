@@ -3542,7 +3542,6 @@ class stepInstallMods(QDialog):
             )
             current_warnings = self.install_warnings[warning_start:]
             if installed_mod:
-                self.discardInterfaceWarningsFrom(warning_start)
                 internal_name = installed_mod.name()
                 installed_dir = Path(organizer.modsPath()) / internal_name
                 payload_issue_reason = installedModCompletionIssueReason(
@@ -3618,6 +3617,7 @@ class stepInstallMods(QDialog):
                     self.log("")
                     QTimer.singleShot(INSTALL_NEXT_DELAY_MS, self.installNextMod)
                     return
+                self.discardInterfaceWarningsFrom(warning_start)
                 self.log(f"  Installed as: {internal_name}", "success")
                 self.log(
                     "  Priority will be checked after collection install",
