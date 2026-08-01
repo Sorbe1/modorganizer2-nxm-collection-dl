@@ -3367,6 +3367,32 @@ class CoerceBoolSettingTests(unittest.TestCase):
         self.assertTrue(coerceBoolSetting(None, default=True))
 
 
+class InstallRuntimeSourceTests(unittest.TestCase):
+    def install_source(self):
+        return (Path(__file__).resolve().parents[1] / "install.py").read_text(
+            encoding="utf-8"
+        )
+
+    def test_late_installer_recovery_records_suppressed_errors(self):
+        source = self.install_source()
+
+        self.assertIn("late-installer-recovery", source)
+        self.assertIn("on_dismiss=", source)
+
+    def test_install_trace_retry_receives_warning_context(self):
+        source = self.install_source()
+        method_source = source.split("def traceInstallModCall(", 1)[1].split(
+            "\n    def callInstallMod(", 1
+        )[0]
+
+        self.assertIn("mod_name,", method_source)
+        self.assertIn("file_name,", method_source)
+        self.assertIn(
+            "mod_name,\n        file_name,\n        allow_path_retry=True",
+            method_source,
+        )
+
+
 class CoerceIntSettingTests(unittest.TestCase):
     def test_accepts_native_and_string_integer_values(self):
         self.assertEqual(coerceIntSetting(3, default=1), 3)

@@ -3647,6 +3647,8 @@ class stepInstallMods(QDialog):
                         install_call_phase,
                         install_key,
                         dialog_handler_generation,
+                        mod_name,
+                        file_name,
                         allow_path_retry=not use_archive_default_for_fomod,
                     ),
                 )
@@ -3680,6 +3682,8 @@ class stepInstallMods(QDialog):
                         install_call_phase,
                         install_key,
                         dialog_handler_generation,
+                        mod_name,
+                        file_name,
                         allow_path_retry=not use_archive_default_for_fomod,
                     ),
                 )
@@ -3933,6 +3937,8 @@ class stepInstallMods(QDialog):
         phase,
         install_key,
         generation,
+        mod_name,
+        file_name,
         allow_path_retry=True,
     ):
         archive_text = str(download_path)
@@ -4208,7 +4214,16 @@ class stepInstallMods(QDialog):
             if auto_accept_quick_install:
                 acceptQuickInstallDialog()
             if auto_dismiss_errors:
-                dismissKnownPostInstallErrorDialog(remaining=1)
+                dismissKnownPostInstallErrorDialog(
+                    remaining=1,
+                    on_dismiss=(
+                        lambda message, mod_name=mod_name: (
+                            self.recordSuppressedPostInstallError(
+                                message, mod_name, "late-installer-recovery"
+                            )
+                        )
+                    ),
+                )
             if auto_cancel_invalid:
                 cancelInvalidInstallContentDialog()
                 acceptContentTreeWarningDialog()
