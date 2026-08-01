@@ -114,6 +114,7 @@ from collection_helpers import (
     staleUnfinishedEntries,
     staleZeroByteUnfinishedEntries,
     steamGameRootFromMo2BasePath,
+    suppressedPostInstallErrorReviewEntries,
     steamAppShaderCacheSize,
     steamDefaultLaunchOption,
     steamAppInfoHasLaunchExecutable,
@@ -2177,6 +2178,39 @@ class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
     def test_ignores_unrelated_error_dialog_text(self):
         self.assertIsNone(
             knownPostInstallErrorDialogMessage(["failed to receive data"])
+        )
+
+    def test_suppressed_plugin_errors_become_review_entries(self):
+        entries = suppressedPostInstallErrorReviewEntries(
+            [
+                {
+                    "mod": "post-install activation",
+                    "file": "",
+                    "message": "Plugin not found: Missing.esp",
+                    "category": "plugin_state_missing",
+                    "source": "suppressed_dialog",
+                }
+            ]
+        )
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["mod"], "post-install activation")
+        self.assertIn("Plugin not found: Missing.esp", entries[0]["reason"])
+
+    def test_suppressed_non_actionable_errors_do_not_block_summary(self):
+        self.assertEqual(
+            suppressedPostInstallErrorReviewEntries(
+                [
+                    {
+                        "mod": "post-install",
+                        "file": "",
+                        "message": "failed to receive data",
+                        "category": "other",
+                        "source": "suppressed_dialog",
+                    }
+                ]
+            ),
+            [],
         )
 
     def test_clean_install_discard_preserves_suppressed_dialogs(self):

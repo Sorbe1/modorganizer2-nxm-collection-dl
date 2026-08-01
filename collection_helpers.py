@@ -1960,6 +1960,40 @@ def knownPostInstallErrorDialogMessage(labels):
     return None
 
 
+def suppressedPostInstallErrorReviewEntries(warnings):
+    """Return review entries for actionable MO2 errors dismissed by automation."""
+    entries = []
+    seen = set()
+    blocking_categories = {"plugin_state_missing", "invalid_origin_name"}
+    for warning in warnings or []:
+        if warning.get("source") != "suppressed_dialog":
+            continue
+        if warning.get("category") not in blocking_categories:
+            continue
+        message = str(warning.get("message") or "").strip()
+        if not message:
+            continue
+        key = (
+            str(warning.get("mod") or "post-install"),
+            str(warning.get("file") or ""),
+            message,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append(
+            {
+                "mod": key[0],
+                "file": key[1],
+                "mod_id": "unknown",
+                "file_id": "unknown",
+                "archive": "",
+                "reason": f"post-install MO2 error dialog: {message}",
+            }
+        )
+    return entries
+
+
 def warningsAfterCleanInstallDiscard(warnings, warning_start):
     """Drop ordinary transient warnings while preserving dismissed error dialogs."""
     kept = list(warnings[:warning_start])

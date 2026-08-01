@@ -95,6 +95,7 @@ from .collection_helpers import (
     shouldUseArchiveDefaultForFomodCompatibility,
     splitQueuedFomodRecoveryEntries,
     steamGameRootFromMo2BasePath,
+    suppressedPostInstallErrorReviewEntries,
     zipArchiveMemberPaths,
     installedModRecordsFromDirectory,
 )
@@ -2070,6 +2071,22 @@ class stepInstallMods(QDialog):
         if not self.nativeArchiveWorkerAvailable(
             organizer, attempts=20, retry_delay_seconds=0.1
         ):
+            process = getattr(self, "_native_archive_worker_process", None)
+            exit_code = None
+            if process is not None:
+                try:
+                    exit_code = process.poll()
+                except Exception:
+                    exit_code = None
+            if exit_code is not None:
+                return {
+                    "ok": False,
+                    "worker_unavailable": True,
+                    "error": (
+                        "Native archive worker exited before writing a heartbeat "
+                        f"(exit {exit_code}); review worker launch command/logs."
+                    ),
+                }
             return {
                 "ok": False,
                 "worker_unavailable": True,
@@ -4648,6 +4665,9 @@ class stepInstallMods(QDialog):
             splitQueuedFomodRecoveryEntries(
                 failed_entries, can_queue_fomod_recovery
             )
+        )
+        review_entries.extend(
+            suppressedPostInstallErrorReviewEntries(self.install_warnings)
         )
         queued_recovery_count = len(queued_fomod_recovery_entries)
 
