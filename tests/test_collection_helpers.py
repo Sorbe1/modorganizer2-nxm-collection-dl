@@ -2826,6 +2826,7 @@ class PluginActivationReviewEntriesTests(unittest.TestCase):
             [
                 {
                     "plugin": "Patch.esp",
+                    "plugin_active": True,
                     "missing_masters": ["Missing.esm"],
                     "inactive_masters": ["Inactive.esm"],
                 }
@@ -2842,16 +2843,39 @@ class PluginActivationReviewEntriesTests(unittest.TestCase):
 
         self.assertEqual(problems, [])
 
+    def test_master_dependency_audit_can_report_inactive_target_plugins(self):
+        problems = pluginMasterDependencyAudit(
+            ["Patch.esp"],
+            ["Patch.esp", "Inactive.esm"],
+            [],
+            {"Patch.esp": ["Missing.esm", "Inactive.esm"]},
+            include_inactive_targets=True,
+        )
+
+        self.assertEqual(
+            problems,
+            [
+                {
+                    "plugin": "Patch.esp",
+                    "plugin_active": False,
+                    "missing_masters": ["Missing.esm"],
+                    "inactive_masters": ["Inactive.esm"],
+                }
+            ],
+        )
+
     def test_master_dependency_review_entries_deduplicate_plugins(self):
         entries = pluginMasterDependencyReviewEntries(
             [
                 {
                     "plugin": "Patch.esp",
+                    "plugin_active": False,
                     "missing_masters": ["Missing.esm"],
                     "inactive_masters": ["Inactive.esm"],
                 },
                 {
                     "plugin": "patch.esp",
+                    "plugin_active": False,
                     "missing_masters": ["missing.esm"],
                     "inactive_masters": ["inactive.esm"],
                 },
@@ -2864,9 +2888,11 @@ class PluginActivationReviewEntriesTests(unittest.TestCase):
         self.assertEqual(entries[0]["file"], "Patch.esp")
         self.assertEqual(entries[0]["missing_masters"], ["Missing.esm"])
         self.assertEqual(entries[0]["inactive_masters"], ["Inactive.esm"])
+        self.assertIn("enable Patch.esp", entries[0]["suggested_action"])
         self.assertIn("install the mod", entries[0]["suggested_action"])
         self.assertIn("enable Inactive.esm", entries[0]["suggested_action"])
         self.assertIn("disable Patch.esp", entries[0]["suggested_action"])
+        self.assertIn("currently inactive", entries[0]["reason"])
         self.assertIn("missing Missing.esm", entries[0]["reason"])
         self.assertIn("inactive Inactive.esm", entries[0]["reason"])
 

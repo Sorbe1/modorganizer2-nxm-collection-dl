@@ -2209,7 +2209,11 @@ def pluginActivationReviewEntries(missing_plugins, source="plugin activation"):
 
 
 def pluginMasterDependencyAudit(
-    target_plugins, available_plugins, active_plugins, masters_by_plugin
+    target_plugins,
+    available_plugins,
+    active_plugins,
+    masters_by_plugin,
+    include_inactive_targets=False,
 ):
     """Return active target plugins whose masters are missing or inactive."""
     available_by_key = {}
@@ -2235,7 +2239,8 @@ def pluginMasterDependencyAudit(
 
     problems = []
     for plugin_key, plugin_name in target_by_key.items():
-        if plugin_key not in active_by_key:
+        plugin_active = plugin_key in active_by_key
+        if not plugin_active and not include_inactive_targets:
             continue
 
         missing = []
@@ -2258,6 +2263,7 @@ def pluginMasterDependencyAudit(
             problems.append(
                 {
                     "plugin": plugin_name,
+                    "plugin_active": plugin_active,
                     "missing_masters": missing,
                     "inactive_masters": inactive,
                 }
@@ -2305,6 +2311,10 @@ def pluginMasterDependencyReviewEntries(
         if inactive:
             details.append("inactive " + ", ".join(inactive))
         recommendation_parts = []
+        if not problem.get("plugin_active", True):
+            recommendation_parts.append(
+                f"enable {plugin_name} after its masters are resolved"
+            )
         if missing:
             recommendation_parts.append(
                 "install the mod or optional patch source that provides "
@@ -2326,7 +2336,12 @@ def pluginMasterDependencyReviewEntries(
                 "inactive_masters": inactive,
                 "suggested_action": "; ".join(recommendation_parts),
                 "reason": (
-                    "plugin has unresolved master dependencies: "
+                    "plugin has unresolved master dependencies"
+                    + (
+                        " and is currently inactive: "
+                        if not problem.get("plugin_active", True)
+                        else ": "
+                    )
                     + "; ".join(details)
                 ),
             }

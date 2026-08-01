@@ -5592,7 +5592,11 @@ class stepInstallMods(QDialog):
                 )
 
         problems = pluginMasterDependencyAudit(
-            target_plugins, available_plugins, active_plugins, masters_by_plugin
+            target_plugins,
+            available_plugins,
+            active_plugins,
+            masters_by_plugin,
+            include_inactive_targets=True,
         )
         if not problems:
             return 0
