@@ -4149,6 +4149,21 @@ def downloadTailBoundaryReached(
     return now - boundary_started_at >= grace_seconds
 
 
+def downloadTailBoundaryArmTime(last_progress_at, now):
+    """Return when the current quiet download tail should be considered started."""
+    try:
+        now = float(now)
+    except (TypeError, ValueError):
+        now = 0.0
+    try:
+        last_progress_at = float(last_progress_at)
+    except (TypeError, ValueError):
+        return now
+    if last_progress_at <= 0 or last_progress_at > now:
+        return now
+    return last_progress_at
+
+
 def adaptiveDownloadTailGraceSeconds(
     total,
     unresolved_limit,

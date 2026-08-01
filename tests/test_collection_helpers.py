@@ -118,6 +118,7 @@ from collection_helpers import (
     adaptiveDownloadTailGraceSeconds,
     downloadProgressIsStalled,
     downloadTailLaggardPlan,
+    downloadTailBoundaryArmTime,
     downloadTailBoundaryReached,
     staleOrphanUnfinishedDownloadEntries,
     staleDownloadStartAction,
@@ -1639,6 +1640,16 @@ class DownloadTailBoundaryTests(unittest.TestCase):
 
     def test_progress_stall_trips_after_quiet_window(self):
         self.assertTrue(downloadProgressIsStalled(100, 120, 20))
+
+    def test_tail_boundary_arm_time_uses_last_progress(self):
+        self.assertEqual(downloadTailBoundaryArmTime(100, 150), 100)
+
+    def test_tail_boundary_arm_time_uses_now_for_invalid_progress(self):
+        self.assertEqual(downloadTailBoundaryArmTime(None, 150), 150)
+        self.assertEqual(downloadTailBoundaryArmTime(0, 150), 150)
+
+    def test_tail_boundary_arm_time_uses_now_for_future_progress(self):
+        self.assertEqual(downloadTailBoundaryArmTime(200, 150), 150)
 
 
 class DownloadTailLaggardPlanTests(unittest.TestCase):

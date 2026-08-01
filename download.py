@@ -44,6 +44,7 @@ from .collection_helpers import (
     downloadCompletionPlan,
     downloadProgressIsStalled,
     downloadTailLaggardPlan,
+    downloadTailBoundaryArmTime,
     downloadTailBoundaryReached,
     downloadProgressCanClose,
     downloadProgressFormat,
@@ -1468,11 +1469,15 @@ class stepDownloadProgress(QDialog):
                 0,
                 self.tail_boundary_completion_ratio,
             ):
-                self.tail_boundary_started_at = now
+                self.tail_boundary_started_at = downloadTailBoundaryArmTime(
+                    self.last_download_progress_at,
+                    now,
+                )
                 qDebug(
                     "[NXMColDL Progress] Download tail boundary armed: "
                     f"successful={state['successful']}, failed={state['failed']}, "
-                    f"total={self.total_mods}, unresolved={unresolved}"
+                    f"total={self.total_mods}, unresolved={unresolved}, "
+                    f"started_at={self.tail_boundary_started_at}"
                 )
             return False
 
