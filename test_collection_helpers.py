@@ -88,6 +88,7 @@ from collection_helpers import (
     normalizedButtonLabel,
     orphanUnfinishedDownloadEntries,
     parseCollectionAddress,
+    pluginActivationReviewEntries,
     popDownloadKey,
     preferredCanonicalDownloadArchive,
     preferredRequiredFomodFallbackOption,
@@ -2782,6 +2783,38 @@ class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
             [warning["message"] for warning in kept],
             ["old warning", "Plugin not found: BBLuxurySuite.esm"],
         )
+
+
+class PluginActivationReviewEntriesTests(unittest.TestCase):
+    def test_missing_plugins_become_review_entries(self):
+        entries = pluginActivationReviewEntries(["Missing.esp"])
+
+        self.assertEqual(
+            entries,
+            [
+                {
+                    "mod": "plugin activation",
+                    "file": "Missing.esp",
+                    "mod_id": "unknown",
+                    "file_id": "unknown",
+                    "archive": "",
+                    "reason": (
+                        "plugin not present in profile plugin list after refresh: "
+                        "Missing.esp"
+                    ),
+                }
+            ],
+        )
+
+    def test_deduplicates_missing_plugins_case_insensitively(self):
+        entries = pluginActivationReviewEntries(
+            ["Missing.esp", "missing.esp", "", None],
+            source="post-install activation",
+        )
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["mod"], "post-install activation")
+        self.assertEqual(entries[0]["file"], "Missing.esp")
 
 
 class InstallNoResultReasonTests(unittest.TestCase):

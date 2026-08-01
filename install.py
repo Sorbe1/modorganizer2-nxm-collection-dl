@@ -82,6 +82,7 @@ from .collection_helpers import (
     normalizedButtonLabel,
     nativeArchiveWorkerHeartbeatStatus,
     nativePathForArchiveInspection,
+    pluginActivationReviewEntries,
     preferredCanonicalDownloadArchive,
     mo2CategoryNameMap,
     moveModlistEntriesToUiBottom,
@@ -4291,6 +4292,7 @@ class stepInstallMods(QDialog):
             organizer,
             [internal_name],
             heading=f"Activating plugins from {internal_name}...",
+            failed_entries=context["failed_entries"],
         )
         for key in ("activated", "already_active", "blocked"):
             context["plugin_activation"][key] += plugin_activation[key]
@@ -4679,7 +4681,7 @@ class stepInstallMods(QDialog):
                 ),
             )
             final_plugin_activation = self.activatePluginsForMods(
-                organizer, plugin_activation_targets
+                organizer, plugin_activation_targets, failed_entries=failed_entries
             )
             for key in ("activated", "already_active", "blocked"):
                 plugin_activation[key] += final_plugin_activation[key]
@@ -5105,7 +5107,9 @@ class stepInstallMods(QDialog):
             )
         return repair_result
 
-    def activatePluginsForMods(self, organizer, mod_names, heading=None):
+    def activatePluginsForMods(
+        self, organizer, mod_names, heading=None, failed_entries=None
+    ):
         plugin_names_from_dirs = collectionPluginNamesFromModDirs(
             Path(organizer.modsPath()), mod_names
         )
@@ -5133,6 +5137,26 @@ class stepInstallMods(QDialog):
                 + ", ".join(safeDisplayText(name) for name in missing_plugins[:10]),
                 expected=True,
             )
+            if failed_entries is not None:
+                seen_review_entries = {
+                    (
+                        str(entry.get("mod") or ""),
+                        str(entry.get("file") or ""),
+                        str(entry.get("reason") or ""),
+                    )
+                    for entry in failed_entries
+                    if isinstance(entry, dict)
+                }
+                for entry in pluginActivationReviewEntries(missing_plugins):
+                    key = (
+                        str(entry.get("mod") or ""),
+                        str(entry.get("file") or ""),
+                        str(entry.get("reason") or ""),
+                    )
+                    if key in seen_review_entries:
+                        continue
+                    seen_review_entries.add(key)
+                    failed_entries.append(entry)
         if file_repair.get("failed"):
             blocked += file_repair["failed"]
             self.logInstallIssue(

@@ -2006,6 +2006,35 @@ def suppressedPostInstallErrorReviewEntries(warnings):
     return entries
 
 
+def pluginActivationReviewEntries(missing_plugins, source="plugin activation"):
+    """Return review entries for plugins that could not be enabled in profile state."""
+    entries = []
+    seen = set()
+    source = str(source or "plugin activation")
+    for plugin_name in missing_plugins or []:
+        plugin_name = str(plugin_name or "").strip()
+        if not plugin_name:
+            continue
+        key = plugin_name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append(
+            {
+                "mod": source,
+                "file": plugin_name,
+                "mod_id": "unknown",
+                "file_id": "unknown",
+                "archive": "",
+                "reason": (
+                    "plugin not present in profile plugin list after refresh: "
+                    f"{plugin_name}"
+                ),
+            }
+        )
+    return entries
+
+
 def nativeArchiveWorkerHeartbeatStatus(
     payload,
     now,
