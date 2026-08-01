@@ -1,76 +1,25 @@
 #!/usr/bin/env python3
 import argparse
-import json
 import os
-import re
-import shutil
-from datetime import datetime
+import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-PROFILE_FILES = ("modlist.txt", "plugins.txt", "loadorder.txt")
-
-
-def safe_label(value):
-    label = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "").strip())
-    label = label.strip(".-")
-    return label or "snapshot"
-
-
-def profile_file_stats(path):
-    if not path.exists():
-        return {"exists": False, "lines": 0, "enabled": 0, "disabled": 0}
-
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    enabled = 0
-    disabled = 0
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith(("+", "*")):
-            enabled += 1
-        elif stripped.startswith("-"):
-            disabled += 1
-    return {
-        "exists": True,
-        "lines": len(lines),
-        "enabled": enabled,
-        "disabled": disabled,
-    }
+from collection_helpers import (
+    MO2_PROFILE_STATE_FILES as PROFILE_FILES,
+    profileStateFileStats as profile_file_stats,
+    safeProfileSnapshotLabel as safe_label,
+    snapshotMo2ProfileState,
+)
 
 
 def snapshot_profile_state(base, profile_name="Default", label="baseline"):
-    base = Path(base)
-    profile = base / "profiles" / profile_name
-    if not profile.exists():
-        raise FileNotFoundError(f"MO2 profile not found: {profile}")
-
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    snapshot_dir = (
-        base
-        / "profile-snapshots"
-        / f"{safe_label(profile_name)}-{safe_label(label)}-{timestamp}"
+    return snapshotMo2ProfileState(
+        base_path=Path(base), profile_name=profile_name, label=label
     )
-    snapshot_dir.mkdir(parents=True, exist_ok=False)
-
-    files = {}
-    for file_name in PROFILE_FILES:
-        source = profile / file_name
-        destination = snapshot_dir / file_name
-        if source.exists():
-            shutil.copy2(source, destination)
-        files[file_name] = profile_file_stats(source)
-
-    manifest = {
-        "base": str(base),
-        "profile": profile_name,
-        "label": label,
-        "created": datetime.now().isoformat(timespec="seconds"),
-        "files": files,
-    }
-    (snapshot_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
-    return snapshot_dir, manifest
 
 
 def main():

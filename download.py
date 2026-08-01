@@ -3836,6 +3836,13 @@ class stepCollectionLinkFlow(QDialog):
             downloads_path,
             installed_keys,
             desired_installed=True,
+            backup_dir=(
+                downloads_path.parent
+                / "logs"
+                / "nxm-collection-repair-backups"
+                / datetime.now().strftime("%Y%m%d-%H%M%S")
+                / "download-metadata"
+            ),
         )
 
         enabled = 0

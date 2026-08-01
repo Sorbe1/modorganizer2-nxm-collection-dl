@@ -23,6 +23,7 @@ from .collection_helpers import (
     parseCollectionAddress,
     repairPluginEnabledStates,
     safeDisplayText,
+    snapshotMo2ProfileState,
 )
 from .download import stepCollectionLinkFlow, stepURL
 from .install import stepInstallMods, stepSelectCollection
@@ -271,8 +272,42 @@ def runInstallProbeFinalize(organizer: mobase.IOrganizer, payload):
             var.debug(f"[NXMColDL Probe] finalize plugin discovery failed: {e}")
         try:
             profile_plugins_path = Path(organizer.profilePath()) / "plugins.txt"
+            backup_dir = (
+                profile_plugins_path.parent
+                / "nxm-collection-dl-backups"
+                / f"probe-plugin-repair-{int(time.time())}"
+            )
+            try:
+                plugin_text = profile_plugins_path.read_text(
+                    encoding="utf-8", errors="replace"
+                )
+                plugin_lookup = {name.casefold() for name in plugin_names_from_dirs}
+                needs_plugin_repair = any(
+                    line.strip()
+                    and not line.strip().startswith(("#", "*"))
+                    and line.strip().casefold() in plugin_lookup
+                    for line in plugin_text.splitlines()
+                )
+            except OSError:
+                needs_plugin_repair = False
+            if needs_plugin_repair:
+                try:
+                    snapshot_dir, _manifest = snapshotMo2ProfileState(
+                        base_path=Path(organizer.basePath()),
+                        profile_path=Path(organizer.profilePath()),
+                        label="probe-plugin-repair",
+                    )
+                    var.debug(
+                        "[NXMColDL Probe] profile snapshot before plugin repair: "
+                        f"{snapshot_dir}"
+                    )
+                except Exception as e:
+                    var.debug(
+                        "[NXMColDL Probe] profile snapshot before plugin repair "
+                        f"failed: {e}"
+                    )
             file_repair = repairPluginEnabledStates(
-                profile_plugins_path, plugin_names_from_dirs
+                profile_plugins_path, plugin_names_from_dirs, backup_dir=backup_dir
             )
             plugin_activated += file_repair.get("enabled", 0)
             plugin_already_active += file_repair.get("already_enabled", 0)

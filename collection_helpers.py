@@ -35,6 +35,7 @@ COLLECTION_TRANSIENT_MOD_DIR_PREFIXES = (
     ".nxm-collection-installing-",
     ".nxm-collection-extracting-",
 )
+MO2_PROFILE_STATE_FILES = ("modlist.txt", "plugins.txt", "loadorder.txt")
 
 INSTALLER_SETTING_DEFAULTS = {
     "auto_accept_quick_install": True,
@@ -151,6 +152,97 @@ def archiveInspectionSubprocessKwargs(
         kwargs["creationflags"] = creationflags
 
     return kwargs
+
+
+def safeProfileSnapshotLabel(value):
+    """Return a filesystem-friendly label for MO2 profile snapshots."""
+    label = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "").strip())
+    label = label.strip(".-")
+    return label or "snapshot"
+
+
+def profileStateFileStats(path):
+    """Return simple order-file stats for a snapshot manifest."""
+    path = Path(path)
+    if not path.exists():
+        return {"exists": False, "lines": 0, "enabled": 0, "disabled": 0}
+
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    enabled = 0
+    disabled = 0
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(("+", "*")):
+            enabled += 1
+        elif stripped.startswith("-"):
+            disabled += 1
+    return {
+        "exists": True,
+        "lines": len(lines),
+        "enabled": enabled,
+        "disabled": disabled,
+    }
+
+
+def snapshotMo2ProfileState(
+    base_path=None,
+    profile_name="Default",
+    label="baseline",
+    profile_path=None,
+    snapshot_root=None,
+    timestamp=None,
+):
+    """Copy MO2 profile order files and write a manifest before risky repairs."""
+    if profile_path is None:
+        if base_path is None:
+            raise ValueError("base_path or profile_path is required")
+        base_path = Path(base_path)
+        profile_path = base_path / "profiles" / profile_name
+    else:
+        profile_path = Path(profile_path)
+        if base_path is None:
+            base_path = profile_path.parent.parent
+        else:
+            base_path = Path(base_path)
+        profile_name = profile_name or profile_path.name
+
+    if not profile_path.exists():
+        raise FileNotFoundError(f"MO2 profile not found: {profile_path}")
+
+    timestamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
+    snapshot_root = Path(snapshot_root) if snapshot_root is not None else (
+        base_path / "profile-snapshots"
+    )
+    snapshot_dir = snapshot_root / (
+        f"{safeProfileSnapshotLabel(profile_name)}-"
+        f"{safeProfileSnapshotLabel(label)}-{timestamp}"
+    )
+    if snapshot_dir.exists():
+        suffix = 2
+        while (snapshot_dir.parent / f"{snapshot_dir.name}-{suffix}").exists():
+            suffix += 1
+        snapshot_dir = snapshot_dir.parent / f"{snapshot_dir.name}-{suffix}"
+    snapshot_dir.mkdir(parents=True, exist_ok=False)
+
+    files = {}
+    for file_name in MO2_PROFILE_STATE_FILES:
+        source = profile_path / file_name
+        if source.exists():
+            shutil.copy2(source, snapshot_dir / file_name)
+        files[file_name] = profileStateFileStats(source)
+
+    manifest = {
+        "base": str(base_path),
+        "profile_path": str(profile_path),
+        "profile": profile_name,
+        "label": label,
+        "created": datetime.now().isoformat(timespec="seconds"),
+        "files": files,
+    }
+    (snapshot_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+    return snapshot_dir, manifest
 
 
 def backgroundWorkerSubprocessKwargs():
@@ -654,7 +746,7 @@ def collectionInvalidPayloadModNames(mods_dir, mod_names):
     return result
 
 
-def updateMetaIniGeneralFields(metadata_file, fields):
+def updateMetaIniGeneralFields(metadata_file, fields, backup_file=None):
     """Update selected ``[General]`` keys in-place without reserializing meta.ini."""
     fields = {str(k): str(v) for k, v in (fields or {}).items() if v is not None}
     if not fields:
@@ -701,6 +793,11 @@ def updateMetaIniGeneralFields(metadata_file, fields):
 
     if changed:
         try:
+            if backup_file is not None:
+                backup_file = Path(backup_file)
+                backup_file.parent.mkdir(parents=True, exist_ok=True)
+                if not backup_file.exists():
+                    backup_file.write_bytes(metadata_file.read_bytes())
             metadata_file.write_text("".join(output), encoding="utf-8")
         except OSError:
             return False
@@ -708,11 +805,12 @@ def updateMetaIniGeneralFields(metadata_file, fields):
 
 
 def repairInstalledCollectionModMetadata(
-    mods_dir, installed_records, mods_by_key, category_name_map=None
+    mods_dir, installed_records, mods_by_key, category_name_map=None, backup_dir=None
 ):
     """Repair deterministic Nexus metadata fields for installed collection mods."""
-    result = {"checked": 0, "repaired": 0, "failed": 0}
+    result = {"checked": 0, "repaired": 0, "failed": 0, "backed_up": 0}
     mods_dir = Path(mods_dir)
+    backup_dir = Path(backup_dir) if backup_dir is not None else None
     for nexus_key, mod_names in (installed_records or {}).items():
         fields = collectionEntryMetadataFields(
             (mods_by_key or {}).get(nexus_key),
@@ -726,9 +824,15 @@ def repairInstalledCollectionModMetadata(
                 result["failed"] += 1
                 continue
             result["checked"] += 1
-            repaired = updateMetaIniGeneralFields(metadata_file, fields)
+            backup_file = backup_dir / mod_name / "meta.ini" if backup_dir else None
+            backup_preexisted = bool(backup_file and backup_file.exists())
+            repaired = updateMetaIniGeneralFields(
+                metadata_file, fields, backup_file=backup_file
+            )
             if repaired:
                 result["repaired"] += 1
+                if backup_file and not backup_preexisted and backup_file.exists():
+                    result["backed_up"] += 1
     return result
 
 

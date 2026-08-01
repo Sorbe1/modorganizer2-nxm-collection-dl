@@ -126,6 +126,7 @@ from collection_helpers import (
     shouldRetryInvalidInstalledCollectionArchive,
     shouldUseArchiveDefaultForFomodCompatibility,
     shouldUseCollectionTargetModName,
+    snapshotMo2ProfileState,
     splitQueuedFomodRecoveryEntries,
     shouldDelayTerminalDownloadFailure,
     staleAlreadyStartedAction,
@@ -443,6 +444,36 @@ class RepairDownloadMetadataInstalledFlagsTests(unittest.TestCase):
             )
 
 
+class ProfileSnapshotTests(unittest.TestCase):
+    def test_snapshots_profile_order_files_with_manifest(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile = base / "profiles" / "Default"
+            profile.mkdir(parents=True)
+            (profile / "modlist.txt").write_text("+A\n-B\n", encoding="utf-8")
+            (profile / "plugins.txt").write_text("*A.esp\nB.esp\n", encoding="utf-8")
+            (profile / "loadorder.txt").write_text(
+                "Skyrim.esm\nA.esp\n", encoding="utf-8"
+            )
+
+            snapshot_dir, manifest = snapshotMo2ProfileState(
+                base_path=base,
+                profile_name="Default",
+                label="known good",
+                timestamp="20260802-120000",
+            )
+
+            self.assertTrue((snapshot_dir / "modlist.txt").exists())
+            self.assertTrue((snapshot_dir / "plugins.txt").exists())
+            self.assertTrue((snapshot_dir / "loadorder.txt").exists())
+            self.assertEqual(manifest["files"]["modlist.txt"]["enabled"], 1)
+            self.assertEqual(manifest["files"]["modlist.txt"]["disabled"], 1)
+            saved_manifest = json.loads(
+                (snapshot_dir / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(saved_manifest["label"], "known good")
+
+
 class InstalledCollectionMetadataRepairTests(unittest.TestCase):
     def test_repairs_manifest_version_and_mo2_category_from_nexus_category(self):
         with TemporaryDirectory() as tmp:
@@ -525,6 +556,48 @@ class InstalledCollectionMetadataRepairTests(unittest.TestCase):
             self.assertEqual(result["repaired"], 1)
             self.assertIn("version=1.05", repaired)
             self.assertIn("newestVersion=1.05", repaired)
+
+    def test_backs_up_meta_ini_before_repair(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            mod_dir = mods / "Example Mod"
+            mod_dir.mkdir(parents=True)
+            metadata = mod_dir / "meta.ini"
+            original = (
+                "[General]\n"
+                "modid=123\n"
+                "version=\n"
+                "newestVersion=\n"
+                "\n"
+                "[installedFiles]\n"
+                "size=1\n"
+                "1\\modid=123\n"
+                "1\\fileid=456\n"
+            )
+            metadata.write_text(original, encoding="utf-8")
+            backup_dir = root / "backups"
+
+            result = repairInstalledCollectionModMetadata(
+                mods,
+                {(123, 456): ["Example Mod"]},
+                {
+                    (123, 456): {
+                        "file": {
+                            "version": "1.2.3",
+                            "mod": {"version": "1.2.3", "category": "Combat"},
+                        }
+                    }
+                },
+                backup_dir=backup_dir,
+            )
+
+            self.assertEqual(result["repaired"], 1)
+            self.assertEqual(result["backed_up"], 1)
+            self.assertEqual(
+                (backup_dir / "Example Mod" / "meta.ini").read_text(encoding="utf-8"),
+                original,
+            )
 
 
 class CollectionPluginActivationTargetTests(unittest.TestCase):

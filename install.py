@@ -104,6 +104,7 @@ from .collection_helpers import (
     shouldAutoCloseInstallSummary,
     shouldPassTargetNameToInstallMod,
     shouldUseArchiveDefaultForFomodCompatibility,
+    snapshotMo2ProfileState,
     splitQueuedFomodRecoveryEntries,
     steamGameRootFromMo2BasePath,
     suppressedPostInstallErrorReviewEntries,
@@ -4516,6 +4517,7 @@ class stepInstallMods(QDialog):
                 Path(context["organizer"].downloadsPath()),
                 {install_key},
                 desired_installed=False,
+                backup_dir=self.repairBackupDir(context, "download-metadata"),
                 expected_file_names=context.get("expected_file_names", {}),
             )
         except Exception as e:
@@ -4547,6 +4549,7 @@ class stepInstallMods(QDialog):
                 Path(context["organizer"].downloadsPath()),
                 set(install_keys),
                 desired_installed=True,
+                backup_dir=self.repairBackupDir(context, "download-metadata"),
                 expected_file_names=context.get("expected_file_names", {}),
             )
         except Exception as e:
@@ -4570,6 +4573,37 @@ class stepInstallMods(QDialog):
                 expected=True,
             )
         return result
+
+    def repairBackupDir(self, context, label):
+        """Return a stable per-install backup directory for repair side effects."""
+        backup_root = context.get("repair_backup_root")
+        if backup_root is None:
+            organizer = context["organizer"]
+            backup_root = (
+                Path(organizer.downloadsPath()).parent
+                / "logs"
+                / "nxm-collection-repair-backups"
+                / datetime.now().strftime("%Y%m%d-%H%M%S")
+            )
+            context["repair_backup_root"] = backup_root
+        return Path(backup_root) / label
+
+    def snapshotProfileBeforeRepair(self, organizer, label):
+        """Snapshot modlist/plugins/loadorder before direct profile-file repair."""
+        try:
+            snapshot_dir, _manifest = snapshotMo2ProfileState(
+                base_path=Path(organizer.basePath()),
+                profile_path=Path(organizer.profilePath()),
+                label=label,
+            )
+            self.log(f"  Profile snapshot before repair: {snapshot_dir}", "note")
+            return snapshot_dir
+        except Exception as e:
+            self.logInstallIssue(
+                f"Could not snapshot MO2 profile before {label}: {e}",
+                expected=True,
+            )
+            return None
 
     def refreshInstalledCollectionState(self, context):
         """Discover installed collection mods, repair metadata, and queue activation."""
@@ -4654,6 +4688,7 @@ class stepInstallMods(QDialog):
                 downloads_path,
                 invalid_payload_keys,
                 desired_installed=False,
+                backup_dir=self.repairBackupDir(context, "download-metadata"),
                 expected_file_names=expected_file_names,
             )
             if invalid_metadata_repair.get("repaired"):
@@ -4696,6 +4731,7 @@ class stepInstallMods(QDialog):
             downloads_path,
             expected_installed_keys,
             desired_installed=True,
+            backup_dir=self.repairBackupDir(context, "download-metadata"),
             expected_file_names=expected_file_names,
         )
         if metadata_repair.get("repaired"):
@@ -4723,6 +4759,7 @@ class stepInstallMods(QDialog):
             category_name_map=mo2CategoryNameMap(
                 Path(organizer.basePath()) / "categories.dat"
             ),
+            backup_dir=self.repairBackupDir(context, "mod-metadata"),
         )
         if mod_metadata_repair.get("repaired"):
             self.log(
@@ -5343,6 +5380,7 @@ class stepInstallMods(QDialog):
         if organizer is None:
             return {"moved": 0, "missing": list(present_mods), "failed": 1}
         profile_path = Path(organizer.profilePath())
+        self.snapshotProfileBeforeRepair(organizer, "priority-repair")
         backup_dir = (
             profile_path
             / "nxm-collection-dl-backups"
@@ -5398,8 +5436,28 @@ class stepInstallMods(QDialog):
         self.log(heading or "Activating plugins from installed mods...")
 
         profile_plugins_path = Path(organizer.profilePath()) / "plugins.txt"
+        backup_dir = (
+            profile_plugins_path.parent
+            / "nxm-collection-dl-backups"
+            / datetime.now().strftime("plugin-repair-%Y%m%d-%H%M%S")
+        )
+        try:
+            plugin_text = profile_plugins_path.read_text(
+                encoding="utf-8", errors="replace"
+            )
+            plugin_lookup = {name.casefold() for name in plugin_names_from_dirs}
+            needs_plugin_repair = any(
+                line.strip()
+                and not line.strip().startswith(("#", "*"))
+                and line.strip().casefold() in plugin_lookup
+                for line in plugin_text.splitlines()
+            )
+        except OSError:
+            needs_plugin_repair = False
+        if needs_plugin_repair:
+            self.snapshotProfileBeforeRepair(organizer, "plugin-repair")
         file_repair = repairPluginEnabledStates(
-            profile_plugins_path, plugin_names_from_dirs
+            profile_plugins_path, plugin_names_from_dirs, backup_dir=backup_dir
         )
         activated = file_repair.get("enabled", 0)
         already_active = file_repair.get("already_enabled", 0)
