@@ -3367,6 +3367,47 @@ class stepInstallMods(QDialog):
                 Path(organizer.modsPath()), mod_name, download_path, mod_id
             )
             if existing_name_match:
+                matched_dir = Path(organizer.modsPath()) / existing_name_match
+                if not installedModHasCompletionPayload(matched_dir):
+                    reason = (
+                        "matched installed container has no payload; "
+                        "leaving archive downloaded-only"
+                    )
+                    self.markDownloadedOnlyMetadata(context, install_key)
+                    quarantine_dir = (
+                        Path(organizer.downloadsPath()).parent
+                        / "logs"
+                        / "nxm-collection-invalid-payloads"
+                        / datetime.now().strftime("%Y%m%d-%H%M%S")
+                    )
+                    quarantine_result = quarantineInvalidPayloadModContainers(
+                        Path(organizer.modsPath()), [existing_name_match], quarantine_dir
+                    )
+                    if quarantine_result.get("moved"):
+                        self.log(
+                            "  Moved metadata-only matched container out of active "
+                            f"mods: {existing_name_match}",
+                            "note",
+                        )
+                    for failure in quarantine_result.get("failed", []):
+                        self.logInstallIssue(
+                            f"Could not move metadata-only matched container: {failure}",
+                            expected=True,
+                        )
+                    failed_entries.append(
+                        {
+                            "mod": mod_name,
+                            "file": file_name,
+                            "mod_id": int(mod_id),
+                            "file_id": int(file_id),
+                            "archive": str(download_path),
+                            "reason": reason,
+                        }
+                    )
+                    self.logInstallIssue(reason, expected=True)
+                    self.log("")
+                    QTimer.singleShot(INSTALL_NEXT_DELAY_MS, self.installNextMod)
+                    return
                 self.log(
                     "  Already installed as: "
                     f"{existing_name_match} (matched installation archive)",
