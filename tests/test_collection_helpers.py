@@ -28,6 +28,7 @@ from collection_helpers import (
     collectionLinkCompletionPolicy,
     collectionMetadataFiles,
     collectionMetadataFromFile,
+    collectionPriorityOrderNeedsRepair,
     collectionRecoveryTargets,
     contentTreeWarningDialogAction,
     collectionDownloadExpectedSizes,
@@ -70,6 +71,7 @@ from collection_helpers import (
     isTransientManualFomodPlanFailure,
     matchingPartialOrphanUnfinishedEntries,
     moveHeadlessArchivePayload,
+    moveModlistEntriesToUiBottom,
     nativeGameRootPathCandidate,
     nativePathForArchiveInspection,
     nexusQuotaRemainingFromText,
@@ -486,7 +488,9 @@ class InstalledCollectionMetadataRepairTests(unittest.TestCase):
 
 
 class CollectionInstallPostconditionAuditTests(unittest.TestCase):
-    def write_mod_metadata(self, mods, name, mod_id=123, file_id=456):
+    def write_mod_metadata(
+        self, mods, name, mod_id=123, file_id=456, valid_payload=True
+    ):
         mod_dir = mods / name
         mod_dir.mkdir(parents=True)
         (mod_dir / "meta.ini").write_text(
@@ -500,6 +504,9 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
             f"1\\fileid={file_id}\n",
             encoding="utf-8",
         )
+        if valid_payload:
+            plugin = mod_dir / "Example.esp"
+            plugin.write_bytes(b"plugin")
 
     def write_download_metadata(self, downloads, installed="true"):
         archive = downloads / "Example-123-456.7z"
@@ -548,6 +555,49 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
 
             self.assertFalse(result["ok"])
             self.assertEqual(len(result["download_metadata_mismatches"]), 1)
+
+    def test_fails_when_installed_metadata_points_to_invalid_payload(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            self.write_mod_metadata(mods, "Example Mod", valid_payload=False)
+            self.write_download_metadata(downloads, installed="true")
+
+            result = collectionInstallPostconditionAudit(
+                downloads,
+                mods,
+                "# generated\n+Example Mod\n",
+                expected_keys={(123, 456)},
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["invalid_payload_mods"], ["Example Mod"])
+            self.assertEqual(result["missing_installs"], [(123, 456)])
+            self.assertEqual(len(result["false_installed_download_metadata"]), 1)
+
+    def test_invalid_payload_with_downloaded_only_metadata_still_needs_review(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            self.write_mod_metadata(mods, "Example Mod", valid_payload=False)
+            self.write_download_metadata(downloads, installed="false")
+
+            result = collectionInstallPostconditionAudit(
+                downloads,
+                mods,
+                "# generated\n-Example Mod\n",
+                expected_keys={(123, 456)},
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["invalid_payload_mods"], ["Example Mod"])
+            self.assertEqual(result["false_installed_download_metadata"], [])
 
     def test_passes_when_metadata_container_and_profile_agree(self):
         with TemporaryDirectory() as tmp:
@@ -599,6 +649,7 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
                 "1\\fileid=0\n",
                 encoding="utf-8",
             )
+            (mod_dir / "Example.esp").write_bytes(b"plugin")
             self.write_download_metadata(downloads, installed="true")
 
             self.assertEqual(
@@ -628,6 +679,7 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
                 "1\\fileid=0\n",
                 encoding="utf-8",
             )
+            (mod_dir / "Example.esp").write_bytes(b"plugin")
 
             self.assertEqual(
                 installedModRecordsFromDirectory(
@@ -658,6 +710,7 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
                 "1\\fileid=0\n",
                 encoding="utf-8",
             )
+            (mod_dir / "FasterHDT.esp").write_bytes(b"plugin")
 
             self.assertEqual(
                 installedModRecordsFromDirectory(
@@ -688,6 +741,7 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
                 "1\\fileid=0\n",
                 encoding="utf-8",
             )
+            (mod_dir / "FasterHDT.esp").write_bytes(b"plugin")
             archive = downloads / "Faster HDT-SMP-57339-2-5-1-1728377043.7z"
             archive.write_bytes(b"archive")
             metadata = downloads / "Faster HDT-SMP-57339-2-5-1-1728377043.7z.meta"
@@ -852,6 +906,77 @@ class RepairModlistEnabledStatesTests(unittest.TestCase):
                 (backup / "modlist.txt").read_text(encoding="utf-8"),
                 "-Example Mod\n",
             )
+
+
+class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
+    def test_moves_entries_after_header_because_mo2_modlist_order_is_reversed(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            modlist = root / "modlist.txt"
+            modlist.write_text(
+                "# This file was automatically generated by Mod Organizer.\n"
+                "+High Priority Existing\n"
+                "+Middle Existing\n"
+                "+New Mod A\n"
+                "+Low Priority Existing\n"
+                "+New Mod B\n",
+                encoding="utf-8",
+            )
+
+            result = moveModlistEntriesToUiBottom(
+                modlist, ["New Mod A", "New Mod B"]
+            )
+
+            self.assertEqual(result["moved"], 2)
+            self.assertEqual(result["missing"], [])
+            self.assertEqual(
+                modlist.read_text(encoding="utf-8").splitlines(),
+                [
+                    "# This file was automatically generated by Mod Organizer.",
+                    "+New Mod A",
+                    "+New Mod B",
+                    "+High Priority Existing",
+                    "+Middle Existing",
+                    "+Low Priority Existing",
+                ],
+            )
+
+    def test_restores_header_to_first_line_when_previous_edit_misplaced_it(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            modlist = root / "modlist.txt"
+            modlist.write_text(
+                "+New Mod A\n"
+                "# This file was automatically generated by Mod Organizer.\n"
+                "+Existing Mod\n",
+                encoding="utf-8",
+            )
+
+            result = moveModlistEntriesToUiBottom(modlist, ["New Mod A"])
+
+            self.assertEqual(result["moved"], 1)
+            self.assertEqual(
+                modlist.read_text(encoding="utf-8").splitlines(),
+                [
+                    "# This file was automatically generated by Mod Organizer.",
+                    "+New Mod A",
+                    "+Existing Mod",
+                ],
+            )
+
+
+class CollectionPriorityOrderNeedsRepairTests(unittest.TestCase):
+    def test_sorted_priorities_before_base_priority_still_need_repair(self):
+        self.assertTrue(collectionPriorityOrderNeedsRepair([0, 1, 2], 717))
+
+    def test_single_priority_before_base_priority_still_needs_repair(self):
+        self.assertTrue(collectionPriorityOrderNeedsRepair([0], 717))
+
+    def test_sorted_priorities_at_collection_tail_are_valid(self):
+        self.assertFalse(collectionPriorityOrderNeedsRepair([717, 718, 719], 717))
+
+    def test_unsorted_priorities_need_repair(self):
+        self.assertTrue(collectionPriorityOrderNeedsRepair([719, 717, 718], 717))
 
 
 class CollectionDownloadExpectedSizesTests(unittest.TestCase):

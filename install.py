@@ -42,6 +42,7 @@ from .collection_helpers import (
     archiveInspectionSubprocessKwargs,
     collectionMetadataFromFile,
     collectionInstallRoute,
+    collectionPriorityOrderNeedsRepair,
     collectionPluginNamesFromModDirs,
     coerceBoolSetting,
     coerceIntSetting,
@@ -80,6 +81,7 @@ from .collection_helpers import (
     nativePathForArchiveInspection,
     preferredCanonicalDownloadArchive,
     mo2CategoryNameMap,
+    moveModlistEntriesToUiBottom,
     preferredRequiredFomodFallbackOption,
     repairDownloadMetadataInstalledFlags,
     repairInstalledCollectionModMetadata,
@@ -2340,6 +2342,7 @@ class stepInstallMods(QDialog):
                 "download_map": download_map,
                 "installed_map": installed_map,
                 "install_evidence_names": self.profileInstallEvidenceNames(organizer),
+                "base_priority": base_priority,
                 "installed_mods": [],
                 "failed_entries": [],
                 "root_level_entries": [],
@@ -4516,46 +4519,12 @@ class stepInstallMods(QDialog):
                 )
 
         if fast_summary_only:
-            plan = context.get("install_plan", [])
-            installed_plan_entries = [
-                entry for entry in plan if entry.get("status") == "installed"
-            ]
-            postcondition_state = {
-                "installed_keys": len(installed_plan_entries),
-                "expected_installed_keys": len(installed_plan_entries),
-                "discovered_mods": len(
-                    {
-                        entry.get("installed_name")
-                        for entry in installed_plan_entries
-                        if entry.get("installed_name")
-                    }
-                ),
-                "layout_repaired": 0,
-                "metadata_repaired": context.get(
-                    "fast_finish_metadata_repair", {}
-                ).get("repaired", 0),
-                "metadata_failed": context.get(
-                    "fast_finish_metadata_repair", {}
-                ).get("failed", 0),
-                "mod_metadata_repaired": 0,
-                "mod_metadata_failed": 0,
-                "invalid_payload_mods": [],
-            }
-            installed_mods = [
-                entry["installed_name"]
-                for entry in installed_plan_entries
-                if entry.get("installed_name")
-            ]
-            context["installed_mods"] = installed_mods
-            mods_to_activate = list(installed_mods) if activation_enabled else []
-            context["mods_to_activate"] = mods_to_activate
             self.log(
-                "No install work remains; using fast summary without full "
-                "post-install sweep.",
+                "No install work remains; validating installed state before "
+                "summary.",
                 "note",
             )
-        else:
-            postcondition_state = self.refreshInstalledCollectionState(context)
+        postcondition_state = self.refreshInstalledCollectionState(context)
         transient_cleanup = removeStaleCollectionTransientDirs(Path(organizer.modsPath()))
         if transient_cleanup["removed"]:
             self.log(
@@ -4600,9 +4569,12 @@ class stepInstallMods(QDialog):
                     "note",
                 )
 
-        if installed_mods and not fast_summary_only:
+        if installed_mods:
             priority_order = self.reconcileCollectionPriorityOrder(
-                modlist, installed_mods
+                organizer,
+                modlist,
+                installed_mods,
+                context.get("base_priority"),
             )
             self.log("")
 
@@ -4947,11 +4919,12 @@ class stepInstallMods(QDialog):
                     ),
                 )
 
-    def reconcileCollectionPriorityOrder(self, modlist, installed_mods):
+    def reconcileCollectionPriorityOrder(
+        self, organizer, modlist, installed_mods, base_priority=None
+    ):
         ordered_mods = list(dict.fromkeys(installed_mods))
         result = {"verified": 0, "moved": 0, "failed": 0}
-        if len(ordered_mods) < 2:
-            result["verified"] = len(ordered_mods)
+        if not ordered_mods:
             return result
 
         priority_by_mod = {}
@@ -4972,7 +4945,7 @@ class stepInstallMods(QDialog):
             return result
 
         current_priorities = [priority_by_mod[name] for name in present_mods]
-        if current_priorities == sorted(current_priorities):
+        if not collectionPriorityOrderNeedsRepair(current_priorities, base_priority):
             result["verified"] = len(present_mods)
             result["failed"] = len(missing_mods)
             self.log(
@@ -4982,6 +4955,11 @@ class stepInstallMods(QDialog):
             return result
 
         target_priority = min(current_priorities)
+        try:
+            if base_priority is not None:
+                target_priority = max(target_priority, int(base_priority))
+        except (TypeError, ValueError):
+            pass
         self.log(
             "Collection priority order differed from the manifest; repairing...",
             "note",
@@ -5011,21 +4989,67 @@ class stepInstallMods(QDialog):
             repaired_priorities = [modlist.priority(name) for name in present_mods]
         except Exception:
             repaired_priorities = []
-        if repaired_priorities == sorted(repaired_priorities):
+        if not collectionPriorityOrderNeedsRepair(repaired_priorities, base_priority):
             result["verified"] = len(present_mods)
             self.log(
                 f"Collection priority order repaired for {len(present_mods)} mods",
                 "success",
             )
         else:
-            result["failed"] += len(present_mods)
-            self.logInstallIssue(
-                "Collection priority order still differs after repair",
-                expected=True,
+            fallback_result = self.repairCollectionModlistFileOrder(
+                organizer, present_mods
             )
+            if fallback_result["failed"]:
+                result["failed"] += len(present_mods)
+                self.logInstallIssue(
+                    "Collection priority order still differs after repair",
+                    expected=True,
+                )
+            else:
+                result["moved"] += fallback_result["moved"]
+                result["verified"] = len(present_mods)
+                self.log(
+                    "Collection priority order repaired on disk for "
+                    f"{fallback_result['moved']} mod(s)",
+                    "success",
+                )
 
         result["failed"] += len(missing_mods)
         return result
+
+    def repairCollectionModlistFileOrder(self, organizer, present_mods):
+        if organizer is None:
+            return {"moved": 0, "missing": list(present_mods), "failed": 1}
+        profile_path = Path(organizer.profilePath())
+        backup_dir = (
+            profile_path
+            / "nxm-collection-dl-backups"
+            / datetime.now().strftime("priority-repair-%Y%m%d-%H%M%S")
+        )
+        repair_result = moveModlistEntriesToUiBottom(
+            profile_path / "modlist.txt", present_mods, backup_dir=backup_dir
+        )
+        if repair_result.get("missing"):
+            repair_result["failed"] = repair_result.get("failed", 0) + len(
+                repair_result["missing"]
+            )
+            self.logInstallIssue(
+                "Collection mod(s) missing from profile modlist during disk "
+                "priority repair: "
+                + ", ".join(
+                    safeDisplayText(name) for name in repair_result["missing"][:10]
+                ),
+                expected=True,
+            )
+        try:
+            organizer.refresh(True)
+        except Exception as e:
+            repair_result["failed"] = repair_result.get("failed", 0) + 1
+            self.logInstallIssue(
+                f"Could not refresh MO2 after profile priority repair: {e}",
+                expected=True,
+            )
+        return repair_result
 
     def activatePluginsForMods(self, organizer, mod_names, heading=None):
         plugin_names_from_dirs = collectionPluginNamesFromModDirs(
