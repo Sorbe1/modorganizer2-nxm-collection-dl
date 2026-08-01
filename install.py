@@ -2616,6 +2616,16 @@ class stepInstallMods(QDialog):
                         counts["repair_invalid_empty"] += 1
                     else:
                         counts["invalid_nonempty"] += 1
+                elif invalid_installed:
+                    entry["status"] = "failed"
+                    entry["installed_name"] = installed_name
+                    entry["reason"] = (
+                        "installed container has no valid game data and source "
+                        "archive is missing"
+                    )
+                    counts["missing"] += 1
+                    plan.append(entry)
+                    continue
 
                 if invalid_installed_name is None:
                     entry["status"] = "installed"
