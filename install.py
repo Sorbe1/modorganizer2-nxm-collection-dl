@@ -1108,6 +1108,35 @@ class stepInstallMods(QDialog):
                     f"Could not disable no-op FOMOD container {installed_name}: {e}",
                     expected=True,
                 )
+            try:
+                organizer = context["organizer"]
+                downloads_path = Path(organizer.downloadsPath())
+                quarantine_dir = (
+                    downloads_path.parent
+                    / "logs"
+                    / "nxm-collection-no-applicable-payloads"
+                    / datetime.now().strftime("%Y%m%d-%H%M%S")
+                )
+                quarantine_result = quarantineInvalidPayloadModContainers(
+                    Path(organizer.modsPath()), [installed_name], quarantine_dir
+                )
+                if quarantine_result.get("moved"):
+                    entry["quarantined_container"] = installed_name
+                    self.log(
+                        "  Moved no-op FOMOD container out of active mods: "
+                        f"{installed_name}",
+                        "note",
+                    )
+                for failure in quarantine_result.get("failed", []):
+                    self.logInstallIssue(
+                        f"Could not move no-op FOMOD container: {failure}",
+                        expected=True,
+                    )
+            except Exception as e:
+                self.logInstallIssue(
+                    f"Could not quarantine no-op FOMOD container {installed_name}: {e}",
+                    expected=True,
+                )
         self.markDownloadedOnlyMetadata(context, install_key)
 
     def isExpectedInstallException(self, error):
@@ -4494,6 +4523,7 @@ class stepInstallMods(QDialog):
         discovered_names = []
         invalid_payload_mods = []
         invalid_payload_keys = set()
+        invalid_payload_quarantine = {"moved": [], "missing": [], "failed": []}
         valid_installed_keys = set()
         layout_repairs = 0
         for nexus_key in ordered_keys:
@@ -4554,17 +4584,17 @@ class stepInstallMods(QDialog):
                 / "nxm-collection-invalid-payloads"
                 / datetime.now().strftime("%Y%m%d-%H%M%S")
             )
-            quarantine_result = quarantineInvalidPayloadModContainers(
+            invalid_payload_quarantine = quarantineInvalidPayloadModContainers(
                 mods_path, invalid_payload_mods, quarantine_dir
             )
-            if quarantine_result.get("moved"):
+            if invalid_payload_quarantine.get("moved"):
                 self.log(
                     "Moved invalid collection container(s) out of active mods: "
-                    f"{len(quarantine_result['moved'])}",
+                    f"{len(invalid_payload_quarantine['moved'])}",
                     "note",
                 )
-            if quarantine_result.get("failed"):
-                for failure in quarantine_result["failed"]:
+            if invalid_payload_quarantine.get("failed"):
+                for failure in invalid_payload_quarantine["failed"]:
                     self.logInstallIssue(
                         f"Could not move invalid collection container: {failure}",
                         expected=True,
@@ -4624,8 +4654,10 @@ class stepInstallMods(QDialog):
             )
         if invalid_payload_mods:
             self.log(
-                "Collection containers without valid game-data payload will remain "
-                f"disabled: {len(invalid_payload_mods)}",
+                "Collection containers without valid game-data payload were "
+                "moved out of active mods: "
+                f"{len(invalid_payload_quarantine.get('moved', []))}/"
+                f"{len(invalid_payload_mods)}",
                 "note",
             )
         return {
@@ -4639,6 +4671,7 @@ class stepInstallMods(QDialog):
             "mod_metadata_failed": mod_metadata_repair.get("failed", 0),
             "invalid_payload_mods": invalid_payload_mods,
             "invalid_payload_keys": sorted(invalid_payload_keys),
+            "invalid_payload_quarantine": invalid_payload_quarantine,
         }
 
     def finishInstallation(self, cancelled=False):
