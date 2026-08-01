@@ -170,6 +170,9 @@ def run_7z(args, timeout):
 
 def handle_request(payload):
     action = str(payload.get("action") or "").strip()
+    if action == "shutdown":
+        return {"ok": True, "shutdown": True}
+
     archive = str(payload.get("archive") or "").strip()
     if not archive:
         return {"ok": False, "error": "Request missing archive path."}
@@ -222,29 +225,31 @@ def process_request(path):
     try:
         payload = json.loads(request_path.read_text(encoding="utf-8"))
     except Exception as e:
-        return False, f"Could not read request {request_path}: {e}"
+        return False, f"Could not read request {request_path}: {e}", False
 
     result_path = payload.get("result_path")
     if not result_path:
-        return False, f"Request {request_path} missing result_path."
+        return False, f"Request {request_path} missing result_path.", False
     result = handle_request(payload)
     write_result(result_path, result)
     try:
         request_path.unlink()
     except OSError:
         pass
-    return True, None
+    return True, None, bool(result.get("shutdown"))
 
 
 def run_once(request_dir):
     request_paths = sorted(Path(request_dir).glob("*.request.json"))
     processed = 0
+    shutdown_requested = False
     for request_path in request_paths:
-        ok, error = process_request(request_path)
+        ok, error, shutdown = process_request(request_path)
         if not ok:
             print(error, flush=True)
         processed += 1
-    return processed
+        shutdown_requested = shutdown_requested or shutdown
+    return processed, shutdown_requested
 
 
 def main():
@@ -264,7 +269,10 @@ def main():
 
     while True:
         write_heartbeat(request_dir)
-        run_once(request_dir)
+        _, shutdown_requested = run_once(request_dir)
+        if shutdown_requested:
+            write_heartbeat(request_dir)
+            return 0
         time.sleep(max(args.poll_ms, 10) / 1000.0)
 
 

@@ -3,6 +3,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import time
 from tempfile import TemporaryDirectory
 import unittest
 from unittest import mock
@@ -1880,6 +1881,14 @@ class NativeArchiveWorkerTests(unittest.TestCase):
             {"ok": False, "error": "Request missing archive path."},
         )
 
+    def test_reports_shutdown_request(self):
+        from scripts.native_archive_worker import handle_request
+
+        self.assertEqual(
+            handle_request({"action": "shutdown"}),
+            {"ok": True, "shutdown": True},
+        )
+
     def test_finds_fomod_module_config_path(self):
         from scripts.native_archive_worker import seven_zip_module_config_path
 
@@ -1965,6 +1974,51 @@ class NativeArchiveWorkerTests(unittest.TestCase):
             payload = json.loads(heartbeat.read_text(encoding="utf-8"))
             self.assertTrue(payload["ok"])
             self.assertIn("time", payload)
+
+    def test_shutdown_request_exits_running_worker(self):
+        with TemporaryDirectory() as tmp:
+            request_dir = Path(tmp) / "requests"
+            request_dir.mkdir()
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "scripts/native_archive_worker.py",
+                    str(request_dir),
+                    "--poll-ms",
+                    "20",
+                ],
+                cwd=Path(__file__).resolve().parent.parent,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            try:
+                heartbeat = request_dir / "native-archive-worker.heartbeat.json"
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline and not heartbeat.exists():
+                    time.sleep(0.02)
+                self.assertTrue(heartbeat.exists())
+
+                result_path = request_dir / "shutdown.result.json"
+                request_path = request_dir / "shutdown.request.json"
+                request_path.write_text(
+                    json.dumps(
+                        {
+                            "action": "shutdown",
+                            "result_path": str(result_path),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                process.wait(timeout=5)
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+                self.assertEqual(result, {"ok": True, "shutdown": True})
+                self.assertEqual(process.returncode, 0)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
 
 
 class NativeArchiveWorkerHeartbeatStatusTests(unittest.TestCase):

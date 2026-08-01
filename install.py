@@ -963,10 +963,25 @@ class stepInstallMods(QDialog):
         self.last_failed_entries = []
         self.warning_report_path = None
         self.fomod_guide_path = None
+        self._native_archive_worker_process = None
+        self._native_archive_worker_launch_failed = False
+        self._native_archive_worker_cleanup_done = False
 
         # Start installation after dialog is shown
         if auto_start:
             QTimer.singleShot(500, self.startInstallation)
+
+    def accept(self):
+        self.stopNativeArchiveWorker()
+        super().accept()
+
+    def reject(self):
+        self.stopNativeArchiveWorker()
+        super().reject()
+
+    def closeEvent(self, event):
+        self.stopNativeArchiveWorker()
+        super().closeEvent(event)
 
     def openWarningReport(self):
         self.openGeneratedReport(self.warning_report_path)
@@ -1985,6 +2000,70 @@ class stepInstallMods(QDialog):
             "debug",
         )
         return False
+
+    def stopNativeArchiveWorker(self):
+        """Ask the native archive worker to exit and reap the tracked process."""
+        if getattr(self, "_native_archive_worker_cleanup_done", False):
+            return
+        self._native_archive_worker_cleanup_done = True
+
+        context = self.install_context or {}
+        organizer = context.get("organizer")
+        process = getattr(self, "_native_archive_worker_process", None)
+
+        if organizer is not None:
+            try:
+                request_dir = self.nativeArchiveWorkerDirectory(organizer)
+                if request_dir.exists() and self.nativeArchiveWorkerAvailable(
+                    organizer,
+                    max_age_seconds=10.0,
+                    attempts=1,
+                    retry_delay_seconds=0,
+                ):
+                    request_id = f"shutdown-{int(time.time() * 1000)}-{uuid.uuid4().hex}"
+                    request_path = request_dir / f"{request_id}.request.json"
+                    result_path = request_dir / f"{request_id}.result.json"
+                    tmp_path = request_dir / f"{request_id}.request.json.tmp"
+                    payload = {
+                        "id": request_id,
+                        "action": "shutdown",
+                        "result_path": nativePathForArchiveInspection(result_path),
+                    }
+                    tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                    tmp_path.rename(request_path)
+                    deadline = time.monotonic() + 2.0
+                    while time.monotonic() < deadline:
+                        if result_path.exists():
+                            try:
+                                result_path.unlink()
+                            except OSError:
+                                pass
+                            break
+                        if process is not None:
+                            try:
+                                if process.poll() is not None:
+                                    break
+                            except Exception:
+                                break
+                        time.sleep(0.05)
+            except Exception as e:
+                qDebug(f"[NXMColDL Install] Native archive worker cleanup failed: {e}")
+
+        if process is not None:
+            try:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=2)
+            except Exception as e:
+                qDebug(
+                    "[NXMColDL Install] Native archive worker process cleanup failed: "
+                    f"{e}"
+                )
+        self._native_archive_worker_process = None
 
     def nativeArchiveWorkerAvailable(
         self, organizer, max_age_seconds=30.0, attempts=5, retry_delay_seconds=0.05
