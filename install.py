@@ -2603,8 +2603,17 @@ class stepInstallMods(QDialog):
                 if installed_action == "repair-empty":
                     invalid_installed_name = installed_name
                     counts["repair_invalid_empty"] += 1
-                elif installed_action == "keep-invalid":
+                elif installed_action == "review-invalid":
+                    entry["status"] = "failed"
+                    entry["installed_name"] = installed_name
+                    entry["reason"] = (
+                        "installed container has no valid game data; source archive "
+                        "needs manual install"
+                    )
                     counts["invalid_nonempty"] += 1
+                    self.markDownloadedOnlyMetadata(context, install_key)
+                    plan.append(entry)
+                    continue
                 elif installed_action == "fail-missing-archive":
                     entry["status"] = "failed"
                     entry["installed_name"] = installed_name
@@ -2881,7 +2890,7 @@ class stepInstallMods(QDialog):
             f"{counts['named']} reserved names, "
             f"{counts['repair_invalid']} invalid installed repair(s), "
             f"{counts['repair_invalid_empty']} meta-only invalid repair(s), "
-            f"{counts['invalid_nonempty']} non-empty invalid kept installed.",
+            f"{counts['invalid_nonempty']} non-empty invalid review(s).",
             "note",
         )
         self.log("")

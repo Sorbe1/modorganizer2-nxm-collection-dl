@@ -3392,6 +3392,17 @@ class InstallRuntimeSourceTests(unittest.TestCase):
             method_source,
         )
 
+    def test_invalid_plan_entries_are_downloaded_only_review_failures(self):
+        source = self.install_source()
+        plan_source = source.split("def prepareInstallPlan(", 1)[1].split(
+            "\n    def fastFinishInstallPlan(", 1
+        )[0]
+
+        self.assertIn('installed_action == "review-invalid"', plan_source)
+        self.assertIn("self.markDownloadedOnlyMetadata(context, install_key)", plan_source)
+        self.assertIn("needs manual install", plan_source)
+        self.assertNotIn("non-empty invalid kept installed", plan_source)
+
 
 class CoerceIntSettingTests(unittest.TestCase):
     def test_accepts_native_and_string_integer_values(self):
@@ -4046,6 +4057,18 @@ class InstalledPayloadCompletionTests(unittest.TestCase):
             self.assertEqual(
                 invalidInstalledCollectionPlanAction(mod_dir, True),
                 "repair-empty",
+            )
+
+    def test_invalid_installed_plan_action_reviews_invalid_payload_with_archive(self):
+        with TemporaryDirectory() as tmp:
+            mod_dir = Path(tmp) / "Docs Only Installer Result"
+            mod_dir.mkdir()
+            (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
+            (mod_dir / "readme.txt").write_text("notes", encoding="utf-8")
+
+            self.assertEqual(
+                invalidInstalledCollectionPlanAction(mod_dir, True),
+                "review-invalid",
             )
 
     def test_invalid_installed_plan_action_fails_without_archive(self):

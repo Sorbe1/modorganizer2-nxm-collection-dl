@@ -995,7 +995,7 @@ def invalidInstalledCollectionPlanAction(mod_dir, source_archive_available):
         return "fail-missing-archive"
     if not installedModHasCompletionPayload(mod_dir):
         return "repair-empty"
-    return "keep-invalid"
+    return "review-invalid"
 
 
 def isBenignEmptyFomodInstallerResult(fomod_state, guide):
