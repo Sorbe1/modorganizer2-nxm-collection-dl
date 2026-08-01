@@ -61,6 +61,7 @@ from collection_helpers import (
     installedPayloadFileCount,
     installedModRecordsFromDirectory,
     installPlanExecutionAction,
+    invalidInstalledCollectionPlanAction,
     collectionPluginActivationTargetModNames,
     collectionInvalidPayloadModNames,
     collectionPluginNamesFromModDirs,
@@ -4026,6 +4027,41 @@ class InvalidInstalledCollectionArchiveRetryTests(unittest.TestCase):
             (mesh_dir / "example.nif").write_text("mesh", encoding="utf-8")
 
             self.assertIsNone(installedModCompletionIssueReason(mod_dir))
+
+    def test_invalid_installed_plan_action_accepts_valid_payload(self):
+        with TemporaryDirectory() as tmp:
+            mod_dir = Path(tmp) / "Valid Texture Mod"
+            texture_dir = mod_dir / "textures"
+            texture_dir.mkdir(parents=True)
+            (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
+            (texture_dir / "example.dds").write_text("texture", encoding="utf-8")
+
+            self.assertEqual(
+                invalidInstalledCollectionPlanAction(mod_dir, False),
+                "installed",
+            )
+
+    def test_invalid_installed_plan_action_repairs_empty_with_archive(self):
+        with TemporaryDirectory() as tmp:
+            mod_dir = Path(tmp) / "Empty Installer Result"
+            mod_dir.mkdir()
+            (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
+
+            self.assertEqual(
+                invalidInstalledCollectionPlanAction(mod_dir, True),
+                "repair-empty",
+            )
+
+    def test_invalid_installed_plan_action_fails_without_archive(self):
+        with TemporaryDirectory() as tmp:
+            mod_dir = Path(tmp) / "Empty Installer Result"
+            mod_dir.mkdir()
+            (mod_dir / "meta.ini").write_text("[General]\n", encoding="utf-8")
+
+            self.assertEqual(
+                invalidInstalledCollectionPlanAction(mod_dir, False),
+                "fail-missing-archive",
+            )
 
     def test_empty_fomod_without_required_choices_is_benign_noop(self):
         self.assertTrue(

@@ -64,6 +64,7 @@ from .collection_helpers import (
     headlessInstallMetaIni,
     headlessPayloadRootValid,
     headlessArchivePreflightFallback,
+    invalidInstalledCollectionPlanAction,
     installedModCompletionIssueReason,
     installedModHasCompletionPayload,
     installedPayloadFileCount,
@@ -2602,21 +2603,15 @@ class stepInstallMods(QDialog):
             if install_key in installed_map:
                 installed_name = installed_map[install_key]
                 installed_dir = mods_path / installed_name
-                invalid_installed = (
-                    installed_dir / "meta.ini"
-                ).exists() and not headlessPayloadRootValid(installed_dir)
-                if invalid_installed and download_path:
-                    invalid_payload_files = installedPayloadFileCount(installed_dir)
-                    # Empty invalid containers are interrupted installer outputs and can be
-                    # replayed from the archive. Non-empty invalid containers may be
-                    # deliberate tool/root payloads, so keep them installed and let the
-                    # final sweep disable them instead of forcing a lossy reinstall.
-                    if invalid_payload_files == 0:
-                        invalid_installed_name = installed_name
-                        counts["repair_invalid_empty"] += 1
-                    else:
-                        counts["invalid_nonempty"] += 1
-                elif invalid_installed:
+                installed_action = invalidInstalledCollectionPlanAction(
+                    installed_dir, bool(download_path)
+                )
+                if installed_action == "repair-empty":
+                    invalid_installed_name = installed_name
+                    counts["repair_invalid_empty"] += 1
+                elif installed_action == "keep-invalid":
+                    counts["invalid_nonempty"] += 1
+                elif installed_action == "fail-missing-archive":
                     entry["status"] = "failed"
                     entry["installed_name"] = installed_name
                     entry["reason"] = (

@@ -976,6 +976,17 @@ def installedModCompletionIssueReason(mod_dir):
     return None
 
 
+def invalidInstalledCollectionPlanAction(mod_dir, source_archive_available):
+    """Return how a planner should treat an already-installed collection entry."""
+    if installedModCompletionIssueReason(mod_dir) is None:
+        return "installed"
+    if not source_archive_available:
+        return "fail-missing-archive"
+    if not installedModHasCompletionPayload(mod_dir):
+        return "repair-empty"
+    return "keep-invalid"
+
+
 def isBenignEmptyFomodInstallerResult(fomod_state, guide):
     """Return True when an empty FOMOD result is a valid no-op for this profile."""
     if fomod_state is not True:
