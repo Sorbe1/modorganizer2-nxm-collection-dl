@@ -2351,6 +2351,13 @@ class stepInstallMods(QDialog):
         ]
         if entry.get("archive"):
             lines.append(f"- Archive: `{entry['archive']}`")
+        layout_plan = entry.get("headless_archive_layout") or {}
+        layout_diagnostics = layout_plan.get("diagnostics") or {}
+        if layout_diagnostics.get("summary"):
+            lines.append(
+                "- Archive layout: "
+                f"{safeDisplayText(layout_diagnostics.get('summary'))}"
+            )
         if entry.get("missing_masters"):
             lines.append(
                 "- Missing masters: "

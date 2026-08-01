@@ -788,6 +788,46 @@ def _singleCommonWrapperLayout(payload_paths, max_depth=4):
     return None
 
 
+def _archiveLayoutDiagnostics(install_paths):
+    roots = sorted({path.split("/", 1)[0] for path in install_paths if path})
+    marker_roots = []
+    plugin_files = []
+    variant_data_prefixes = []
+    for path in install_paths:
+        parts = path.split("/")
+        if not parts:
+            continue
+        first = parts[0].casefold()
+        if first in DIRECT_INSTALL_MARKER_DIRS and parts[0] not in marker_roots:
+            marker_roots.append(parts[0])
+        if Path(path).suffix.casefold() in DIRECT_INSTALL_PLUGIN_EXTENSIONS:
+            plugin_files.append(path)
+        for index, part in enumerate(parts[:-1]):
+            if part.casefold() != "data" or index == 0:
+                continue
+            prefix = "/".join(parts[: index + 1]) + "/"
+            if prefix not in variant_data_prefixes:
+                variant_data_prefixes.append(prefix)
+    details = []
+    if roots:
+        details.append("top-level entries: " + ", ".join(roots[:8]))
+    if marker_roots:
+        details.append("direct game-data folders: " + ", ".join(marker_roots[:8]))
+    if plugin_files:
+        details.append("plugin files: " + ", ".join(plugin_files[:8]))
+    if variant_data_prefixes:
+        details.append(
+            "nested Data candidates: " + ", ".join(variant_data_prefixes[:8])
+        )
+    return {
+        "top_level_entries": roots[:20],
+        "direct_game_data_folders": marker_roots[:20],
+        "plugin_files": plugin_files[:20],
+        "nested_data_candidates": variant_data_prefixes[:20],
+        "summary": "; ".join(details),
+    }
+
+
 def headlessArchiveInstallLayout(member_names):
     """Return a conservative root-stripping plan for direct archive extraction."""
     payload_paths = []
@@ -907,6 +947,7 @@ def headlessArchiveInstallLayout(member_names):
         "installable": False,
         "reason": "ambiguous archive layout",
         "strip_prefix": "",
+        "diagnostics": _archiveLayoutDiagnostics(install_paths),
     }
 
 

@@ -4480,6 +4480,25 @@ class HeadlessZipInstallLayoutTests(unittest.TestCase):
         self.assertTrue(plan["installable"])
         self.assertEqual(plan["strip_prefix"], "data/")
 
+    def test_ambiguous_layout_reports_diagnostics(self):
+        plan = headlessZipInstallLayout(
+            [
+                "4k/Data/textures/example.dds",
+                "2k/Data/textures/example.dds",
+                "Preview/readme.txt",
+            ]
+        )
+
+        self.assertFalse(plan["installable"])
+        self.assertEqual(plan["reason"], "ambiguous archive layout")
+        diagnostics = plan["diagnostics"]
+        self.assertEqual(diagnostics["top_level_entries"], ["2k", "4k"])
+        self.assertEqual(
+            diagnostics["nested_data_candidates"],
+            ["4k/Data/", "2k/Data/"],
+        )
+        self.assertIn("nested Data candidates", diagnostics["summary"])
+
     def test_strips_single_wrapper_lowercase_data_folder(self):
         plan = headlessZipInstallLayout(
             [
