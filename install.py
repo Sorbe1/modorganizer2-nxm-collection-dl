@@ -4613,6 +4613,7 @@ class stepInstallMods(QDialog):
             "mod_metadata_repaired": mod_metadata_repair.get("repaired", 0),
             "mod_metadata_failed": mod_metadata_repair.get("failed", 0),
             "invalid_payload_mods": invalid_payload_mods,
+            "invalid_payload_keys": sorted(invalid_payload_keys),
         }
 
     def finishInstallation(self, cancelled=False):
@@ -4683,10 +4684,42 @@ class stepInstallMods(QDialog):
             )
         invalid_payload_mods = set(postcondition_state.get("invalid_payload_mods", []))
         if invalid_payload_mods:
+            invalid_payload_keys = {
+                tuple(key)
+                for key in postcondition_state.get("invalid_payload_keys", [])
+                if isinstance(key, (list, tuple)) and len(key) == 2
+            }
+            failed_keys = {
+                (int(entry["mod_id"]), int(entry["file_id"]))
+                for entry in failed_entries
+                if entry.get("mod_id") is not None and entry.get("file_id") is not None
+            }
+            entries_by_key = {}
+            for mod_info in mods_to_install:
+                nexus_key = collectionEntryNexusKey(mod_info)
+                if nexus_key is not None and nexus_key not in entries_by_key:
+                    entries_by_key[nexus_key] = mod_info
+            for nexus_key in sorted(invalid_payload_keys - failed_keys):
+                mod_info = entries_by_key.get(nexus_key)
+                if mod_info is None:
+                    continue
+                failed_entries.append(
+                    {
+                        "mod": mod_info["file"]["mod"]["name"],
+                        "file": mod_info["file"]["name"],
+                        "mod_id": int(nexus_key[0]),
+                        "file_id": int(nexus_key[1]),
+                        "reason": "installed container has no valid game data",
+                    }
+                )
+
             mods_to_activate = [
                 name for name in mods_to_activate if name not in invalid_payload_mods
             ]
             context["mods_to_activate"] = mods_to_activate
+            installed_mods[:] = [
+                name for name in installed_mods if name not in invalid_payload_mods
+            ]
             disabled_count = 0
             for internal_name in sorted(invalid_payload_mods):
                 try:

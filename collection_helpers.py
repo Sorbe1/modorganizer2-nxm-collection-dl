@@ -2274,13 +2274,13 @@ def installPlanExecutionAction(fast_finish):
 def fastFinishMetadataRepairKeys(plan_entries):
     """Return Nexus keys that need metadata repair during a no-op replay.
 
-    A fast-finished replay skips the normal postcondition sweep, so both
-    already-installed mod containers and root/game-directory entries need their
-    download metadata reconciled explicitly here.
+    A fast-finished replay still validates installed mod containers in the final
+    postcondition sweep. Only root/game-directory entries need explicit metadata
+    reconciliation here because they have no MO2 mod container to audit.
     """
     keys = set()
     for entry in plan_entries or []:
-        if entry.get("status") not in {"installed", "root"}:
+        if entry.get("status") != "root":
             continue
         key = entry.get("install_key")
         if isinstance(key, tuple) and len(key) == 2:

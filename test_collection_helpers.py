@@ -2489,14 +2489,14 @@ class NativeArchiveWorkerTests(unittest.TestCase):
                     encoding="utf-8",
                 )
 
-                process.wait(timeout=5)
+                process.communicate(timeout=5)
                 result = json.loads(result_path.read_text(encoding="utf-8"))
                 self.assertEqual(result, {"ok": True, "shutdown": True})
                 self.assertEqual(process.returncode, 0)
             finally:
                 if process.poll() is None:
                     process.kill()
-                    process.wait(timeout=5)
+                    process.communicate(timeout=5)
 
 
 class NativeArchiveWorkerHeartbeatStatusTests(unittest.TestCase):
@@ -3372,15 +3372,15 @@ class InstallPlanExecutionActionTests(unittest.TestCase):
 
 
 class FastFinishMetadataRepairKeysTests(unittest.TestCase):
-    def test_includes_installed_entries_because_fast_finish_skips_sweep(self):
+    def test_excludes_installed_entries_because_final_sweep_validates_them(self):
         self.assertEqual(
             fastFinishMetadataRepairKeys(
                 [{"status": "installed", "install_key": (123, 456)}]
             ),
-            {(123, 456)},
+            set(),
         )
 
-    def test_returns_installed_and_root_entries_without_failed_entries(self):
+    def test_returns_only_root_entries_without_failed_entries(self):
         self.assertEqual(
             fastFinishMetadataRepairKeys(
                 [
@@ -3389,7 +3389,7 @@ class FastFinishMetadataRepairKeysTests(unittest.TestCase):
                     {"status": "failed", "install_key": (999, 111)},
                 ]
             ),
-            {(123, 456), (321, 654)},
+            {(321, 654)},
         )
 
 
