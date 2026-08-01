@@ -3386,6 +3386,46 @@ def collectionInstallPostconditionAudit(
     }
 
 
+def quarantineInvalidPayloadModContainers(mods_dir, mod_names, quarantine_dir):
+    """Move invalid collection containers out of MO2's active mods directory."""
+    result = {"moved": [], "missing": [], "failed": []}
+    mods_dir = Path(mods_dir)
+    quarantine_dir = Path(quarantine_dir)
+    requested = [name for name in dict.fromkeys(mod_names or []) if name]
+    if not requested:
+        return result
+
+    try:
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        result["failed"] = [
+            f"{name}: quarantine directory unavailable: {e}" for name in requested
+        ]
+        return result
+
+    for mod_name in requested:
+        source = mods_dir / mod_name
+        if not source.exists():
+            result["missing"].append(mod_name)
+            continue
+        if not source.is_dir():
+            result["failed"].append(f"{mod_name}: not a directory")
+            continue
+
+        destination = quarantine_dir / mod_name
+        suffix = 2
+        while destination.exists():
+            destination = quarantine_dir / f"{mod_name} #{suffix}"
+            suffix += 1
+        try:
+            shutil.move(str(source), str(destination))
+            result["moved"].append(mod_name)
+        except OSError as e:
+            result["failed"].append(f"{mod_name}: {e}")
+
+    return result
+
+
 def repairModlistEnabledStates(modlist_path, mod_names, backup_dir=None):
     """Enable matching MO2 profile modlist entries while preserving order."""
     result = {

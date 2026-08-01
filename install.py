@@ -87,6 +87,7 @@ from .collection_helpers import (
     pluginMasterDependencyReviewEntries,
     pluginRepairFailureReviewEntries,
     preferredCanonicalDownloadArchive,
+    quarantineInvalidPayloadModContainers,
     mo2CategoryNameMap,
     moveModlistEntriesToUiBottom,
     preferredRequiredFomodFallbackOption,
@@ -4547,6 +4548,27 @@ class stepInstallMods(QDialog):
                     "file(s) downloaded-only",
                     expected=True,
                 )
+            quarantine_dir = (
+                downloads_path.parent
+                / "logs"
+                / "nxm-collection-invalid-payloads"
+                / datetime.now().strftime("%Y%m%d-%H%M%S")
+            )
+            quarantine_result = quarantineInvalidPayloadModContainers(
+                mods_path, invalid_payload_mods, quarantine_dir
+            )
+            if quarantine_result.get("moved"):
+                self.log(
+                    "Moved invalid collection container(s) out of active mods: "
+                    f"{len(quarantine_result['moved'])}",
+                    "note",
+                )
+            if quarantine_result.get("failed"):
+                for failure in quarantine_result["failed"]:
+                    self.logInstallIssue(
+                        f"Could not move invalid collection container: {failure}",
+                        expected=True,
+                    )
 
         metadata_repair = repairDownloadMetadataInstalledFlags(
             downloads_path,

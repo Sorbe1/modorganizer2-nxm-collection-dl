@@ -96,6 +96,7 @@ from collection_helpers import (
     popDownloadKey,
     preferredCanonicalDownloadArchive,
     preferredRequiredFomodFallbackOption,
+    quarantineInvalidPayloadModContainers,
     removeOrphanUnfinishedEntries,
     removeOrphanUnfinishedDownloadsForKeys,
     removeUnfinishedEntries,
@@ -842,6 +843,51 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
                 gameRootFileEvidenceForCollectionEntry((57339, 550156), game_root),
                 [],
             )
+
+
+class QuarantineInvalidPayloadModContainersTests(unittest.TestCase):
+    def test_moves_invalid_payload_containers_out_of_active_mods(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            quarantine = root / "logs" / "invalid"
+            bad_mod = mods / "Broken Mod"
+            bad_mod.mkdir(parents=True)
+            (bad_mod / "meta.ini").write_text("[General]\n", encoding="utf-8")
+
+            result = quarantineInvalidPayloadModContainers(
+                mods, ["Broken Mod"], quarantine
+            )
+
+            self.assertEqual(result["moved"], ["Broken Mod"])
+            self.assertFalse(bad_mod.exists())
+            self.assertTrue((quarantine / "Broken Mod" / "meta.ini").exists())
+
+    def test_reports_missing_invalid_payload_containers(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = quarantineInvalidPayloadModContainers(
+                root / "mods", ["Missing Mod"], root / "invalid"
+            )
+
+            self.assertEqual(result["moved"], [])
+            self.assertEqual(result["missing"], ["Missing Mod"])
+            self.assertEqual(result["failed"], [])
+
+    def test_uses_unique_quarantine_name_when_destination_exists(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            quarantine = root / "invalid"
+            (mods / "Broken Mod").mkdir(parents=True)
+            (quarantine / "Broken Mod").mkdir(parents=True)
+
+            result = quarantineInvalidPayloadModContainers(
+                mods, ["Broken Mod"], quarantine
+            )
+
+            self.assertEqual(result["moved"], ["Broken Mod"])
+            self.assertTrue((quarantine / "Broken Mod #2").exists())
 
 
 class GameRootPathResolutionTests(unittest.TestCase):
