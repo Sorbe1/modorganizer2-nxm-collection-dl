@@ -95,6 +95,7 @@ from .collection_helpers import (
     preferredRequiredFomodFallbackOption,
     repairDownloadMetadataInstalledFlags,
     repairInstalledCollectionModMetadata,
+    repairMo2BaseModlistOrder,
     repairSingleWrapperPayload,
     repairPluginEnabledStates,
     safeDisplayText,
@@ -5320,9 +5321,23 @@ class stepInstallMods(QDialog):
             / "nxm-collection-dl-backups"
             / datetime.now().strftime("priority-repair-%Y%m%d-%H%M%S")
         )
+        base_order_result = repairMo2BaseModlistOrder(
+            profile_path / "modlist.txt", backup_dir=backup_dir
+        )
+        if base_order_result.get("failed"):
+            self.logInstallIssue(
+                "Could not repair unmanaged DLC/Creation Club modlist order",
+                expected=True,
+            )
         repair_result = moveModlistEntriesToUiBottom(
             profile_path / "modlist.txt", present_mods, backup_dir=backup_dir
         )
+        repair_result["moved"] = repair_result.get("moved", 0) + base_order_result.get(
+            "moved", 0
+        )
+        repair_result["failed"] = repair_result.get(
+            "failed", 0
+        ) + base_order_result.get("failed", 0)
         if repair_result.get("missing"):
             repair_result["failed"] = repair_result.get("failed", 0) + len(
                 repair_result["missing"]
