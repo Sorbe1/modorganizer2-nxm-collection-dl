@@ -2567,7 +2567,11 @@ def downloadCompletionPlan(failed_count, has_on_complete, close_on_success, dela
 
 
 def shouldAutoCloseInstallSummary(
-    auto_close_on_success, cancelled, failed_count, recovery_count=0
+    auto_close_on_success,
+    cancelled,
+    failed_count,
+    recovery_count=0,
+    no_applicable_count=0,
 ):
     """Return True when a successful automatic install summary can close itself."""
     return (
@@ -2575,7 +2579,21 @@ def shouldAutoCloseInstallSummary(
         and not cancelled
         and int(failed_count or 0) == 0
         and int(recovery_count or 0) == 0
+        and int(no_applicable_count or 0) == 0
     )
+
+
+def collectionInstallCompletedCount(
+    total_count, review_count=0, queued_recovery_count=0, no_applicable_count=0
+):
+    """Return entries that were truly completed or externally handled."""
+    completed = (
+        int(total_count or 0)
+        - int(review_count or 0)
+        - int(queued_recovery_count or 0)
+        - int(no_applicable_count or 0)
+    )
+    return max(0, completed)
 
 
 def installPlanExecutionAction(fast_finish):

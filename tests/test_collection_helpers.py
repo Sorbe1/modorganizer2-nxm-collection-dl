@@ -34,6 +34,7 @@ from collection_helpers import (
     collectionRecoveryTargets,
     contentTreeWarningDialogAction,
     collectionDownloadExpectedSizes,
+    collectionInstallCompletedCount,
     detachedInstallCacheKeyFromPath,
     downloadedArchiveNameKeys,
     duplicateDownloadPromptArchiveAction,
@@ -3329,6 +3330,33 @@ class InstallSummaryAutoCloseTests(unittest.TestCase):
 
     def test_keeps_cancelled_install_summary_visible(self):
         self.assertFalse(shouldAutoCloseInstallSummary(True, True, 0))
+
+    def test_keeps_no_applicable_fomod_summary_visible(self):
+        self.assertFalse(shouldAutoCloseInstallSummary(True, False, 0, 0, 1))
+
+
+class CollectionInstallCompletedCountTests(unittest.TestCase):
+    def test_no_applicable_entries_are_not_completed(self):
+        self.assertEqual(
+            collectionInstallCompletedCount(
+                10,
+                review_count=2,
+                queued_recovery_count=1,
+                no_applicable_count=3,
+            ),
+            4,
+        )
+
+    def test_completed_count_never_goes_negative(self):
+        self.assertEqual(
+            collectionInstallCompletedCount(
+                2,
+                review_count=2,
+                queued_recovery_count=2,
+                no_applicable_count=2,
+            ),
+            0,
+        )
 
 
 class CollectionTransientModDirNameTests(unittest.TestCase):

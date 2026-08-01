@@ -41,6 +41,7 @@ from .collection_helpers import (
     allocateUniqueModName,
     archiveInspectionSubprocessKwargs,
     backgroundWorkerSubprocessKwargs,
+    collectionInstallCompletedCount,
     collectionMetadataFromFile,
     collectionInstallRoute,
     collectionPriorityOrderNeedsRepair,
@@ -5058,8 +5059,11 @@ class stepInstallMods(QDialog):
                 f"{recovery_count} recovery after {launch_count} total launches",
                 "warning",
             )
-        completed_entries = (
-            len(mods_to_install) - review_count - queued_recovery_count
+        completed_entries = collectionInstallCompletedCount(
+            len(mods_to_install),
+            review_count=review_count,
+            queued_recovery_count=queued_recovery_count,
+            no_applicable_count=no_applicable_count,
         )
         self.log(f"  Entries completed/root-handled: {completed_entries}")
         if review_count:
@@ -5218,7 +5222,10 @@ class stepInstallMods(QDialog):
 
         self.install_finished = True
         self.install_successful = (
-            not cancelled and failed_count == 0 and queued_recovery_count == 0
+            not cancelled
+            and failed_count == 0
+            and queued_recovery_count == 0
+            and no_applicable_count == 0
         )
 
         if review_entries:
@@ -5235,7 +5242,11 @@ class stepInstallMods(QDialog):
         self.cancel_btn.setEnabled(False)
         self.manual_install_btn.setEnabled(bool(review_entries))
         if not queued_recovery_count and shouldAutoCloseInstallSummary(
-            self.auto_close_on_success, cancelled, failed_count, recovery_count
+            self.auto_close_on_success,
+            cancelled,
+            failed_count,
+            recovery_count,
+            no_applicable_count,
         ):
             self.log(
                 "Successful automatic install; closing summary dialog.",
