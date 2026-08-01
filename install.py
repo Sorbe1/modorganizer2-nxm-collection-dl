@@ -1186,6 +1186,7 @@ class stepInstallMods(QDialog):
                         "normalized_message": normalized,
                         "category": category,
                         "occurrences": 1,
+                        "source": "interface_log",
                     }
                     self.install_warning_index[key] = len(self.install_warnings)
                     self.install_warnings.append(warning)

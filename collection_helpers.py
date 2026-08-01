@@ -1986,8 +1986,6 @@ def suppressedPostInstallErrorReviewEntries(warnings):
         "secondary_process_error",
     }
     for warning in warnings or []:
-        if warning.get("source") != "suppressed_dialog":
-            continue
         if warning.get("category") not in blocking_categories:
             continue
         message = str(warning.get("message") or "").strip()
@@ -2105,12 +2103,18 @@ def nativeArchiveWorkerHeartbeatStatus(
 
 
 def warningsAfterCleanInstallDiscard(warnings, warning_start):
-    """Drop ordinary transient warnings while preserving dismissed error dialogs."""
+    """Drop ordinary transient warnings while preserving actionable MO2 errors."""
+    blocking_categories = {
+        "plugin_state_missing",
+        "invalid_origin_name",
+        "secondary_process_error",
+    }
     kept = list(warnings[:warning_start])
     kept.extend(
         warning
         for warning in warnings[warning_start:]
         if warning.get("source") == "suppressed_dialog"
+        or warning.get("category") in blocking_categories
     )
     return kept
 

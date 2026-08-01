@@ -2320,6 +2320,23 @@ class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
         self.assertEqual(entries[0]["mod"], "post-install activation")
         self.assertIn("Plugin not found: Missing.esp", entries[0]["reason"])
 
+    def test_interface_log_plugin_errors_become_review_entries(self):
+        entries = suppressedPostInstallErrorReviewEntries(
+            [
+                {
+                    "mod": "activating Example",
+                    "file": "",
+                    "message": "Plugin not found: MissingFromLog.esp",
+                    "category": "plugin_state_missing",
+                    "source": "interface_log",
+                }
+            ]
+        )
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["mod"], "activating Example")
+        self.assertIn("Plugin not found: MissingFromLog.esp", entries[0]["reason"])
+
     def test_suppressed_secondary_process_errors_become_review_entries(self):
         entries = suppressedPostInstallErrorReviewEntries(
             [
@@ -2388,6 +2405,43 @@ class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
         self.assertEqual(
             [warning["message"] for warning in kept],
             ["old warning", "Plugin not found: BBLuxurySuite.esm"],
+        )
+
+    def test_clean_install_discard_preserves_interface_log_blockers(self):
+        warnings = [
+            {
+                "mod": "kept-before",
+                "file": "",
+                "message": "old warning",
+                "normalized_message": "old warning",
+                "category": "other",
+                "occurrences": 1,
+            },
+            {
+                "mod": "dropped-after",
+                "file": "",
+                "message": "transient warning",
+                "normalized_message": "transient warning",
+                "category": "other",
+                "occurrences": 1,
+                "source": "interface_log",
+            },
+            {
+                "mod": "activating Example",
+                "file": "",
+                "message": "Plugin not found: MissingFromLog.esp",
+                "normalized_message": "Plugin not found: MissingFromLog.esp",
+                "category": "plugin_state_missing",
+                "occurrences": 1,
+                "source": "interface_log",
+            },
+        ]
+
+        kept = warningsAfterCleanInstallDiscard(warnings, 1)
+
+        self.assertEqual(
+            [warning["message"] for warning in kept],
+            ["old warning", "Plugin not found: MissingFromLog.esp"],
         )
 
 
