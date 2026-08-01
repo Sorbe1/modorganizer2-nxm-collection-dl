@@ -2043,6 +2043,30 @@ def pluginActivationReviewEntries(missing_plugins, source="plugin activation"):
     return entries
 
 
+def pluginRepairFailureReviewEntries(failed_count, source="plugin activation"):
+    """Return review entries for plugin profile repairs that failed on disk."""
+    try:
+        failed_count = int(failed_count)
+    except (TypeError, ValueError):
+        failed_count = 0
+    if failed_count <= 0:
+        return []
+    source = str(source or "plugin activation")
+    return [
+        {
+            "mod": source,
+            "file": "plugins.txt",
+            "mod_id": "unknown",
+            "file_id": "unknown",
+            "archive": "",
+            "reason": (
+                "could not repair profile plugin enabled state on disk "
+                f"({failed_count} failure(s))"
+            ),
+        }
+    ]
+
+
 def nativeArchiveWorkerHeartbeatStatus(
     payload,
     now,

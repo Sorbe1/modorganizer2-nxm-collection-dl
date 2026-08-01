@@ -82,6 +82,7 @@ from collection_helpers import (
     orphanUnfinishedDownloadEntries,
     parseCollectionAddress,
     pluginActivationReviewEntries,
+    pluginRepairFailureReviewEntries,
     popDownloadKey,
     preferredCanonicalDownloadArchive,
     preferredRequiredFomodFallbackOption,
@@ -2366,6 +2367,20 @@ class PluginActivationReviewEntriesTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["mod"], "post-install activation")
         self.assertEqual(entries[0]["file"], "Missing.esp")
+
+    def test_ignores_empty_plugin_repair_failure_counts(self):
+        self.assertEqual(pluginRepairFailureReviewEntries(0), [])
+        self.assertEqual(pluginRepairFailureReviewEntries("not-a-count"), [])
+
+    def test_plugin_repair_failures_become_review_entries(self):
+        entries = pluginRepairFailureReviewEntries(
+            "2", source="post-install activation"
+        )
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["mod"], "post-install activation")
+        self.assertEqual(entries[0]["file"], "plugins.txt")
+        self.assertIn("2 failure(s)", entries[0]["reason"])
 
 
 class InstallNoResultReasonTests(unittest.TestCase):

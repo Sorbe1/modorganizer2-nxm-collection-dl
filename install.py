@@ -83,6 +83,7 @@ from .collection_helpers import (
     nativeArchiveWorkerHeartbeatStatus,
     nativePathForArchiveInspection,
     pluginActivationReviewEntries,
+    pluginRepairFailureReviewEntries,
     preferredCanonicalDownloadArchive,
     mo2CategoryNameMap,
     moveModlistEntriesToUiBottom,
@@ -5166,6 +5167,26 @@ class stepInstallMods(QDialog):
                 "Could not repair profile plugin enabled state on disk",
                 expected=True,
             )
+            if failed_entries is not None:
+                seen_review_entries = {
+                    (
+                        str(entry.get("mod") or ""),
+                        str(entry.get("file") or ""),
+                        str(entry.get("reason") or ""),
+                    )
+                    for entry in failed_entries
+                    if isinstance(entry, dict)
+                }
+                for entry in pluginRepairFailureReviewEntries(file_repair["failed"]):
+                    key = (
+                        str(entry.get("mod") or ""),
+                        str(entry.get("file") or ""),
+                        str(entry.get("reason") or ""),
+                    )
+                    if key in seen_review_entries:
+                        continue
+                    seen_review_entries.add(key)
+                    failed_entries.append(entry)
         self.log(
             f"  Plugin activation: {activated} activated, "
             f"{already_active} already active, {blocked} blocked"
