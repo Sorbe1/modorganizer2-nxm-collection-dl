@@ -3525,6 +3525,7 @@ def collectionInstallPostconditionAudit(
     modlist_text,
     expected_keys=None,
     expected_file_names=None,
+    handled_keys=None,
 ):
     """Audit collection install postconditions across MO2 filesystem state."""
     raw_installed_records = installedModRecordsFromDirectory(
@@ -3532,6 +3533,7 @@ def collectionInstallPostconditionAudit(
     )
     raw_installed_keys = set(raw_installed_records)
     expected_keys = set(expected_keys or raw_installed_keys)
+    handled_keys = set(handled_keys or set())
 
     mods_dir = Path(mods_dir)
     installed_records = {}
@@ -3549,7 +3551,7 @@ def collectionInstallPostconditionAudit(
     expected_installed_keys = expected_keys & installed_keys
     modlist_states = modlistEntryStates(modlist_text)
 
-    missing_installs = sorted(expected_keys - installed_keys)
+    missing_installs = sorted(expected_keys - installed_keys - handled_keys)
     disabled_mods = []
     missing_modlist_entries = []
     for key in sorted(expected_installed_keys):
@@ -3574,13 +3576,17 @@ def collectionInstallPostconditionAudit(
                     archive_file.name, expected_file_names
                 )
                 missing_identity = key is not None
-            if key not in expected_installed_keys and key not in invalid_payload_keys:
+            if key not in expected_keys or key in handled_keys:
                 continue
             if not archive_file.exists() or archive_file.is_dir():
                 continue
             download_checked += 1
             installed_value = downloadMetaInstalledValue(metadata_file)
             if key in invalid_payload_keys:
+                if missing_identity or installed_value == "true":
+                    false_installed_download_metadata.append(str(metadata_file))
+                continue
+            if key not in expected_installed_keys:
                 if missing_identity or installed_value == "true":
                     false_installed_download_metadata.append(str(metadata_file))
                 continue

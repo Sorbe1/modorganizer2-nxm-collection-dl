@@ -687,6 +687,47 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
             self.assertEqual(result["invalid_payload_mods"], ["Example Mod"])
             self.assertEqual(result["false_installed_download_metadata"], [])
 
+    def test_fails_when_missing_install_still_has_installed_download_metadata(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            self.write_download_metadata(downloads, installed="true")
+
+            result = collectionInstallPostconditionAudit(
+                downloads,
+                mods,
+                "# generated\n",
+                expected_keys={(123, 456)},
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["missing_installs"], [(123, 456)])
+            self.assertEqual(len(result["false_installed_download_metadata"]), 1)
+
+    def test_handled_root_entry_allows_installed_download_metadata_without_container(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mods = root / "mods"
+            downloads = root / "downloads"
+            mods.mkdir()
+            downloads.mkdir()
+            self.write_download_metadata(downloads, installed="true")
+
+            result = collectionInstallPostconditionAudit(
+                downloads,
+                mods,
+                "# generated\n",
+                expected_keys={(123, 456)},
+                handled_keys={(123, 456)},
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["missing_installs"], [])
+            self.assertEqual(result["false_installed_download_metadata"], [])
+
     def test_passes_when_metadata_container_and_profile_agree(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

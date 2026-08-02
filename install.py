@@ -4618,6 +4618,11 @@ class stepInstallMods(QDialog):
             for entry in context.get("no_applicable_entries", [])
             if entry.get("mod_id") is not None and entry.get("file_id") is not None
         }
+        root_level_keys = {
+            (int(entry["mod_id"]), int(entry["file_id"]))
+            for entry in context.get("root_level_entries", [])
+            if entry.get("mod_id") is not None and entry.get("file_id") is not None
+        }
         installed_records = installedModRecordsFromDirectory(
             mods_path,
             downloads_path,
@@ -4728,6 +4733,37 @@ class stepInstallMods(QDialog):
                         expected=True,
                     )
 
+        stale_installed_metadata_keys = (
+            expected_keys
+            - expected_installed_keys
+            - invalid_payload_keys
+            - no_applicable_keys
+            - root_level_keys
+        )
+        stale_installed_metadata_repair = {"checked": 0, "repaired": 0, "failed": 0}
+        if stale_installed_metadata_keys:
+            stale_installed_metadata_repair = repairDownloadMetadataInstalledFlags(
+                downloads_path,
+                stale_installed_metadata_keys,
+                desired_installed=False,
+                backup_dir=self.repairBackupDir(context, "download-metadata"),
+                expected_file_names=expected_file_names,
+            )
+            if stale_installed_metadata_repair.get("repaired"):
+                self.log(
+                    "Marked stale MO2 download metadata downloaded-only for "
+                    f"{stale_installed_metadata_repair['repaired']} "
+                    "collection archive(s) without valid installed containers.",
+                    "note",
+                )
+            if stale_installed_metadata_repair.get("failed"):
+                self.logInstallIssue(
+                    "Could not mark "
+                    f"{stale_installed_metadata_repair['failed']} stale download "
+                    "metadata file(s) downloaded-only",
+                    expected=True,
+                )
+
         metadata_repair = repairDownloadMetadataInstalledFlags(
             downloads_path,
             expected_installed_keys,
@@ -4797,6 +4833,10 @@ class stepInstallMods(QDialog):
             "layout_repaired": layout_repairs,
             "metadata_repaired": metadata_repair.get("repaired", 0),
             "metadata_failed": metadata_repair.get("failed", 0),
+            "stale_metadata_repaired": stale_installed_metadata_repair.get(
+                "repaired", 0
+            ),
+            "stale_metadata_failed": stale_installed_metadata_repair.get("failed", 0),
             "mod_metadata_repaired": mod_metadata_repair.get("repaired", 0),
             "mod_metadata_failed": mod_metadata_repair.get("failed", 0),
             "invalid_payload_mods": invalid_payload_mods,
@@ -5097,6 +5137,15 @@ class stepInstallMods(QDialog):
             f"{postcondition_state['metadata_repaired']} repaired, "
             f"{postcondition_state['metadata_failed']} failed"
         )
+        if postcondition_state.get("stale_metadata_repaired") or postcondition_state.get(
+            "stale_metadata_failed"
+        ):
+            self.log(
+                "  Downloaded-only metadata repairs: "
+                f"{postcondition_state.get('stale_metadata_repaired', 0)} repaired, "
+                f"{postcondition_state.get('stale_metadata_failed', 0)} failed",
+                "note",
+            )
         if priority_order:
             self.log(
                 "  Collection priority order: "
