@@ -508,6 +508,45 @@ class TopLevelDownloadMetadataAuditTests(unittest.TestCase):
 
             self.assertEqual(audit["downloaded_only"], [str(metadata)])
 
+    def test_reports_installed_metadata_without_valid_container_evidence(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Installed-123-456.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / "Installed-123-456.7z.meta"
+            metadata.write_text(
+                "[General]\nmodID=123\nfileID=456\ninstalled=true\n",
+                encoding="utf-8",
+            )
+
+            audit = topLevelDownloadMetadataAudit(
+                downloads,
+                valid_installed_keys={(999, 456)},
+            )
+
+            self.assertEqual(
+                audit["installed_without_valid_container"],
+                [str(metadata)],
+            )
+
+    def test_accepts_installed_metadata_with_valid_container_evidence(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Installed-123-456.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / "Installed-123-456.7z.meta"
+            metadata.write_text(
+                "[General]\nmodID=123\nfileID=456\ninstalled=true\n",
+                encoding="utf-8",
+            )
+
+            audit = topLevelDownloadMetadataAudit(
+                downloads,
+                valid_installed_keys={(123, 456)},
+            )
+
+            self.assertEqual(audit["installed_without_valid_container"], [])
+
 
 class DownloadMetadataReviewEntriesTests(unittest.TestCase):
     def test_builds_actionable_entries_for_dirty_metadata(self):
@@ -516,12 +555,20 @@ class DownloadMetadataReviewEntriesTests(unittest.TestCase):
                 "downloaded_only": ["/tmp/downloads/NeedsReview.7z.meta"],
                 "missing_archive": ["/tmp/downloads/Missing.7z.meta"],
                 "unknown_installed_state": ["/tmp/downloads/Unknown.7z.meta"],
+                "installed_without_valid_container": [
+                    "/tmp/downloads/Stale.7z.meta"
+                ],
             }
         )
 
         self.assertEqual(
             [entry["status"] for entry in entries],
-            ["downloaded_only", "missing_archive", "unknown_installed_state"],
+            [
+                "downloaded_only",
+                "missing_archive",
+                "unknown_installed_state",
+                "installed_without_valid_container",
+            ],
         )
         self.assertEqual(
             entries[0]["archive"], "/tmp/downloads/NeedsReview.7z"

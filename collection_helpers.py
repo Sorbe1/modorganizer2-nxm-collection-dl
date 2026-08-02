@@ -492,6 +492,9 @@ def downloadMetadataAuditSummary(audit):
         "downloaded_only": list(audit.get("downloaded_only", [])),
         "missing_archive": list(audit.get("missing_archive", [])),
         "unknown_installed_state": list(audit.get("unknown_installed_state", [])),
+        "installed_without_valid_container": list(
+            audit.get("installed_without_valid_container", [])
+        ),
     }
 
 
@@ -511,6 +514,13 @@ def downloadMetadataReviewEntries(audit):
             "unknown_installed_state",
             "download metadata has an unknown installed state",
         ),
+        (
+            "installed_without_valid_container",
+            (
+                "download metadata is marked installed, but no valid MO2 mod "
+                "container was found"
+            ),
+        ),
     )
     entries = []
     seen = set()
@@ -529,6 +539,25 @@ def downloadMetadataReviewEntries(audit):
                 }
             )
     return entries
+
+
+def validInstalledDownloadKeysFromModContainers(mods_path, downloads_path):
+    """Return Nexus file keys backed by valid MO2 mod-container payloads."""
+    mods_path = Path(mods_path)
+    if not mods_path.exists():
+        return None
+    installed_records = installedModRecordsFromDirectory(
+        mods_path,
+        downloads_path,
+    )
+    return {
+        nexus_key
+        for nexus_key, mod_names in installed_records.items()
+        if any(
+            headlessPayloadRootValid(mods_path / mod_name)
+            for mod_name in mod_names
+        )
+    }
 
 
 def profileStateSnapshotAuditSummary(
@@ -554,6 +583,7 @@ def profileStateSnapshotAuditSummary(
         "downloaded_only_count": 0,
         "missing_archive_count": 0,
         "unknown_download_state_count": 0,
+        "installed_without_valid_container_count": 0,
         "plugin_capacity_warning": False,
     }
 
@@ -615,6 +645,9 @@ def profileStateSnapshotAuditSummary(
         )
         summary["unknown_download_state_count"] = len(
             download_metadata_audit.get("unknown_installed_state", []) or []
+        )
+        summary["installed_without_valid_container_count"] = len(
+            download_metadata_audit.get("installed_without_valid_container", []) or []
         )
         if (
             summary["downloaded_only_count"]
@@ -718,8 +751,15 @@ def snapshotMo2ProfileState(
     downloads_path = base_path / "downloads"
     download_metadata_audit = None
     if downloads_path.exists():
+        valid_installed_keys = validInstalledDownloadKeysFromModContainers(
+            base_path / "mods",
+            downloads_path,
+        )
         download_metadata_audit = downloadMetadataAuditSummary(
-            topLevelDownloadMetadataAudit(downloads_path)
+            topLevelDownloadMetadataAudit(
+                downloads_path,
+                valid_installed_keys=valid_installed_keys,
+            )
         )
 
     manifest = {
@@ -1148,8 +1188,15 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
 
     downloads_path = base_path / "downloads"
     if downloads_path.exists():
+        valid_installed_keys = validInstalledDownloadKeysFromModContainers(
+            mods_path,
+            downloads_path,
+        )
         result["download_metadata_audit"] = downloadMetadataAuditSummary(
-            topLevelDownloadMetadataAudit(downloads_path)
+            topLevelDownloadMetadataAudit(
+                downloads_path,
+                valid_installed_keys=valid_installed_keys,
+            )
         )
         dirty_downloads = {
             key: value
@@ -1157,6 +1204,22 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
             if key in ("downloaded_only", "missing_archive", "unknown_installed_state")
             and value
         }
+        stale_installed = result["download_metadata_audit"].get(
+            "installed_without_valid_container"
+        )
+        if stale_installed:
+            result["warnings"].append(
+                {
+                    "type": "download_metadata_installed_without_container",
+                    "count": len(stale_installed),
+                    "examples": stale_installed[:10],
+                    "message": (
+                        "Installed download metadata lacks valid MO2 mod-container "
+                        "evidence; review as possible game-root output or stale "
+                        "installed status"
+                    ),
+                }
+            )
         if dirty_downloads:
             result["issues"].append(
                 {
@@ -4533,12 +4596,14 @@ def downloadMetaInstalledValue(metadata_file):
     return None
 
 
-def topLevelDownloadMetadataAudit(downloads_dir):
+def topLevelDownloadMetadataAudit(downloads_dir, valid_installed_keys=None):
     """Audit MO2-visible top-level download metadata install flags.
 
     MO2's Downloads pane is backed by archive sidecars directly under the
     downloads directory. Nested quarantine or stale-backup directories can hold
     old ``*.meta`` files, but those should not make the visible queue look dirty.
+    When ``valid_installed_keys`` is supplied, installed sidecars are also
+    checked against valid MO2 mod-container evidence.
     """
     result = {
         "checked": 0,
@@ -4546,10 +4611,16 @@ def topLevelDownloadMetadataAudit(downloads_dir):
         "downloaded_only": [],
         "missing_archive": [],
         "unknown_installed_state": [],
+        "installed_without_valid_container": [],
     }
     downloads_dir = Path(downloads_dir)
     if not downloads_dir.exists():
         return result
+    valid_installed_keys = (
+        {tuple(key) for key in valid_installed_keys}
+        if valid_installed_keys is not None
+        else None
+    )
 
     for metadata_file in sorted(downloads_dir.glob("*.meta")):
         if metadata_file.name.endswith(".unfinished.meta"):
@@ -4557,11 +4628,18 @@ def topLevelDownloadMetadataAudit(downloads_dir):
         archive_file = metadata_file.with_suffix("")
         result["checked"] += 1
         metadata_path = str(metadata_file)
+        nexus_key = readDownloadMetaKey(metadata_file)
         installed_value = downloadMetaInstalledValue(metadata_file)
         if not archive_file.is_file():
             result["missing_archive"].append(metadata_path)
         if installed_value == "true":
             result["installed"].append(metadata_path)
+            if (
+                valid_installed_keys is not None
+                and nexus_key is not None
+                and nexus_key not in valid_installed_keys
+            ):
+                result["installed_without_valid_container"].append(metadata_path)
         elif installed_value == "false":
             result["downloaded_only"].append(metadata_path)
         else:

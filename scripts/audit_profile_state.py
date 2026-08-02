@@ -91,7 +91,9 @@ def main():
             f"{audit.get('installed_count', 0)} installed, "
             f"{len(audit.get('downloaded_only', []))} downloaded-only, "
             f"{len(audit.get('missing_archive', []))} missing archive, "
-            f"{len(audit.get('unknown_installed_state', []))} unknown state"
+            f"{len(audit.get('unknown_installed_state', []))} unknown state, "
+            f"{len(audit.get('installed_without_valid_container', []))} "
+            "installed without valid container"
         )
         if result["issues"]:
             print("Issues:")
