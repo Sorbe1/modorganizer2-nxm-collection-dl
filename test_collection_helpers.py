@@ -98,6 +98,7 @@ from collection_helpers import (
     pluginActivationReviewEntries,
     pluginMasterDependencyAudit,
     pluginMasterDependencyReviewEntries,
+    pluginNotFoundNamesFromMessage,
     pluginRepairFailureReviewEntries,
     popDownloadKey,
     preferredCanonicalDownloadArchive,
@@ -3344,6 +3345,14 @@ class ContentTreeWarningDialogActionTests(unittest.TestCase):
 
 
 class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
+    def test_extracts_plugin_not_found_names_from_message(self):
+        self.assertEqual(
+            pluginNotFoundNamesFromMessage(
+                "Plugin not found: Missing.esp\nPlugin not found: missing.esp"
+            ),
+            ["Missing.esp"],
+        )
+
     def test_captures_plugin_not_found_dialog_text(self):
         self.assertEqual(
             knownPostInstallErrorDialogMessage(
@@ -3389,6 +3398,9 @@ class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
 
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["mod"], "post-install activation")
+        self.assertEqual(entries[0]["file"], "Missing.esp")
+        self.assertEqual(entries[0]["missing_plugins"], ["Missing.esp"])
+        self.assertIn("install the mod", entries[0]["suggested_action"])
         self.assertIn("Plugin not found: Missing.esp", entries[0]["reason"])
 
     def test_interface_log_plugin_errors_become_review_entries(self):

@@ -2143,6 +2143,26 @@ def knownPostInstallErrorDialogMessage(labels):
     return None
 
 
+def pluginNotFoundNamesFromMessage(message):
+    """Return plugin names from MO2 'Plugin not found' warning text."""
+    names = []
+    seen = set()
+    for match in re.finditer(
+        r"Plugin not found:\s*([^\r\n]+)",
+        str(message or ""),
+        flags=re.IGNORECASE,
+    ):
+        plugin_name = match.group(1).strip().strip(".")
+        if not plugin_name:
+            continue
+        key = plugin_name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(plugin_name)
+    return names
+
+
 def suppressedPostInstallErrorReviewEntries(warnings):
     """Return review entries for actionable MO2 errors dismissed by automation."""
     entries = []
@@ -2166,14 +2186,29 @@ def suppressedPostInstallErrorReviewEntries(warnings):
         if key in seen:
             continue
         seen.add(key)
+        missing_plugins = (
+            pluginNotFoundNamesFromMessage(message)
+            if warning.get("category") == "plugin_state_missing"
+            else []
+        )
+        reason = f"post-install MO2 error dialog: {message}"
+        suggested_action = ""
+        if missing_plugins:
+            suggested_action = (
+                "install the mod or optional patch source that provides "
+                + ", ".join(missing_plugins)
+                + "; disable the dependent patch if that plugin is not intended"
+            )
         entries.append(
             {
                 "mod": key[0],
-                "file": key[1],
+                "file": missing_plugins[0] if len(missing_plugins) == 1 else key[1],
                 "mod_id": "unknown",
                 "file_id": "unknown",
                 "archive": "",
-                "reason": f"post-install MO2 error dialog: {message}",
+                "missing_plugins": missing_plugins,
+                "suggested_action": suggested_action,
+                "reason": reason,
             }
         )
     return entries

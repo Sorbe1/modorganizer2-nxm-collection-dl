@@ -2384,6 +2384,14 @@ class stepInstallMods(QDialog):
                     for name in entry.get("missing_masters") or []
                 )
             )
+        if entry.get("missing_plugins"):
+            lines.append(
+                "- Missing plugins: "
+                + ", ".join(
+                    f"`{safeDisplayText(name)}`"
+                    for name in entry.get("missing_plugins") or []
+                )
+            )
         if entry.get("inactive_masters"):
             lines.append(
                 "- Inactive masters: "
