@@ -37,6 +37,17 @@ COLLECTION_TRANSIENT_MOD_DIR_PREFIXES = (
     ".nxm-collection-extracting-",
 )
 MO2_PROFILE_STATE_FILES = ("modlist.txt", "plugins.txt", "loadorder.txt")
+MO2_MODLIST_PATCH_HINTS = (
+    "patch",
+    "fix",
+    "addon",
+    "add-on",
+    "preset",
+    "settings loader",
+    "translation",
+    "compat",
+    "compatibility",
+)
 
 INSTALLER_SETTING_DEFAULTS = {
     "auto_accept_quick_install": True,
@@ -315,6 +326,7 @@ def profileStateSnapshotAuditSummary(
         "disabled_mods_count": 0,
         "disabled_plugins_count": 0,
         "invalid_active_mod_containers_count": 0,
+        "modlist_ordering_warning_count": 0,
         "downloaded_only_count": 0,
         "missing_archive_count": 0,
         "unknown_download_state_count": 0,
@@ -330,6 +342,9 @@ def profileStateSnapshotAuditSummary(
         )
         if summary["base_modlist_order_needs_repair"]:
             issues.append("base_modlist_order")
+        summary["modlist_ordering_warning_count"] = len(
+            mo2ModlistOrderingDiagnostics(modlist_text)
+        )
         for raw_line in modlist_text.splitlines():
             stripped = raw_line.strip()
             if stripped.startswith("-") and len(stripped) > 1:
@@ -658,6 +673,7 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         "transient_mod_dirs": [],
         "invalid_active_mod_containers": [],
         "base_modlist_order_needs_repair": False,
+        "modlist_ordering_diagnostics": [],
         "plugin_capacity_audit": None,
         "plugin_dependency_audit": {
             "supported": False,
@@ -694,6 +710,23 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
                     "type": "base_modlist_order",
                     "file": str(modlist_path),
                     "message": "Unmanaged DLC/Creation Club entries are misplaced",
+                }
+            )
+        result["modlist_ordering_diagnostics"] = mo2ModlistOrderingDiagnostics(
+            modlist_text
+        )
+        if result["modlist_ordering_diagnostics"]:
+            result["warnings"].append(
+                {
+                    "type": "modlist_ordering_diagnostics",
+                    "file": str(modlist_path),
+                    "count": len(result["modlist_ordering_diagnostics"]),
+                    "examples": result["modlist_ordering_diagnostics"][:10],
+                    "message": (
+                        "Likely left-pane ordering problems were found; review "
+                        "patches/addons after their targets and numbered variants "
+                        "after their base mod"
+                    ),
                 }
             )
         for raw_line in modlist_text.splitlines():
@@ -4692,6 +4725,125 @@ def _mo2ModlistEntryName(line):
     if stripped[0] in "+-":
         return stripped[1:]
     return stripped
+
+
+def mo2ModlistEntries(modlist_text):
+    """Return parsed MO2 modlist entries in visible priority order."""
+    entries = []
+    lines = str(modlist_text or "").splitlines(keepends=True)
+    _header, body = splitMo2ModlistHeader(lines)
+    for raw_line in body:
+        stripped = raw_line.strip()
+        name = _mo2ModlistEntryName(raw_line)
+        if not name:
+            continue
+        entries.append(
+            {
+                "name": name,
+                "enabled": not stripped.startswith("-"),
+                "priority": len(entries),
+            }
+        )
+    return entries
+
+
+def _normalizedMo2ModOrderName(name):
+    normalized = unicodedata.normalize("NFKD", str(name or ""))
+    normalized = normalized.encode("ascii", "ignore").decode("ascii")
+    normalized = normalized.casefold()
+    normalized = re.sub(r"\s+#\d+\s*$", "", normalized)
+    normalized = re.sub(r"\b(?:se|sse|ae|ng)\b", " ", normalized)
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    return " ".join(normalized.split())
+
+
+def _isMo2PatchLikeName(normalized_name):
+    padded = f" {normalized_name} "
+    return any(f" {hint} " in padded for hint in MO2_MODLIST_PATCH_HINTS)
+
+
+def mo2ModlistOrderingDiagnostics(modlist_text, max_entries=50):
+    """Return warning-level diagnostics for likely left-pane order mistakes."""
+    active_entries = [
+        entry for entry in mo2ModlistEntries(modlist_text) if entry["enabled"]
+    ]
+    diagnostics = []
+    by_normalized = {}
+    for entry in active_entries:
+        normalized = _normalizedMo2ModOrderName(entry["name"])
+        if normalized and not re.search(r"\s+#\d+\s*$", entry["name"]):
+            by_normalized.setdefault(normalized, entry)
+    for entry in active_entries:
+        normalized = _normalizedMo2ModOrderName(entry["name"])
+        if normalized:
+            by_normalized.setdefault(normalized, entry)
+
+    seen_variant_pairs = set()
+    for entry in active_entries:
+        match = re.match(r"^(?P<base>.+?)\s+#(?P<number>\d+)\s*$", entry["name"])
+        if not match:
+            continue
+        base_name = match.group("base").strip()
+        base_entry = by_normalized.get(_normalizedMo2ModOrderName(base_name))
+        if not base_entry or base_entry is entry:
+            continue
+        key = (entry["name"], base_entry["name"])
+        if key in seen_variant_pairs:
+            continue
+        seen_variant_pairs.add(key)
+        if entry["priority"] < base_entry["priority"]:
+            diagnostics.append(
+                {
+                    "type": "variant_before_base",
+                    "mod": entry["name"],
+                    "priority": entry["priority"],
+                    "target": base_entry["name"],
+                    "target_priority": base_entry["priority"],
+                }
+            )
+            if len(diagnostics) >= max_entries:
+                return diagnostics
+
+    candidates = []
+    for entry in active_entries:
+        normalized = _normalizedMo2ModOrderName(entry["name"])
+        if len(normalized) >= 6 and not _isMo2PatchLikeName(normalized):
+            candidates.append((entry, normalized))
+
+    seen_patch_pairs = set()
+    for entry in active_entries:
+        normalized = _normalizedMo2ModOrderName(entry["name"])
+        if not normalized or not _isMo2PatchLikeName(normalized):
+            continue
+        target_matches = []
+        for target, target_normalized in candidates:
+            if target is entry:
+                continue
+            if len(target_normalized) < 6:
+                continue
+            if f" {target_normalized} " in f" {normalized} ":
+                target_matches.append((len(target_normalized), target))
+        if not target_matches:
+            continue
+        _length, target = max(target_matches, key=lambda item: item[0])
+        key = (entry["name"], target["name"])
+        if key in seen_patch_pairs:
+            continue
+        seen_patch_pairs.add(key)
+        if entry["priority"] < target["priority"]:
+            diagnostics.append(
+                {
+                    "type": "patch_before_target",
+                    "mod": entry["name"],
+                    "priority": entry["priority"],
+                    "target": target["name"],
+                    "target_priority": target["priority"],
+                }
+            )
+            if len(diagnostics) >= max_entries:
+                return diagnostics
+
+    return diagnostics
 
 
 def mo2BaseModlistOrderNeedsRepair(modlist_text):
