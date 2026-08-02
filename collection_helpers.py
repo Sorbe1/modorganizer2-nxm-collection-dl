@@ -6467,6 +6467,31 @@ def adaptiveDownloadTailRetryBatchLimit(
     return min(tail_count, maximum, limit)
 
 
+def adaptiveDownloadQueueSubmissionLimit(total, default_limit, maximum=64):
+    """Return how many MO2 download requests may be in flight.
+
+    The fixed limit remains the floor, but collection runs should not crawl
+    through moderate-sized queues one small batch at a time. Cap the adaptive
+    ceiling so pathological collections still leave MO2 room to breathe.
+    """
+    try:
+        default_limit = max(1, int(default_limit or 1))
+    except (TypeError, ValueError):
+        default_limit = 1
+    try:
+        total = max(0, int(total or 0))
+    except (TypeError, ValueError):
+        total = 0
+    try:
+        maximum = max(default_limit, int(maximum or default_limit))
+    except (TypeError, ValueError):
+        maximum = default_limit
+
+    if total <= 0:
+        return default_limit
+    return min(maximum, max(default_limit, total))
+
+
 def downloadProgressIsStalled(last_progress_at, now, stall_seconds):
     """Return True when no overall download progress happened inside the window."""
     try:

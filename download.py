@@ -30,6 +30,7 @@ from .collection_helpers import (
     INSTALLER_SETTING_DEFAULTS,
     activeDownloadPromptKey,
     activeUnfinishedDownloadFingerprint,
+    adaptiveDownloadQueueSubmissionLimit,
     adaptiveDownloadTailGraceSeconds,
     adaptiveDownloadTailRetryBatchLimit,
     coerceBoolSetting,
@@ -865,7 +866,9 @@ class stepDownloadProgress(QDialog):
         self.zero_byte_start_max_retries = 20
         self.zero_byte_restart_threshold = 999
         self.zero_byte_orphan_stale_seconds = 3
-        self.max_unresolved_queue_submissions = 16
+        self.max_unresolved_queue_submissions = adaptiveDownloadQueueSubmissionLimit(
+            self.total_mods, 16
+        )
         self.queue_pending_mods = []
         self.queue_pending_filter = None
         self.queue_pump_active = False
@@ -2766,6 +2769,25 @@ class stepDownloadProgress(QDialog):
         if self.is_tracking:
             self.retry_stale_unfinished_downloads()
             self.retry_paused_downloads_stalled()
+            self.apply_idle_download_tail_boundary()
+
+    def apply_idle_download_tail_boundary(self):
+        """Apply tail correction even when the queue pump is no longer throttled."""
+        if not self.is_tracking or self.queue_pending_mods or self.queue_pump_active:
+            return False
+        if self.quota_stop_message:
+            return False
+
+        unresolved = self.unresolved_queue_count()
+        if unresolved <= 0:
+            return False
+
+        return self.apply_download_tail_boundary(
+            unresolved,
+            time.time(),
+            unresolved_limit=unresolved,
+            boundary_context="idle reconcile",
+        )
 
     def reconcile_completed_downloads_from_disk(self):
         """Credit all collection files that now have completed archives on disk."""
