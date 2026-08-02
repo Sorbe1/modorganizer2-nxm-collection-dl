@@ -1274,6 +1274,51 @@ class ProfileStateAuditTests(unittest.TestCase):
                 ],
             )
 
+    def test_reports_installed_metadata_without_valid_container_as_dirty(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile = base / "profiles" / "Default"
+            downloads = base / "downloads"
+            mods = base / "mods"
+            profile.mkdir(parents=True)
+            downloads.mkdir()
+            mods.mkdir()
+            (profile / "modlist.txt").write_text(
+                "+DLC: Dawnguard\n+DLC: HearthFires\n+DLC: Dragonborn\n",
+                encoding="utf-8",
+            )
+            (profile / "plugins.txt").write_text("", encoding="utf-8")
+            (profile / "loadorder.txt").write_text("", encoding="utf-8")
+            archive = downloads / "Stale Installed-123-456.7z"
+            archive.write_text("archive", encoding="utf-8")
+            metadata = downloads / f"{archive.name}.meta"
+            metadata.write_text(
+                "[General]\nmodID=123\nfileID=456\ninstalled=true\n",
+                encoding="utf-8",
+            )
+
+            result = auditMo2ProfileState(base_path=base)
+
+            self.assertFalse(result["clean"])
+            self.assertEqual(
+                result["download_metadata_audit"][
+                    "installed_without_valid_container"
+                ],
+                [str(metadata)],
+            )
+            self.assertEqual(
+                [issue["type"] for issue in result["issues"]],
+                ["download_metadata"],
+            )
+            self.assertIn(
+                "installed_without_valid_container",
+                result["issues"][0]["details"],
+            )
+            self.assertIn(
+                "download_metadata_installed_without_container",
+                [warning["type"] for warning in result["warnings"]],
+            )
+
     def test_reports_transient_and_invalid_active_mod_containers(self):
         with TemporaryDirectory() as tmp:
             base = Path(tmp)

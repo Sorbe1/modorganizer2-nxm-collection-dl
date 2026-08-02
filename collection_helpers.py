@@ -1248,6 +1248,7 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
                     ),
                 }
             )
+            dirty_downloads["installed_without_valid_container"] = stale_installed
         if dirty_downloads:
             result["issues"].append(
                 {
