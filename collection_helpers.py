@@ -5329,6 +5329,8 @@ MO2_BASE_DLC_ORDER = {
     "DLC: HearthFires": 1,
     "DLC: Dragonborn": 2,
 }
+MO2_BASE_CREATION_CLUB_RANK = len(MO2_BASE_DLC_ORDER)
+MO2_BASE_UNMANAGED_RANK = MO2_BASE_CREATION_CLUB_RANK + 1
 
 
 def splitMo2ModlistHeader(lines):
@@ -5336,8 +5338,8 @@ def splitMo2ModlistHeader(lines):
 
     MO2 stores ``modlist.txt`` in visible priority order after the generated
     header. Raw file edits should therefore keep unmanaged DLC/Creation Club
-    entries at the top and append new high-priority collection entries at the
-    bottom.
+    and unmanaged entries at the top and append new high-priority collection
+    entries at the bottom.
     """
     header = []
     body = []
@@ -5527,7 +5529,7 @@ def mo2ModlistOrderingDiagnostics(modlist_text, max_entries=50, mods_path=None):
 
 
 def mo2BaseModlistOrderNeedsRepair(modlist_text):
-    """Return whether unmanaged DLC/Creation Club entries are misplaced."""
+    """Return whether unmanaged DLC/Creation Club/game-root entries are misplaced."""
     seen_managed = False
     last_base_rank = -1
     for raw_line in str(modlist_text or "").splitlines():
@@ -5541,7 +5543,13 @@ def mo2BaseModlistOrderNeedsRepair(modlist_text):
             last_base_rank = rank
             continue
         if name.startswith("Creation Club: "):
-            rank = len(MO2_BASE_DLC_ORDER)
+            rank = MO2_BASE_CREATION_CLUB_RANK
+            if seen_managed or rank < last_base_rank:
+                return True
+            last_base_rank = rank
+            continue
+        if name.startswith("Unmanaged: "):
+            rank = MO2_BASE_UNMANAGED_RANK
             if seen_managed or rank < last_base_rank:
                 return True
             last_base_rank = rank
@@ -5551,7 +5559,7 @@ def mo2BaseModlistOrderNeedsRepair(modlist_text):
 
 
 def repairMo2BaseModlistOrder(modlist_path, backup_dir=None):
-    """Keep unmanaged DLC/Creation Club entries at the visible left-pane top."""
+    """Keep unmanaged DLC/Creation Club/game-root entries at the visible top."""
     result = {"moved": 0, "failed": 0}
     modlist_path = Path(modlist_path)
     try:
@@ -5571,7 +5579,9 @@ def repairMo2BaseModlistOrder(modlist_path, backup_dir=None):
         if name in MO2_BASE_DLC_ORDER:
             indexed_base.append((MO2_BASE_DLC_ORDER[name], index, line))
         elif name.startswith("Creation Club: "):
-            indexed_base.append((len(MO2_BASE_DLC_ORDER), index, line))
+            indexed_base.append((MO2_BASE_CREATION_CLUB_RANK, index, line))
+        elif name.startswith("Unmanaged: "):
+            indexed_base.append((MO2_BASE_UNMANAGED_RANK, index, line))
         else:
             managed_entries.append(line)
 
