@@ -12,6 +12,22 @@
         "other_failure": 0
       },
       "failed_count": 2,
+      "failed_entries": [
+        {
+          "archive": "C:\\users\\steamuser\\AppData\\Local\\ModOrganizer\\Skyrim Special Edition - Derp\\downloads\\New Mara Bowl Replacer-53520-1-0-0-1628954498.rar",
+          "file": "New Mara Bowl Replacer",
+          "mod": "New Mara Statue SE",
+          "reason": "duplicate MO2 mod container for archive-default FOMOD install; needs manual rename/merge choice",
+          "review_category": "manual_or_review"
+        },
+        {
+          "archive": "C:\\users\\steamuser\\AppData\\Local\\ModOrganizer\\Skyrim Special Edition - Derp\\downloads\\Add-ons All in One. correct alignment BOS-164606-1-0-3-1771945411.rar",
+          "file": "Add-ons All in One. correct alignment BOS",
+          "mod": "Alternate Start - Standing Stones correct alignment BOS",
+          "reason": "duplicate MO2 mod container for archive-default FOMOD install; needs manual rename/merge choice",
+          "review_category": "manual_or_review"
+        }
+      ],
       "generated": "2026-07-26T18:40:35",
       "name": "Sexy Statues\ud83d\uddff",
       "no_applicable_count": 0,
@@ -36,6 +52,14 @@
         "other_failure": 0
       },
       "failed_count": 1,
+      "failed_entries": [
+        {
+          "file": "Quest Journal Fixes - FOMOD",
+          "mod": "Quest Journal Fix for SkyUI",
+          "reason": "manual archive layout: Native archive worker timed out; start scripts/native_archive_worker.py for headless archive installs.",
+          "review_category": "manual_or_review"
+        }
+      ],
       "generated": "2026-07-30T00:58:44",
       "name": "Immersive & Adult",
       "no_applicable_count": 0,
@@ -60,6 +84,14 @@
         "other_failure": 0
       },
       "failed_count": 1,
+      "failed_entries": [
+        {
+          "file": "Loadscreenart Giant",
+          "mod": "New Female Giant",
+          "reason": "manual archive layout: ambiguous archive layout",
+          "review_category": "manual_or_review"
+        }
+      ],
       "generated": "2026-07-30T06:35:50",
       "name": "Updated Sexy Creatures Collection",
       "no_applicable_count": 0,
@@ -84,6 +116,14 @@
         "other_failure": 0
       },
       "failed_count": 1,
+      "failed_entries": [
+        {
+          "file": "NAT - TrueStorms Merged Compatibility",
+          "mod": "NAT - TrueStorms Merged Compatibility SSE",
+          "reason": "manual FOMOD choices required: no FOMOD options matched installed profile evidence",
+          "review_category": "manual_or_review"
+        }
+      ],
       "generated": "2026-07-30T16:07:52",
       "name": "Community Shaders  2026",
       "no_applicable_count": 0,
@@ -108,6 +148,7 @@
         "other_failure": 0
       },
       "failed_count": 0,
+      "failed_entries": [],
       "generated": "2026-07-31T00:23:17",
       "name": "JK's All-in-one collection - SE/AE",
       "no_applicable_count": 1,
@@ -132,6 +173,21 @@
         "other_failure": 0
       },
       "failed_count": 2,
+      "failed_entries": [
+        {
+          "file": "1_Vilja in Skyrim version 4.3",
+          "mod": "Vilja in Skyrim",
+          "reason": "manual archive layout: ambiguous archive layout",
+          "review_category": "manual_or_review"
+        },
+        {
+          "archive": "C:\\users\\steamuser\\AppData\\Local\\ModOrganizer\\Skyrim Special Edition - Derp\\downloads\\Northgirl Armor 3BA-53857-2-0a-1669574939.7z",
+          "file": "Northgirl Armor 3BA",
+          "mod": "Northgirl Armor Neko Edition - 3BA - BHUNP - CBBE",
+          "reason": "installer completed but produced an empty mod container; review FOMOD/manual choices",
+          "review_category": "manual_or_review"
+        }
+      ],
       "generated": "2026-07-31T02:04:56",
       "name": "[Xirconia] Coldsun's World",
       "no_applicable_count": 0,

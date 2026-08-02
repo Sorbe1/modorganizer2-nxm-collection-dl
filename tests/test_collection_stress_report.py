@@ -109,6 +109,26 @@ class CollectionStressReportTests(unittest.TestCase):
                     "other_failure": 1,
                 },
             )
+            self.assertEqual(
+                summary["failed_entries"],
+                [
+                    {
+                        "mod": "Missing",
+                        "reason": "not found in downloads",
+                        "review_category": "missing_download",
+                    },
+                    {
+                        "mod": "Manual",
+                        "reason": "ambiguous archive layout",
+                        "review_category": "manual_or_review",
+                    },
+                    {
+                        "mod": "Other",
+                        "reason": "unexpected failure",
+                        "review_category": "other_failure",
+                    },
+                ],
+            )
             self.assertTrue(summary["download_metadata_review"])
 
     def test_can_include_profile_audit(self):

@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 
 from collection_helpers import (
     auditMo2ProfileState,
+    failedInstallReviewEntriesWithCategories,
     failedInstallReviewCategoryCounts,
 )
 
@@ -46,6 +47,15 @@ def _download_metadata_needs_review(download_metadata):
     )
 
 
+def _trim_failed_entry(entry):
+    kept = {}
+    for key in ("mod", "name", "file", "archive", "reason", "review_category"):
+        value = entry.get(key)
+        if value is not None:
+            kept[key] = value
+    return kept
+
+
 def summarize_collection_report(report_path):
     report_path = Path(report_path)
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -59,6 +69,9 @@ def summarize_collection_report(report_path):
     warning_count = int(report.get("warning_count") or 0)
     unique_warning_count = int(report.get("unique_warning_count") or 0)
     failed_count = len(failed_entries)
+    categorized_failed_entries = failedInstallReviewEntriesWithCategories(
+        failed_entries
+    )
     review_count = len(review_entries)
     download_metadata_review = _download_metadata_needs_review(download_metadata_audit)
     needs_review = any(
@@ -88,8 +101,13 @@ def summarize_collection_report(report_path):
             if item.get("category")
         },
         "failed_count": failed_count,
+        "failed_entries": [
+            _trim_failed_entry(item) for item in categorized_failed_entries
+        ],
         "review_count": review_count,
-        "failed_categories": failedInstallReviewCategoryCounts(failed_entries),
+        "failed_categories": failedInstallReviewCategoryCounts(
+            categorized_failed_entries
+        ),
         "root_level_count": len(root_level_entries),
         "no_applicable_count": len(no_applicable_entries),
         "queued_fomod_recovery_count": len(queued_fomod_recovery_entries),
