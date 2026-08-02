@@ -4977,6 +4977,30 @@ class InvalidInstalledCollectionArchiveRetryTests(unittest.TestCase):
             )
         )
 
+    def test_warning_report_is_written_for_dirty_download_metadata_audit(self):
+        self.assertTrue(
+            warningReportNeedsWrite(
+                [],
+                [],
+                [],
+                [],
+                [],
+                0,
+                {"checked": 1, "downloaded_only": ["archive.7z.meta"]},
+            )
+        )
+        self.assertTrue(
+            warningReportNeedsWrite(
+                [],
+                [],
+                [],
+                [],
+                [],
+                0,
+                {"checked": 1, "unknown_installed_state": ["archive.7z.meta"]},
+            )
+        )
+
     def test_warning_report_is_skipped_when_no_review_data_exists(self):
         self.assertFalse(warningReportNeedsWrite([], [], [], [], [], "0"))
 

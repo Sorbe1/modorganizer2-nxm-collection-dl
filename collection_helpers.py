@@ -1293,8 +1293,10 @@ def warningReportNeedsWrite(
     no_applicable_entries,
     queued_fomod_recovery_entries,
     recovery_count,
+    download_metadata_audit=None,
 ):
     """Return True when the installer has review data worth persisting."""
+    download_metadata_audit = download_metadata_audit or {}
     try:
         recovery_count = int(recovery_count)
     except (TypeError, ValueError):
@@ -1306,6 +1308,9 @@ def warningReportNeedsWrite(
         or no_applicable_entries
         or queued_fomod_recovery_entries
         or recovery_count > 0
+        or download_metadata_audit.get("downloaded_only")
+        or download_metadata_audit.get("missing_archive")
+        or download_metadata_audit.get("unknown_installed_state")
     )
 
 

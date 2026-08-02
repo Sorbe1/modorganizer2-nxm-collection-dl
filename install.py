@@ -110,6 +110,7 @@ from .collection_helpers import (
     splitQueuedFomodRecoveryEntries,
     steamGameRootFromMo2BasePath,
     suppressedPostInstallErrorReviewEntries,
+    topLevelDownloadMetadataAudit,
     warningReportNeedsWrite,
     zipArchiveMemberPaths,
     installedModRecordsFromDirectory,
@@ -1348,6 +1349,7 @@ class stepInstallMods(QDialog):
             no_applicable_entries,
             queued_fomod_recovery_entries,
             recovery_count,
+            self.install_context.get("download_metadata_audit", {}),
         ):
             return None
 
@@ -1357,6 +1359,18 @@ class stepInstallMods(QDialog):
             self.interfaceLogPath(organizer).parent
             / f"nxm-collection-install-warnings-{var.collection}-{var.revision}-{timestamp}.json"
         )
+        download_metadata_audit = self.install_context.get(
+            "download_metadata_audit", {}
+        )
+        download_metadata_report = {
+            "checked": download_metadata_audit.get("checked", 0),
+            "installed_count": len(download_metadata_audit.get("installed", [])),
+            "downloaded_only": download_metadata_audit.get("downloaded_only", []),
+            "missing_archive": download_metadata_audit.get("missing_archive", []),
+            "unknown_installed_state": download_metadata_audit.get(
+                "unknown_installed_state", []
+            ),
+        }
         report = {
             "collection": var.collection,
             "revision": var.revision,
@@ -1371,6 +1385,7 @@ class stepInstallMods(QDialog):
             "queued_fomod_recovery_entries": queued_fomod_recovery_entries,
             "root_level_entries": root_level_entries,
             "no_applicable_entries": no_applicable_entries,
+            "download_metadata_audit": download_metadata_report,
             "add_collection_launch_count": collection_metadata.get(
                 "addCollectionLaunchCount", 0
             ),
@@ -5123,6 +5138,10 @@ class stepInstallMods(QDialog):
         )
         context["review_entries"] = list(review_entries)
         queued_recovery_count = len(queued_fomod_recovery_entries)
+        download_metadata_audit = topLevelDownloadMetadataAudit(
+            Path(organizer.downloadsPath())
+        )
+        context["download_metadata_audit"] = download_metadata_audit
 
         self.progress_bar.setValue(len(mods_to_install))
         failed_count = len(review_entries)
@@ -5218,6 +5237,28 @@ class stepInstallMods(QDialog):
                 f"{postcondition_state.get('stale_metadata_repaired', 0)} repaired, "
                 f"{postcondition_state.get('stale_metadata_failed', 0)} failed",
                 "note",
+            )
+        audit_downloaded_only = len(
+            download_metadata_audit.get("downloaded_only", [])
+        )
+        audit_missing_archive = len(
+            download_metadata_audit.get("missing_archive", [])
+        )
+        audit_unknown_state = len(
+            download_metadata_audit.get("unknown_installed_state", [])
+        )
+        self.log(
+            "  Top-level download metadata audit: "
+            f"{download_metadata_audit.get('checked', 0)} checked, "
+            f"{len(download_metadata_audit.get('installed', []))} installed, "
+            f"{audit_downloaded_only} downloaded-only, "
+            f"{audit_missing_archive} missing archive, "
+            f"{audit_unknown_state} unknown state"
+        )
+        if audit_downloaded_only or audit_missing_archive or audit_unknown_state:
+            self.log(
+                "  Visible Downloads pane metadata needs review; see warning report.",
+                "warning",
             )
         if priority_order:
             self.log(

@@ -4949,6 +4949,30 @@ class WarningReportNeedsWriteTests(unittest.TestCase):
             )
         )
 
+    def test_dirty_download_metadata_audit_forces_report(self):
+        self.assertTrue(
+            warningReportNeedsWrite(
+                [],
+                [],
+                [],
+                [],
+                [],
+                0,
+                {"checked": 1, "downloaded_only": ["archive.7z.meta"]},
+            )
+        )
+        self.assertTrue(
+            warningReportNeedsWrite(
+                [],
+                [],
+                [],
+                [],
+                [],
+                0,
+                {"checked": 1, "missing_archive": ["archive.7z.meta"]},
+            )
+        )
+
     def test_empty_review_data_skips_report(self):
         self.assertFalse(warningReportNeedsWrite([], [], [], [], [], "0"))
 
