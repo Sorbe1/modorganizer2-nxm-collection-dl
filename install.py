@@ -2015,6 +2015,9 @@ class stepInstallMods(QDialog):
             "native-archive-worker.heartbeat.json"
         )
 
+    def nativeArchiveWorkerLogPath(self, organizer):
+        return self.nativeArchiveWorkerDirectory(organizer) / "native-archive-worker.log"
+
     def nativeArchiveWorkerScriptPath(self):
         return Path(__file__).resolve().parent / "scripts" / "native_archive_worker.py"
 
@@ -2282,20 +2285,23 @@ class stepInstallMods(QDialog):
                 self.resetNativeArchiveWorkerProcess(
                     f"worker exited before heartbeat: {exit_code}"
                 )
+                log_path = self.nativeArchiveWorkerLogPath(organizer)
                 return {
                     "ok": False,
                     "worker_unavailable": True,
                     "error": (
                         "Native archive worker exited before writing a heartbeat "
-                        f"(exit {exit_code}); review worker launch command/logs."
+                        f"(exit {exit_code}); worker log: {log_path}"
                     ),
                 }
+            log_path = self.nativeArchiveWorkerLogPath(organizer)
             return {
                 "ok": False,
                 "worker_unavailable": True,
                 "error": (
                     "Native archive worker unavailable after automatic launch; "
-                    "retry with the normal MO2 installer or review worker logs."
+                    "retry with the normal MO2 installer; "
+                    f"worker log: {log_path}"
                 ),
             }
         request_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex}"
@@ -2335,11 +2341,12 @@ class stepInstallMods(QDialog):
             except OSError:
                 pass
         self.resetNativeArchiveWorkerProcess("worker request timed out")
+        log_path = self.nativeArchiveWorkerLogPath(organizer)
         return {
             "ok": False,
             "error": (
                 "Native archive worker timed out after automatic launch; "
-                "retry with the normal MO2 installer or review worker logs."
+                f"retry with the normal MO2 installer; worker log: {log_path}"
             ),
         }
 

@@ -7,6 +7,9 @@ import subprocess
 import time
 from pathlib import Path
 
+WORKER_LOG_NAME = "native-archive-worker.log"
+MAX_WORKER_LOG_BYTES = 256 * 1024
+
 
 def seven_zip_executable():
     executable = shutil.which("7z") or shutil.which("7zz")
@@ -103,6 +106,27 @@ def write_result(path, payload):
 
 def heartbeat_path(request_dir):
     return Path(request_dir) / "native-archive-worker.heartbeat.json"
+
+
+def worker_log_path(request_dir):
+    return Path(request_dir) / WORKER_LOG_NAME
+
+
+def append_worker_log(request_dir, message):
+    log_path = worker_log_path(request_dir)
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        if log_path.exists() and log_path.stat().st_size > MAX_WORKER_LOG_BYTES:
+            backup_path = log_path.with_suffix(log_path.suffix + ".1")
+            try:
+                os.replace(log_path, backup_path)
+            except OSError:
+                log_path.unlink(missing_ok=True)
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{timestamp} [{os.getpid()}] {message}\n")
+    except OSError:
+        pass
 
 
 def write_heartbeat(request_dir):
@@ -222,16 +246,26 @@ def handle_request(payload):
 
 def process_request(path):
     request_path = Path(path)
+    request_dir = request_path.parent
     try:
         payload = json.loads(request_path.read_text(encoding="utf-8"))
     except Exception as e:
-        return False, f"Could not read request {request_path}: {e}", False
+        error = f"Could not read request {request_path}: {e}"
+        append_worker_log(request_dir, error)
+        return False, error, False
 
     result_path = payload.get("result_path")
     if not result_path:
-        return False, f"Request {request_path} missing result_path.", False
+        error = f"Request {request_path} missing result_path."
+        append_worker_log(request_dir, error)
+        return False, error, False
     result = handle_request(payload)
     write_result(result_path, result)
+    if not result.get("ok"):
+        append_worker_log(
+            request_dir,
+            f"{payload.get('action') or 'unknown'} request failed: {result.get('error')}",
+        )
     try:
         request_path.unlink()
     except OSError:
@@ -261,10 +295,12 @@ def main():
 
     request_dir = Path(args.request_dir)
     request_dir.mkdir(parents=True, exist_ok=True)
+    append_worker_log(request_dir, "worker starting")
     write_heartbeat(request_dir)
     if args.once:
         run_once(request_dir)
         write_heartbeat(request_dir)
+        append_worker_log(request_dir, "worker exiting after --once")
         return 0
 
     while True:
@@ -272,6 +308,7 @@ def main():
         _, shutdown_requested = run_once(request_dir)
         if shutdown_requested:
             write_heartbeat(request_dir)
+            append_worker_log(request_dir, "worker exiting after shutdown request")
             return 0
         time.sleep(max(args.poll_ms, 10) / 1000.0)
 

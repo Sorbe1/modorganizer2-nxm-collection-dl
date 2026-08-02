@@ -1598,7 +1598,8 @@ class ManualFomodPlanFailureCacheTests(unittest.TestCase):
         self.assertTrue(
             isTransientManualFomodPlanFailure(
                 "Native archive worker unavailable after automatic launch; "
-                "retry with the normal MO2 installer or review worker logs."
+                "retry with the normal MO2 installer; "
+                "worker log: /tmp/native-archive-worker.log"
             )
         )
         self.assertTrue(
@@ -3722,6 +3723,11 @@ class NativeArchiveWorkerTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertIn("Unsupported action", result["error"])
             self.assertFalse(request_path.exists())
+            log_text = (request_dir / "native-archive-worker.log").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("worker starting", log_text)
+            self.assertIn("bad-action request failed", log_text)
 
     def test_once_mode_writes_worker_heartbeat(self):
         with TemporaryDirectory() as tmp:
@@ -5399,7 +5405,8 @@ class HeadlessArchivePreflightFallbackTests(unittest.TestCase):
                     "installable": False,
                     "reason": (
                         "Native archive worker timed out after automatic launch; "
-                        "retry with the normal MO2 installer or review worker logs."
+                        "retry with the normal MO2 installer; "
+                        "worker log: /tmp/native-archive-worker.log"
                     ),
                 }
             ),
