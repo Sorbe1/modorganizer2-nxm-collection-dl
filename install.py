@@ -3072,14 +3072,22 @@ class stepInstallMods(QDialog):
         failed_counts = failedInstallReviewCategoryCounts(
             entry for entry in plan if entry.get("status") == "failed"
         )
+        specific_failed_summary = (
+            f"{failed_counts['missing_download']} missing downloads, "
+            f"{failed_counts['duplicate_container']} duplicate containers, "
+            f"{failed_counts['native_worker_timeout']} worker timeouts, "
+            f"{failed_counts['ambiguous_archive_layout']} ambiguous layouts, "
+            f"{failed_counts['fomod_choices']} FOMOD choices, "
+            f"{failed_counts['empty_installer_output']} empty outputs, "
+            f"{failed_counts['manual_or_review']} manual/review, "
+            f"{failed_counts['other_failure']} other preflight failures"
+        )
         self.log(
             "Install plan ready: "
             f"{counts['installed']} already installed, "
             f"{counts['root']} root-handled, "
             f"{counts['install']} to install, "
-            f"{failed_counts['missing_download']} missing downloads, "
-            f"{failed_counts['manual_or_review']} manual/review required, "
-            f"{failed_counts['other_failure']} other preflight failures, "
+            f"{specific_failed_summary}, "
             f"{counts['fomod']} FOMOD, "
             f"{counts['fomod_unknown']} unknown FOMOD state, "
             f"{counts['headless_archive']} headless archive, "
@@ -5316,20 +5324,24 @@ class stepInstallMods(QDialog):
         if review_count:
             failed_category_counts = failedInstallReviewCategoryCounts(review_entries)
             missing_download_count = failed_category_counts["missing_download"]
-            manual_review_count = failed_category_counts["manual_or_review"]
-            other_failure_count = failed_category_counts["other_failure"]
+            downloaded_not_installed_count = max(
+                0, review_count - missing_download_count
+            )
             self.log(
                 "  Entries downloaded but not installed: "
-                f"{manual_review_count} (use Retry Failed Manually)"
+                f"{downloaded_not_installed_count} (use Retry Failed Manually)"
             )
             if missing_download_count:
                 self.log(
                     f"  Entries missing downloads: {missing_download_count}",
                     "warning",
                 )
-            if other_failure_count:
+            for category, count in failed_category_counts.items():
+                if category == "missing_download" or not count:
+                    continue
                 self.log(
-                    f"  Entries with other preflight failures: {other_failure_count}",
+                    "  "
+                    f"{failedInstallReviewCategoryLabel(category)}: {count}",
                     "warning",
                 )
         else:
