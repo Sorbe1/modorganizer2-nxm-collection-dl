@@ -4340,6 +4340,56 @@ def hasPartialUnfinishedEntries(entries):
     return bool(entries) and any(entry["archive_size"] > 0 for entry in entries)
 
 
+def activeUnfinishedDownloadFingerprint(
+    entries_by_key,
+    orphan_entries=None,
+    pending_keys=None,
+):
+    """Return a stable fingerprint for non-empty unfinished download activity."""
+    pending_keys = set(pending_keys or [])
+    restrict_to_pending = bool(pending_keys)
+    fingerprint = []
+
+    for key, entries in (entries_by_key or {}).items():
+        if restrict_to_pending and key not in pending_keys:
+            continue
+        for entry in entries or []:
+            size = int(entry.get("archive_size", 0) or 0)
+            if size <= 0:
+                continue
+            fingerprint.append(
+                (
+                    "metadata",
+                    int(key[0]),
+                    int(key[1]),
+                    size,
+                    float(entry.get("mtime", 0) or 0),
+                )
+            )
+
+    pending_mod_ids = {int(key[0]) for key in pending_keys}
+    for entry in orphan_entries or []:
+        size = int(entry.get("archive_size", 0) or 0)
+        if size <= 0:
+            continue
+        mod_id = entry.get("mod_id")
+        if mod_id is None:
+            continue
+        mod_id = int(mod_id)
+        if restrict_to_pending and mod_id not in pending_mod_ids:
+            continue
+        fingerprint.append(
+            (
+                "orphan",
+                mod_id,
+                size,
+                float(entry.get("mtime", 0) or 0),
+            )
+        )
+
+    return tuple(sorted(fingerprint))
+
+
 def staleZeroByteUnfinishedEntries(entries, now, stale_seconds):
     """Return unfinished entries safe to discard before a retry.
 

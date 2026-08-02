@@ -29,6 +29,7 @@ from . import var
 from .collection_helpers import (
     INSTALLER_SETTING_DEFAULTS,
     activeDownloadPromptKey,
+    activeUnfinishedDownloadFingerprint,
     adaptiveDownloadTailGraceSeconds,
     coerceBoolSetting,
     coerceDownloadId,
@@ -869,6 +870,7 @@ class stepDownloadProgress(QDialog):
         self.queue_throttle_log_at = 0
         self.last_download_progress_at = time.time()
         self.last_download_progress_count = 0
+        self.last_download_activity_fingerprint = None
         self.tail_boundary_started_at = None
         self.tail_boundary_completion_ratio = 0.75
         self.tail_boundary_retry_budget = max(1, min(3, self.max_retries + 1))
@@ -1280,6 +1282,26 @@ class stepDownloadProgress(QDialog):
             self.tail_boundary_started_at = None
         return state
 
+    def note_download_activity_from_disk(self):
+        """Record byte-level activity for in-flight MO2 downloads."""
+        downloads_dir = downloadDirectory()
+        pending_keys = set(self.key_counts) - self.completed_keys - self.failed_keys
+        fingerprint = activeUnfinishedDownloadFingerprint(
+            unfinishedDownloadEntries(downloads_dir),
+            orphanUnfinishedDownloadEntries(downloads_dir),
+            pending_keys,
+        )
+        if fingerprint == self.last_download_activity_fingerprint:
+            return False
+
+        self.last_download_activity_fingerprint = fingerprint
+        if not fingerprint:
+            return False
+
+        self.last_download_progress_at = time.time()
+        self.tail_boundary_started_at = None
+        return True
+
     def mark_key_completed(self, key, reason):
         """Count a collection entry as complete after its archive is on disk."""
         if key in self.completed_keys:
@@ -1456,6 +1478,8 @@ class stepDownloadProgress(QDialog):
     ):
         """Stop a mostly complete run from waiting forever on MO2 queue laggards."""
         state = self.refresh_progress_counts()
+        if self.note_download_activity_from_disk():
+            now = time.time()
         effective_unresolved_limit = (
             self.max_unresolved_queue_submissions
             if unresolved_limit is None

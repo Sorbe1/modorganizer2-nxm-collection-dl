@@ -13,6 +13,7 @@ from collection_helpers import (
     AUTOMATED_INSTALL_CADENCE_DEFAULTS,
     INSTALLER_SETTING_DEFAULTS,
     activeDownloadPromptKey,
+    activeUnfinishedDownloadFingerprint,
     allocateUniqueModName,
     archiveInspectionSubprocessKwargs,
     backgroundWorkerSubprocessKwargs,
@@ -1950,6 +1951,112 @@ class UnfinishedDownloadEntriesTests(unittest.TestCase):
         self.assertTrue(hasPartialUnfinishedEntries([empty_entry, partial_entry]))
         self.assertFalse(hasPartialUnfinishedEntries([empty_entry]))
         self.assertFalse(hasPartialUnfinishedEntries([]))
+
+    def test_unfinished_activity_fingerprint_ignores_empty_entries(self):
+        metadata_entries = {
+            (111, 222): [
+                {
+                    "archive": Path("Empty.7z.unfinished"),
+                    "archive_size": 0,
+                    "mtime": 100,
+                }
+            ]
+        }
+        orphan_entries = [
+            {
+                "archive": Path("Orphan.7z.unfinished"),
+                "archive_size": 0,
+                "mtime": 101,
+                "mod_id": 333,
+            }
+        ]
+
+        self.assertEqual(
+            activeUnfinishedDownloadFingerprint(metadata_entries, orphan_entries),
+            (),
+        )
+
+    def test_unfinished_activity_fingerprint_tracks_pending_metadata(self):
+        metadata_entries = {
+            (111, 222): [
+                {
+                    "archive": Path("One.7z.unfinished"),
+                    "archive_size": 128,
+                    "mtime": 100,
+                }
+            ],
+            (333, 444): [
+                {
+                    "archive": Path("Two.7z.unfinished"),
+                    "archive_size": 256,
+                    "mtime": 101,
+                }
+            ],
+        }
+
+        self.assertEqual(
+            activeUnfinishedDownloadFingerprint(
+                metadata_entries,
+                pending_keys={(333, 444)},
+            ),
+            (("metadata", 333, 444, 256, 101.0),),
+        )
+
+    def test_unfinished_activity_fingerprint_tracks_pending_orphans_by_mod(self):
+        orphan_entries = [
+            {
+                "archive": Path("Wanted.7z.unfinished"),
+                "archive_size": 128,
+                "mtime": 100,
+                "mod_id": 111,
+            },
+            {
+                "archive": Path("Other.7z.unfinished"),
+                "archive_size": 256,
+                "mtime": 101,
+                "mod_id": 333,
+            },
+            {
+                "archive": Path("Unknown.7z.unfinished"),
+                "archive_size": 512,
+                "mtime": 102,
+            },
+        ]
+
+        self.assertEqual(
+            activeUnfinishedDownloadFingerprint(
+                {},
+                orphan_entries,
+                pending_keys={(111, 222)},
+            ),
+            (("orphan", 111, 128, 100.0),),
+        )
+
+    def test_unfinished_activity_fingerprint_changes_with_size_or_mtime(self):
+        first = activeUnfinishedDownloadFingerprint(
+            {
+                (111, 222): [
+                    {
+                        "archive": Path("One.7z.unfinished"),
+                        "archive_size": 128,
+                        "mtime": 100,
+                    }
+                ]
+            }
+        )
+        second = activeUnfinishedDownloadFingerprint(
+            {
+                (111, 222): [
+                    {
+                        "archive": Path("One.7z.unfinished"),
+                        "archive_size": 256,
+                        "mtime": 101,
+                    }
+                ]
+            }
+        )
+
+        self.assertNotEqual(first, second)
 
     def test_removes_unfinished_entry_files(self):
         with TemporaryDirectory() as tmp:
