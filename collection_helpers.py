@@ -3870,7 +3870,9 @@ def moveModlistEntriesToUiBottom(modlist_path, mod_names, backup_dir=None):
             missing.append(name)
             continue
         newline = "\r\n" if line.endswith("\r\n") else "\n"
-        moved.append(f"+{name}{newline}")
+        stripped = line.strip()
+        prefix = stripped[0] if stripped and stripped[0] in "+-" else "+"
+        moved.append(f"{prefix}{name}{newline}")
 
     result["moved"] = len(moved)
     result["missing"] = missing
