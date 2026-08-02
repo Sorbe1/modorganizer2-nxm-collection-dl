@@ -540,6 +540,27 @@ class TopLevelDownloadMetadataAuditTests(unittest.TestCase):
                 [str(metadata)],
             )
 
+    def test_reports_installed_metadata_without_readable_identity_as_unverified(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Installed-123-456.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / "Installed-123-456.7z.meta"
+            metadata.write_text(
+                "[General]\ninstalled=true\n",
+                encoding="utf-8",
+            )
+
+            audit = topLevelDownloadMetadataAudit(
+                downloads,
+                valid_installed_keys={(123, 456)},
+            )
+
+            self.assertEqual(
+                audit["installed_without_valid_container"],
+                [str(metadata)],
+            )
+
     def test_accepts_installed_metadata_with_valid_container_evidence(self):
         with TemporaryDirectory() as tmp:
             downloads = Path(tmp)

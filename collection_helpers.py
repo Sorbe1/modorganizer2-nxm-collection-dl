@@ -4893,8 +4893,7 @@ def topLevelDownloadMetadataAudit(downloads_dir, valid_installed_keys=None):
             result["installed"].append(metadata_path)
             if (
                 valid_installed_keys is not None
-                and nexus_key is not None
-                and nexus_key not in valid_installed_keys
+                and (nexus_key is None or nexus_key not in valid_installed_keys)
             ):
                 result["installed_without_valid_container"].append(metadata_path)
         elif installed_value == "false":
