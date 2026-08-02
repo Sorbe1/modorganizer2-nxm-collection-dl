@@ -216,6 +216,16 @@ def stress_report_is_clean(report):
     return True
 
 
+def write_json_report(report, output_path):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -247,6 +257,12 @@ def main():
         ),
     )
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Write the complete stress report JSON to this path.",
+    )
     args = parser.parse_args()
 
     base = args.base
@@ -271,6 +287,9 @@ def main():
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print_text_report(report)
+    if args.output is not None:
+        output_path = write_json_report(report, args.output)
+        print(f"Wrote JSON report: {output_path}")
     if args.strict and not stress_report_is_clean(report):
         return 1
     return 0

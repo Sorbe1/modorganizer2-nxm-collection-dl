@@ -1,6 +1,9 @@
 from importlib.util import module_from_spec, spec_from_file_location
+import contextlib
+import io
 import json
 from pathlib import Path
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -170,6 +173,60 @@ class CollectionStressReportTests(unittest.TestCase):
                 }
             )
         )
+
+    def test_writes_json_report_artifact(self):
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "nested" / "stress.json"
+
+            written = collection_stress_report.write_json_report(
+                {"needs_review_count": 0, "collections": []},
+                output,
+            )
+
+            self.assertEqual(written, output)
+            self.assertEqual(
+                json.loads(output.read_text(encoding="utf-8")),
+                {"needs_review_count": 0, "collections": []},
+            )
+
+    def test_main_can_write_output_artifact(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            logs.mkdir()
+            output = root / "artifacts" / "stress.json"
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-gamma-1-20260802-010000.json",
+                {
+                    "collection": "gamma",
+                    "revision": 1,
+                    "name": "Gamma",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [],
+                },
+            )
+
+            old_argv = sys.argv
+            try:
+                sys.argv = [
+                    str(SCRIPT),
+                    "--logs",
+                    str(logs),
+                    "--output",
+                    str(output),
+                ]
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(collection_stress_report.main(), 0)
+            finally:
+                sys.argv = old_argv
+
+            artifact = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(artifact["report_count"], 1)
+            self.assertEqual(artifact["collections"][0]["collection"], "gamma")
 
 
 if __name__ == "__main__":
