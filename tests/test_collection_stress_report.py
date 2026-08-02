@@ -144,6 +144,98 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertTrue(result["profile_audit"]["clean"])
             self.assertEqual(result["profile_audit"]["issues"], [])
 
+    def test_filters_reports_by_collection_slug_or_name(self):
+        with TemporaryDirectory() as tmp:
+            logs = Path(tmp)
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-alpha-1-20260802-010000.json",
+                {
+                    "collection": "alpha",
+                    "revision": 1,
+                    "name": "Alpha Pack",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [],
+                },
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-beta-1-20260802-010000.json",
+                {
+                    "collection": "beta",
+                    "revision": 1,
+                    "name": "Beta Pack",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [],
+                },
+            )
+
+            by_slug = collection_stress_report.build_stress_report(
+                logs,
+                collection_filters=["alpha"],
+            )
+            by_name = collection_stress_report.build_stress_report(
+                logs,
+                collection_filters=["Beta Pack"],
+            )
+
+            self.assertEqual(by_slug["report_count"], 1)
+            self.assertEqual(by_slug["collections"][0]["collection"], "alpha")
+            self.assertEqual(by_slug["filters"]["collections"], ["alpha"])
+            self.assertEqual(by_name["report_count"], 1)
+            self.assertEqual(by_name["collections"][0]["collection"], "beta")
+
+    def test_filters_reports_to_needs_review_only(self):
+        with TemporaryDirectory() as tmp:
+            logs = Path(tmp)
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-clean-1-20260802-010000.json",
+                {
+                    "collection": "clean",
+                    "revision": 1,
+                    "name": "Clean",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [],
+                },
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-dirty-1-20260802-010000.json",
+                {
+                    "collection": "dirty",
+                    "revision": 1,
+                    "name": "Dirty",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {"mod": "Manual", "reason": "ambiguous archive layout"}
+                    ],
+                },
+            )
+
+            result = collection_stress_report.build_stress_report(
+                logs,
+                needs_review_only=True,
+            )
+
+            self.assertEqual(result["report_count"], 1)
+            self.assertEqual(result["clean_count"], 0)
+            self.assertEqual(result["needs_review_count"], 1)
+            self.assertTrue(result["filters"]["needs_review_only"])
+            self.assertEqual(result["collections"][0]["collection"], "dirty")
+
     def test_strict_gate_accepts_clean_report(self):
         self.assertTrue(
             collection_stress_report.stress_report_is_clean(

@@ -143,17 +143,50 @@ def _strip_sort_keys(summaries):
     return clean
 
 
-def build_stress_report(logs_dir, base_path=None, profile_name="Default", all_runs=False):
+def _filter_summaries(summaries, collection_filters=None, needs_review_only=False):
+    filters = {str(item).lower() for item in (collection_filters or []) if item}
+    filtered = []
+    for item in summaries:
+        if filters:
+            labels = {
+                str(item.get("collection") or "").lower(),
+                str(item.get("name") or "").lower(),
+            }
+            if not labels.intersection(filters):
+                continue
+        if needs_review_only and item.get("status") != "needs_review":
+            continue
+        filtered.append(item)
+    return filtered
+
+
+def build_stress_report(
+    logs_dir,
+    base_path=None,
+    profile_name="Default",
+    all_runs=False,
+    collection_filters=None,
+    needs_review_only=False,
+):
     report_paths = discover_collection_reports(logs_dir)
     summaries = (
         all_collection_summaries(report_paths)
         if all_runs
         else latest_collection_summaries(report_paths)
     )
+    summaries = _filter_summaries(
+        summaries,
+        collection_filters=collection_filters,
+        needs_review_only=needs_review_only,
+    )
     clean_summaries = _strip_sort_keys(summaries)
     result = {
         "logs_dir": str(Path(logs_dir)),
         "mode": "all_runs" if all_runs else "latest_per_collection_revision",
+        "filters": {
+            "collections": list(collection_filters or []),
+            "needs_review_only": bool(needs_review_only),
+        },
         "report_count": len(clean_summaries),
         "clean_count": sum(1 for item in clean_summaries if item["status"] == "clean"),
         "needs_review_count": sum(
@@ -249,6 +282,20 @@ def main():
     parser.add_argument("--profile", default="Default")
     parser.add_argument("--all-runs", action="store_true")
     parser.add_argument(
+        "--collection",
+        action="append",
+        default=None,
+        help=(
+            "Only include reports whose collection slug or display name exactly "
+            "matches this value. May be supplied more than once."
+        ),
+    )
+    parser.add_argument(
+        "--needs-review-only",
+        action="store_true",
+        help="Only include collection summaries that currently need review.",
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help=(
@@ -282,6 +329,8 @@ def main():
         base_path=base,
         profile_name=args.profile,
         all_runs=args.all_runs,
+        collection_filters=args.collection,
+        needs_review_only=args.needs_review_only,
     )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
