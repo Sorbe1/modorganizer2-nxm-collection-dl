@@ -54,6 +54,8 @@ from collection_helpers import (
     downloadProgressState,
     downloadedFileKeys,
     extractHeadlessZipArchive,
+    failedInstallReviewCategory,
+    failedInstallReviewCategoryCounts,
     fastFinishMetadataRepairKeys,
     fomodDependencyOptionGuideLines,
     fomodManualChoiceGuide,
@@ -5346,6 +5348,51 @@ class InstalledPayloadCompletionTests(unittest.TestCase):
                     "error": None,
                 },
             )
+        )
+
+
+class FailedInstallReviewCategoryTests(unittest.TestCase):
+    def test_classifies_missing_download_reasons(self):
+        self.assertEqual(
+            failedInstallReviewCategory("not found in downloads"),
+            "missing_download",
+        )
+        self.assertEqual(
+            failedInstallReviewCategory(
+                "installed container has no valid game data and source archive is missing"
+            ),
+            "missing_download",
+        )
+
+    def test_classifies_manual_and_review_reasons(self):
+        reasons = [
+            "manual archive layout: ambiguous archive layout",
+            "manual FOMOD choices required: pick one",
+            "installed container has no usable payload; archive needs manual install or content-tree review",
+            "installed container has no valid game data; source archive needs manual install",
+        ]
+
+        self.assertEqual(
+            {failedInstallReviewCategory(reason) for reason in reasons},
+            {"manual_or_review"},
+        )
+
+    def test_counts_review_categories(self):
+        counts = failedInstallReviewCategoryCounts(
+            [
+                {"reason": "not found in downloads"},
+                {"reason": "manual archive layout: ambiguous archive layout"},
+                {"reason": "unexpected preflight failure"},
+            ]
+        )
+
+        self.assertEqual(
+            counts,
+            {
+                "missing_download": 1,
+                "manual_or_review": 1,
+                "other_failure": 1,
+            },
         )
 
 

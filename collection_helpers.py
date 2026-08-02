@@ -1622,6 +1622,36 @@ def invalidInstalledCollectionPlanAction(mod_dir, source_archive_available):
     return "review-invalid"
 
 
+def failedInstallReviewCategory(reason):
+    """Return a stable summary bucket for a failed collection plan entry."""
+    text = str(reason or "").casefold()
+    if (
+        "not found in downloads" in text
+        or "archive is missing" in text
+        or "missing download" in text
+    ):
+        return "missing_download"
+    if (
+        "manual " in text
+        or "needs manual install" in text
+        or "content-tree review" in text
+        or "fomod choices required" in text
+        or "ambiguous archive layout" in text
+        or "invalid mo2 game data" in text
+    ):
+        return "manual_or_review"
+    return "other_failure"
+
+
+def failedInstallReviewCategoryCounts(entries):
+    """Return counts of failed/review collection entries by summary category."""
+    counts = {"missing_download": 0, "manual_or_review": 0, "other_failure": 0}
+    for entry in entries or []:
+        category = failedInstallReviewCategory(entry.get("reason"))
+        counts[category] = counts.get(category, 0) + 1
+    return counts
+
+
 def isBenignEmptyFomodInstallerResult(fomod_state, guide):
     """Return True when an empty FOMOD result is a valid no-op for this profile."""
     if fomod_state is not True:

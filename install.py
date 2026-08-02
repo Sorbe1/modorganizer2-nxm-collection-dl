@@ -95,6 +95,7 @@ from .collection_helpers import (
     pluginMasterDependencyReviewEntries,
     pluginRepairFailureReviewEntries,
     preferredCanonicalDownloadArchive,
+    failedInstallReviewCategoryCounts,
     quarantineInvalidPayloadModContainers,
     mo2CategoryNameMap,
     moveModlistEntriesToUiBottom,
@@ -3018,12 +3019,17 @@ class stepInstallMods(QDialog):
             if entry.get("status") == "install"
         ]
         context["install_plan_fast_finish"] = counts["install"] == 0
+        failed_counts = failedInstallReviewCategoryCounts(
+            entry for entry in plan if entry.get("status") == "failed"
+        )
         self.log(
             "Install plan ready: "
             f"{counts['installed']} already installed, "
             f"{counts['root']} root-handled, "
             f"{counts['install']} to install, "
-            f"{counts['missing']} missing downloads, "
+            f"{failed_counts['missing_download']} missing downloads, "
+            f"{failed_counts['manual_or_review']} manual/review required, "
+            f"{failed_counts['other_failure']} other preflight failures, "
             f"{counts['fomod']} FOMOD, "
             f"{counts['fomod_unknown']} unknown FOMOD state, "
             f"{counts['headless_archive']} headless archive, "
@@ -5257,10 +5263,24 @@ class stepInstallMods(QDialog):
         )
         self.log(f"  Entries completed/root-handled: {completed_entries}")
         if review_count:
+            failed_category_counts = failedInstallReviewCategoryCounts(review_entries)
+            missing_download_count = failed_category_counts["missing_download"]
+            manual_review_count = failed_category_counts["manual_or_review"]
+            other_failure_count = failed_category_counts["other_failure"]
             self.log(
                 "  Entries downloaded but not installed: "
-                f"{review_count} (use Retry Failed Manually)"
+                f"{manual_review_count} (use Retry Failed Manually)"
             )
+            if missing_download_count:
+                self.log(
+                    f"  Entries missing downloads: {missing_download_count}",
+                    "warning",
+                )
+            if other_failure_count:
+                self.log(
+                    f"  Entries with other preflight failures: {other_failure_count}",
+                    "warning",
+                )
         else:
             self.log("  Entries downloaded but not installed: 0")
         if queued_recovery_count:
