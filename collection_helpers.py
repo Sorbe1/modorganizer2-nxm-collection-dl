@@ -2304,6 +2304,12 @@ def pluginActivationReviewEntries(missing_plugins, source="plugin activation"):
                 "mod_id": "unknown",
                 "file_id": "unknown",
                 "archive": "",
+                "missing_plugins": [plugin_name],
+                "suggested_action": (
+                    "install the mod or optional patch source that provides "
+                    f"{plugin_name}; disable the dependent patch if that plugin "
+                    "is not intended"
+                ),
                 "reason": (
                     "plugin not present in profile plugin list after refresh: "
                     f"{plugin_name}"

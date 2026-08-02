@@ -3115,6 +3115,12 @@ class PluginActivationReviewEntriesTests(unittest.TestCase):
                     "mod_id": "unknown",
                     "file_id": "unknown",
                     "archive": "",
+                    "missing_plugins": ["Missing.esp"],
+                    "suggested_action": (
+                        "install the mod or optional patch source that provides "
+                        "Missing.esp; disable the dependent patch if that plugin "
+                        "is not intended"
+                    ),
                     "reason": (
                         "plugin not present in profile plugin list after refresh: "
                         "Missing.esp"
