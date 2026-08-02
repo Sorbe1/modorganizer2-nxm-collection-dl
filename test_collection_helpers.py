@@ -2692,6 +2692,31 @@ class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
         self.assertEqual(
             plan["reason"], "ambiguous FOMOD dependency choices: Dear Diary"
         )
+        self.assertEqual(
+            plan["ambiguous_dependency_groups"],
+            [
+                {
+                    "group": "Dear Diary",
+                    "type": "SelectExactlyOne",
+                    "candidates": [
+                        {
+                            "option": "Dear Diary Light Mode - Fixed Journal",
+                            "plugin_type": "optional",
+                            "score": 22,
+                            "matched_profile_evidence": True,
+                            "payload_items": 1,
+                        },
+                        {
+                            "option": "Dear Diary Dark Mode - Fixed Journal",
+                            "plugin_type": "optional",
+                            "score": 22,
+                            "matched_profile_evidence": True,
+                            "payload_items": 1,
+                        },
+                    ],
+                }
+            ],
+        )
 
     def test_selects_dependency_typed_required_payload_over_none(self):
         module_config = """\

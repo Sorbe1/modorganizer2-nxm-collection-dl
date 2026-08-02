@@ -52,6 +52,7 @@ from collection_helpers import (
     fastFinishMetadataRepairKeys,
     fomodManualChoiceGuide,
     gameRootFileEvidenceForCollectionEntry,
+    headlessFomodDependencyInstallLayout,
     headlessArchivePreflightFallback,
     hasPartialUnfinishedEntries,
     headlessPayloadRootValid,
@@ -2713,6 +2714,57 @@ class NativePathForArchiveInspectionTests(unittest.TestCase):
                 ),
                 "/tmp/compatdata/489830/pfx/drive_c/users/steamuser/Downloads/archive.7z",
             )
+
+
+class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
+    def test_reports_ambiguous_single_choice_candidates(self):
+        module_config = """\
+<config>
+  <installSteps>
+    <installStep name="Pick your patch">
+      <optionalFileGroups>
+        <group name="Dear Diary" type="SelectExactlyOne">
+          <plugins>
+            <plugin name="Dear Diary Light Mode - Fixed Journal">
+              <files><folder source="10_Dear Diary Light/Interface" destination="Interface" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Dear Diary Dark Mode - Fixed Journal">
+              <files><folder source="11_Dear Diary Dark/Interface" destination="Interface" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+  </installSteps>
+</config>
+"""
+
+        plan = headlessFomodDependencyInstallLayout(
+            module_config,
+            "fomod/ModuleConfig.xml",
+            [
+                "10_Dear Diary Light/Interface/quest_journal.swf",
+                "11_Dear Diary Dark/Interface/quest_journal.swf",
+            ],
+            ["Dear Diary"],
+        )
+
+        self.assertFalse(plan["installable"])
+        self.assertEqual(
+            plan["reason"], "ambiguous FOMOD dependency choices: Dear Diary"
+        )
+        self.assertEqual(
+            [
+                candidate["option"]
+                for candidate in plan["ambiguous_dependency_groups"][0]["candidates"]
+            ],
+            [
+                "Dear Diary Light Mode - Fixed Journal",
+                "Dear Diary Dark Mode - Fixed Journal",
+            ],
+        )
 
 
 class FomodManualChoiceGuideTests(unittest.TestCase):

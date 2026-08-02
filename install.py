@@ -2376,6 +2376,24 @@ class stepInstallMods(QDialog):
                 "- Archive layout: "
                 f"{safeDisplayText(layout_diagnostics.get('summary'))}"
             )
+        ambiguous_dependency_groups = (
+            layout_plan.get("ambiguous_dependency_groups") or []
+        )
+        for group in ambiguous_dependency_groups:
+            group_name = safeDisplayText(group.get("group"))
+            group_type = safeDisplayText(group.get("type"))
+            lines.append(
+                "- Ambiguous FOMOD dependency group: "
+                f"`{group_name}` ({group_type})"
+            )
+            candidates = []
+            for candidate in group.get("candidates") or []:
+                option = safeDisplayText(candidate.get("option"))
+                plugin_type = safeDisplayText(candidate.get("plugin_type"))
+                score = candidate.get("score")
+                candidates.append(f"`{option}` [{plugin_type}, score {score}]")
+            if candidates:
+                lines.append("- Matching FOMOD options: " + ", ".join(candidates))
         if entry.get("missing_masters"):
             lines.append(
                 "- Missing masters: "

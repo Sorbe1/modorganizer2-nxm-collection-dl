@@ -1790,6 +1790,18 @@ def _fomodPluginTypeScore(plugin_type):
     }.get(str(plugin_type or "").casefold(), 0)
 
 
+def _fomodDependencyCandidateDiagnostic(
+    option_name, plugin_type, score, matched_profile_evidence, mappings
+):
+    return {
+        "option": option_name,
+        "plugin_type": plugin_type or "",
+        "score": score,
+        "matched_profile_evidence": bool(matched_profile_evidence),
+        "payload_items": len(mappings or []),
+    }
+
+
 def headlessFomodDependencyInstallLayout(
     module_config_xml, module_config_path, member_names, evidence_names
 ):
@@ -1860,27 +1872,40 @@ def headlessFomodDependencyInstallLayout(
                 for mapping in mappings
             ):
                 continue
-            if _fomodOptionMatchesEvidence(option_name, evidence_labels):
+            matched_profile_evidence = _fomodOptionMatchesEvidence(
+                option_name, evidence_labels
+            )
+            if matched_profile_evidence:
+                score = (
+                    _fomodOptionEvidenceScore(option_name, evidence_labels)
+                    + _fomodPluginTypeScore(plugin_type)
+                )
                 candidates.append(
                     (
                         option_name,
                         mappings,
-                        _fomodOptionEvidenceScore(option_name, evidence_labels)
-                        + _fomodPluginTypeScore(plugin_type),
+                        score,
+                        plugin_type,
+                        matched_profile_evidence,
                     )
                 )
             elif _fomodPluginTypeScore(plugin_type) >= 50:
+                score = _fomodPluginTypeScore(plugin_type)
                 candidates.append(
                     (
                         option_name,
                         mappings,
-                        _fomodPluginTypeScore(plugin_type),
+                        score,
+                        plugin_type,
+                        matched_profile_evidence,
                     )
                 )
 
         if group_type == "SelectAny":
-            for option_name, mappings, score in candidates:
-                selected_records.append((option_name, mappings, score))
+            for option_name, mappings, score, plugin_type, evidence_match in candidates:
+                selected_records.append(
+                    (option_name, mappings, score, plugin_type, evidence_match)
+                )
             continue
 
         selected_candidate = None
@@ -1896,24 +1921,64 @@ def headlessFomodDependencyInstallLayout(
                 selected_candidate = ranked_candidates[0]
 
         if selected_candidate:
-            option_name, mappings, score = selected_candidate
-            selected_records.append((option_name, mappings, score))
+            option_name, mappings, score, plugin_type, evidence_match = selected_candidate
+            selected_records.append(
+                (option_name, mappings, score, plugin_type, evidence_match)
+            )
         elif candidates:
-            ambiguous_groups.append(group.attrib.get("name", ""))
+            ranked_candidates = sorted(
+                candidates,
+                key=lambda candidate: (candidate[2], candidate[0].casefold()),
+                reverse=True,
+            )
+            ambiguous_groups.append(
+                {
+                    "group": group.attrib.get("name", ""),
+                    "type": group_type,
+                    "candidates": [
+                        _fomodDependencyCandidateDiagnostic(
+                            option_name,
+                            plugin_type,
+                            score,
+                            evidence_match,
+                            mappings,
+                        )
+                        for (
+                            option_name,
+                            mappings,
+                            score,
+                            plugin_type,
+                            evidence_match,
+                        ) in ranked_candidates
+                    ],
+                }
+            )
 
     if ambiguous_groups:
+        ambiguous_names = [
+            str(group.get("group") or "")
+            for group in ambiguous_groups
+            if group.get("group")
+        ]
         return {
             "installable": False,
             "reason": "ambiguous FOMOD dependency choices: "
-            + ", ".join(name for name in ambiguous_groups if name),
+            + ", ".join(ambiguous_names),
             "mappings": [],
             "fomod_selection": True,
+            "ambiguous_dependency_groups": ambiguous_groups,
         }
     pruned_records = []
-    for option_name, mappings, score in selected_records:
+    for option_name, mappings, score, plugin_type, evidence_match in selected_records:
         option_tokens = set(_fomodMeaningfulTokens(option_name))
         superseded = False
-        for other_name, _other_mappings, other_score in selected_records:
+        for (
+            other_name,
+            _other_mappings,
+            other_score,
+            _other_plugin_type,
+            _other_evidence_match,
+        ) in selected_records:
             if other_name == option_name or other_score <= score:
                 continue
             other_tokens = set(_fomodMeaningfulTokens(other_name))
@@ -1921,12 +1986,17 @@ def headlessFomodDependencyInstallLayout(
                 superseded = True
                 break
         if not superseded:
-            pruned_records.append((option_name, mappings, score))
+            pruned_records.append(
+                (option_name, mappings, score, plugin_type, evidence_match)
+            )
 
-    selected_options = [option_name for option_name, _mappings, _score in pruned_records]
+    selected_options = [
+        option_name
+        for option_name, _mappings, _score, _plugin_type, _evidence_match in pruned_records
+    ]
     selected_mappings = [
         mapping
-        for _option_name, mappings, _score in pruned_records
+        for _option_name, mappings, _score, _plugin_type, _evidence_match in pruned_records
         for mapping in mappings
     ]
 
