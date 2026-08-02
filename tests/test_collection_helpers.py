@@ -1278,6 +1278,10 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
                         "download metadata was marked installed without a valid "
                         "installed container"
                     ),
+                    "suggested_action": (
+                        "mark the download metadata downloaded-only, then install "
+                        "manually only if the archive has a valid payload"
+                    ),
                 }
             ],
         )
@@ -1299,6 +1303,7 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["mod"], "Other Mod")
         self.assertEqual(entries[0]["reason"], "installed container has no valid game data")
+        self.assertIn("invalid container", entries[0]["suggested_action"])
 
     def test_reads_installed_records_from_mo2_metadata(self):
         with TemporaryDirectory() as tmp:

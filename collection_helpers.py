@@ -4610,7 +4610,7 @@ def collectionPostconditionReviewEntries(
 
     review_entries = []
 
-    def append_entries(nexus_keys, reason):
+    def append_entries(nexus_keys, reason, suggested_action):
         for raw_key in sorted(nexus_keys or []):
             nexus_key = _nexusKeyTuple(raw_key)
             if nexus_key is None or nexus_key in failed_keys:
@@ -4625,6 +4625,7 @@ def collectionPostconditionReviewEntries(
                     "mod_id": int(nexus_key[0]),
                     "file_id": int(nexus_key[1]),
                     "reason": reason,
+                    "suggested_action": suggested_action,
                 }
             )
             failed_keys.add(nexus_key)
@@ -4632,10 +4633,18 @@ def collectionPostconditionReviewEntries(
     append_entries(
         state.get("stale_metadata_keys", []),
         "download metadata was marked installed without a valid installed container",
+        (
+            "mark the download metadata downloaded-only, then install manually "
+            "only if the archive has a valid payload"
+        ),
     )
     append_entries(
         state.get("invalid_payload_keys", []),
         "installed container has no valid game data",
+        (
+            "keep the invalid container disabled or quarantined; retry the "
+            "archive manually before marking the download installed"
+        ),
     )
     return review_entries
 
