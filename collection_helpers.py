@@ -1737,6 +1737,41 @@ def collectionPluginNamesFromModDirs(mods_dir, mod_names):
     return result
 
 
+def collectionAvailablePluginActivationTargets(plugin_names, available_plugin_names):
+    """Split requested plugin activations by MO2's currently available plugins.
+
+    ``plugins.txt`` can contain stale or not-yet-discovered names, and failed
+    optional/manual installs can leave expected plugin names in collection
+    metadata without a usable MO2 plugin model entry. Keep the activation path
+    strict: only names visible to MO2 are eligible for profile repair and master
+    audits; unavailable names become review entries instead of MO2 modal errors.
+    """
+    available_lookup = {}
+    for name in available_plugin_names or []:
+        plugin_name = str(name or "").strip()
+        if not plugin_name:
+            continue
+        available_lookup.setdefault(plugin_name.casefold(), plugin_name)
+
+    available = []
+    missing = []
+    seen = set()
+    for name in plugin_names or []:
+        requested_name = str(name or "").strip()
+        if not requested_name:
+            continue
+        key = requested_name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        if key in available_lookup:
+            available.append(available_lookup[key])
+        else:
+            missing.append(requested_name)
+
+    return {"available": available, "missing": missing}
+
+
 def collectionInvalidPayloadModNames(mods_dir, mod_names):
     """Return installed collection containers that MO2 should not enable as game data."""
     mods_dir = Path(mods_dir)

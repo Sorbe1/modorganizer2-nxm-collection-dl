@@ -46,6 +46,7 @@ from .collection_helpers import (
     collectionInstallRoute,
     collectionPostconditionReviewEntries,
     collectionPriorityOrderNeedsRepair,
+    collectionAvailablePluginActivationTargets,
     collectionPluginNamesFromModDirs,
     coerceBoolSetting,
     coerceIntSetting,
@@ -5778,6 +5779,55 @@ class stepInstallMods(QDialog):
 
         self.log(heading or "Activating plugins from installed mods...")
 
+        try:
+            plugin_list = organizer.pluginList()
+            available_plugin_names = list(plugin_list.pluginNames())
+        except Exception as e:
+            plugin_list = None
+            available_plugin_names = None
+            self.logInstallIssue(
+                f"Could not inspect available MO2 plugins before activation: {e}",
+                expected=True,
+            )
+
+        if available_plugin_names is not None:
+            availability = collectionAvailablePluginActivationTargets(
+                plugin_names_from_dirs, available_plugin_names
+            )
+            unavailable_plugins = availability["missing"]
+            plugin_names_from_dirs = availability["available"]
+            if unavailable_plugins:
+                blocked += len(unavailable_plugins)
+                self.logInstallIssue(
+                    "Plugin(s) not available in MO2 plugin model after refresh: "
+                    + ", ".join(
+                        safeDisplayText(name) for name in unavailable_plugins[:10]
+                    ),
+                    expected=True,
+                )
+                if failed_entries is not None:
+                    seen_review_entries = {
+                        (
+                            str(entry.get("mod") or ""),
+                            str(entry.get("file") or ""),
+                            str(entry.get("reason") or ""),
+                        )
+                        for entry in failed_entries
+                        if isinstance(entry, dict)
+                    }
+                    for entry in pluginActivationReviewEntries(
+                        unavailable_plugins, source="plugin availability"
+                    ):
+                        key = (
+                            str(entry.get("mod") or ""),
+                            str(entry.get("file") or ""),
+                            str(entry.get("reason") or ""),
+                        )
+                        if key in seen_review_entries:
+                            continue
+                        seen_review_entries.add(key)
+                        failed_entries.append(entry)
+
         profile_plugins_path = Path(organizer.profilePath()) / "plugins.txt"
         backup_dir = (
             profile_plugins_path.parent
@@ -5865,7 +5915,11 @@ class stepInstallMods(QDialog):
                     seen_review_entries.add(key)
                     failed_entries.append(entry)
         blocked += self.auditPluginMasterDependencies(
-            organizer, plugin_names_from_dirs, failed_entries=failed_entries
+            organizer,
+            plugin_names_from_dirs,
+            failed_entries=failed_entries,
+            plugin_list=plugin_list,
+            available_plugins=available_plugin_names,
         )
         self.log(
             f"  Plugin activation: {activated} activated, "
@@ -5878,30 +5932,37 @@ class stepInstallMods(QDialog):
         }
 
     def auditPluginMasterDependencies(
-        self, organizer, plugin_names, failed_entries=None
+        self,
+        organizer,
+        plugin_names,
+        failed_entries=None,
+        plugin_list=None,
+        available_plugins=None,
     ):
         target_plugins = [str(name or "").strip() for name in plugin_names or []]
         target_plugins = [name for name in target_plugins if name]
         if not target_plugins:
             return 0
 
-        try:
-            plugin_list = organizer.pluginList()
-        except Exception as e:
-            self.logInstallIssue(
-                f"Could not inspect MO2 plugin master dependencies: {e}",
-                expected=True,
-            )
-            return 0
+        if plugin_list is None:
+            try:
+                plugin_list = organizer.pluginList()
+            except Exception as e:
+                self.logInstallIssue(
+                    f"Could not inspect MO2 plugin master dependencies: {e}",
+                    expected=True,
+                )
+                return 0
 
-        try:
-            available_plugins = list(plugin_list.pluginNames())
-        except Exception as e:
-            self.logInstallIssue(
-                f"Could not read MO2 plugin list for dependency audit: {e}",
-                expected=True,
-            )
-            return 0
+        if available_plugins is None:
+            try:
+                available_plugins = list(plugin_list.pluginNames())
+            except Exception as e:
+                self.logInstallIssue(
+                    f"Could not read MO2 plugin list for dependency audit: {e}",
+                    expected=True,
+                )
+                return 0
 
         active_plugins = []
         for plugin_name in available_plugins:

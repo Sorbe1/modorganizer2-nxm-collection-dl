@@ -36,6 +36,7 @@ from collection_helpers import (
     collectionMetadataFromFile,
     collectionPostconditionReviewEntries,
     collectionPriorityOrderNeedsRepair,
+    collectionAvailablePluginActivationTargets,
     collectionRecoveryTargets,
     compareMo2ProfileStateSnapshots,
     contentTreeWarningDialogAction,
@@ -2400,6 +2401,26 @@ class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
                 (backup / "modlist.txt").read_text(encoding="utf-8"),
                 original,
             )
+
+
+class CollectionAvailablePluginActivationTargetsTests(unittest.TestCase):
+    def test_splits_requested_plugins_by_available_plugin_model(self):
+        result = collectionAvailablePluginActivationTargets(
+            ["Patch.esp", "Missing.esp", "patch.esp", "", None],
+            ["Skyrim.esm", "patch.esp"],
+        )
+
+        self.assertEqual(result["available"], ["patch.esp"])
+        self.assertEqual(result["missing"], ["Missing.esp"])
+
+    def test_preserves_requested_order_and_available_canonical_names(self):
+        result = collectionAvailablePluginActivationTargets(
+            ["B.esp", "A.esp"],
+            ["a.esp", "b.esp"],
+        )
+
+        self.assertEqual(result["available"], ["b.esp", "a.esp"])
+        self.assertEqual(result["missing"], [])
 
 
 class CollectionPriorityOrderNeedsRepairTests(unittest.TestCase):
