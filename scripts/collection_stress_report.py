@@ -82,6 +82,14 @@ def summarize_collection_report(report_path):
     )
     review_count = len(review_entries)
     download_metadata_review = _download_metadata_needs_review(download_metadata_audit)
+    actionable_review_count = (
+        failed_count
+        + review_count
+        + unique_warning_count
+        + len(queued_fomod_recovery_entries)
+        + (1 if download_metadata_review else 0)
+    )
+    informational_count = len(root_level_entries) + len(no_applicable_entries)
     needs_review = any(
         (
             warning_count,
@@ -94,6 +102,12 @@ def summarize_collection_report(report_path):
             download_metadata_review,
         )
     )
+    if actionable_review_count:
+        review_severity = "actionable"
+    elif informational_count:
+        review_severity = "informational"
+    else:
+        review_severity = "clean"
     return {
         "collection": report.get("collection"),
         "revision": report.get("revision"),
@@ -101,6 +115,9 @@ def summarize_collection_report(report_path):
         "generated": report.get("generated"),
         "report": str(report_path),
         "status": "needs_review" if needs_review else "clean",
+        "review_severity": review_severity,
+        "actionable_review_count": actionable_review_count,
+        "informational_count": informational_count,
         "warning_count": warning_count,
         "unique_warning_count": unique_warning_count,
         "warning_categories": {
@@ -234,6 +251,8 @@ def summarize_stress_totals(summaries):
         "review_count": 0,
         "warning_count": 0,
         "unique_warning_count": 0,
+        "actionable_review_count": 0,
+        "informational_count": 0,
         "root_level_count": 0,
         "no_applicable_count": 0,
         "queued_fomod_recovery_count": 0,
@@ -248,6 +267,10 @@ def summarize_stress_totals(summaries):
         totals["review_count"] += int(item.get("review_count") or 0)
         totals["warning_count"] += int(item.get("warning_count") or 0)
         totals["unique_warning_count"] += int(item.get("unique_warning_count") or 0)
+        totals["actionable_review_count"] += int(
+            item.get("actionable_review_count") or 0
+        )
+        totals["informational_count"] += int(item.get("informational_count") or 0)
         totals["root_level_count"] += int(item.get("root_level_count") or 0)
         totals["no_applicable_count"] += int(item.get("no_applicable_count") or 0)
         totals["queued_fomod_recovery_count"] += int(
@@ -307,6 +330,16 @@ def build_stress_report(
         "needs_review_count": sum(
             1 for item in clean_summaries if item["status"] == "needs_review"
         ),
+        "actionable_review_count": sum(
+            1
+            for item in clean_summaries
+            if item.get("review_severity") == "actionable"
+        ),
+        "informational_review_count": sum(
+            1
+            for item in clean_summaries
+            if item.get("review_severity") == "informational"
+        ),
         "totals": summarize_stress_totals(clean_summaries),
         "collections": clean_summaries,
     }
@@ -329,6 +362,12 @@ def build_stress_report(
             "issue_count": len(profile_issues),
             "warning_count": len(profile_warnings),
             "historical_needs_review_count": result["needs_review_count"],
+            "historical_actionable_review_count": result[
+                "actionable_review_count"
+            ],
+            "historical_informational_review_count": result[
+                "informational_review_count"
+            ],
             "historical_review_only": bool(
                 profile_audit.get("clean") and result["needs_review_count"]
             ),
@@ -343,7 +382,9 @@ def print_text_report(report):
         "Collections: "
         f"{report['report_count']} total, "
         f"{report['clean_count']} clean, "
-        f"{report['needs_review_count']} needing review"
+        f"{report['needs_review_count']} needing review "
+        f"({report.get('actionable_review_count', 0)} actionable, "
+        f"{report.get('informational_review_count', 0)} informational)"
     )
     profile = report.get("profile_audit")
     if profile is not None:
@@ -373,10 +414,16 @@ def print_text_report(report):
             label += f" - {name}"
         print(f"- {label}: {item['status']}")
         details = []
+        if item.get("review_severity") and item.get("review_severity") != "clean":
+            details.append(f"{item['review_severity']} review")
         if item["failed_count"]:
             details.append(f"{item['failed_count']} failed")
         if item["warning_count"]:
             details.append(f"{item['warning_count']} warning(s)")
+        if item.get("no_applicable_count"):
+            details.append(f"{item['no_applicable_count']} no-applicable note(s)")
+        if item.get("root_level_count"):
+            details.append(f"{item['root_level_count']} root-level note(s)")
         if item["add_collection_recovery_count"]:
             details.append(f"{item['add_collection_recovery_count']} recovery launch(es)")
         if item["download_metadata_review"]:

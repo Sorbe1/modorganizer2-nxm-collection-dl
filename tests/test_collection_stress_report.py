@@ -64,6 +64,9 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertEqual(result["clean_count"], 1)
             self.assertEqual(result["collections"][0]["report"], str(latest))
             self.assertEqual(result["collections"][0]["status"], "clean")
+            self.assertEqual(result["collections"][0]["review_severity"], "clean")
+            self.assertEqual(result["actionable_review_count"], 0)
+            self.assertEqual(result["informational_review_count"], 0)
             self.assertEqual(result["collections"][0]["add_collection_recovery_count"], 1)
 
     def test_classifies_failed_entries_and_download_metadata_review(self):
@@ -99,7 +102,12 @@ class CollectionStressReportTests(unittest.TestCase):
             summary = result["collections"][0]
 
             self.assertEqual(result["needs_review_count"], 1)
+            self.assertEqual(result["actionable_review_count"], 1)
+            self.assertEqual(result["informational_review_count"], 0)
             self.assertEqual(summary["status"], "needs_review")
+            self.assertEqual(summary["review_severity"], "actionable")
+            self.assertEqual(summary["actionable_review_count"], 4)
+            self.assertEqual(summary["informational_count"], 0)
             self.assertEqual(summary["failed_count"], 3)
             self.assertEqual(
                 summary["failed_categories"],
@@ -187,9 +195,41 @@ class CollectionStressReportTests(unittest.TestCase):
                     "issue_count": 0,
                     "warning_count": 0,
                     "historical_needs_review_count": 0,
+                    "historical_actionable_review_count": 0,
+                    "historical_informational_review_count": 0,
                     "historical_review_only": False,
                 },
             )
+
+    def test_no_applicable_only_report_is_informational_review(self):
+        with TemporaryDirectory() as tmp:
+            logs = Path(tmp)
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-info-1-20260802-010000.json",
+                {
+                    "collection": "info",
+                    "revision": 1,
+                    "name": "Info",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [],
+                    "no_applicable_entries": [{"mod": "Optional Patch"}],
+                },
+            )
+
+            result = collection_stress_report.build_stress_report(logs)
+            summary = result["collections"][0]
+
+            self.assertEqual(result["needs_review_count"], 1)
+            self.assertEqual(result["actionable_review_count"], 0)
+            self.assertEqual(result["informational_review_count"], 1)
+            self.assertEqual(summary["status"], "needs_review")
+            self.assertEqual(summary["review_severity"], "informational")
+            self.assertEqual(summary["actionable_review_count"], 0)
+            self.assertEqual(summary["informational_count"], 1)
 
     def test_filters_reports_by_collection_slug_or_name(self):
         with TemporaryDirectory() as tmp:
@@ -330,6 +370,7 @@ class CollectionStressReportTests(unittest.TestCase):
 
             self.assertEqual(result["report_count"], 1)
             self.assertEqual(result["needs_review_count"], 1)
+            self.assertEqual(result["actionable_review_count"], 1)
             self.assertEqual(
                 result["filters"]["failed_categories"],
                 ["duplicate_container"],
@@ -409,6 +450,8 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertEqual(totals["failed_count"], 3)
             self.assertEqual(totals["warning_count"], 3)
             self.assertEqual(totals["unique_warning_count"], 2)
+            self.assertEqual(totals["actionable_review_count"], 6)
+            self.assertEqual(totals["informational_count"], 1)
             self.assertEqual(totals["root_level_count"], 1)
             self.assertEqual(totals["add_collection_recovery_count"], 3)
             self.assertEqual(totals["download_metadata_review_count"], 1)

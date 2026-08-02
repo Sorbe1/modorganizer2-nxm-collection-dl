@@ -1,7 +1,9 @@
 {
+  "actionable_review_count": 5,
   "clean_count": 4,
   "collections": [
     {
+      "actionable_review_count": 2,
       "add_collection_launch_count": 0,
       "add_collection_recovery_count": 0,
       "collection": "8vdyr1",
@@ -36,11 +38,13 @@
         }
       ],
       "generated": "2026-07-26T18:40:35",
+      "informational_count": 0,
       "name": "Sexy Statues\ud83d\uddff",
       "no_applicable_count": 0,
       "queued_fomod_recovery_count": 0,
       "report": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs/nxm-collection-install-warnings-8vdyr1-12-20260726-184035.json",
       "review_count": 0,
+      "review_severity": "actionable",
       "revision": 12,
       "root_level_count": 0,
       "status": "needs_review",
@@ -49,6 +53,7 @@
       "warning_count": 0
     },
     {
+      "actionable_review_count": 1,
       "add_collection_launch_count": 0,
       "add_collection_recovery_count": 0,
       "collection": "xxsqm4",
@@ -74,11 +79,13 @@
         }
       ],
       "generated": "2026-07-30T00:58:44",
+      "informational_count": 1,
       "name": "Immersive & Adult",
       "no_applicable_count": 0,
       "queued_fomod_recovery_count": 0,
       "report": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs/nxm-collection-install-warnings-xxsqm4-99-20260730-005844.json",
       "review_count": 0,
+      "review_severity": "actionable",
       "revision": 99,
       "root_level_count": 1,
       "status": "needs_review",
@@ -87,6 +94,7 @@
       "warning_count": 0
     },
     {
+      "actionable_review_count": 1,
       "add_collection_launch_count": 0,
       "add_collection_recovery_count": 0,
       "collection": "egtcmf",
@@ -112,11 +120,13 @@
         }
       ],
       "generated": "2026-07-30T06:35:50",
+      "informational_count": 0,
       "name": "Updated Sexy Creatures Collection",
       "no_applicable_count": 0,
       "queued_fomod_recovery_count": 0,
       "report": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs/nxm-collection-install-warnings-egtcmf-9-20260730-063550.json",
       "review_count": 0,
+      "review_severity": "actionable",
       "revision": 9,
       "root_level_count": 0,
       "status": "needs_review",
@@ -125,6 +135,7 @@
       "warning_count": 0
     },
     {
+      "actionable_review_count": 1,
       "add_collection_launch_count": 0,
       "add_collection_recovery_count": 0,
       "collection": "4vz5sn",
@@ -150,11 +161,13 @@
         }
       ],
       "generated": "2026-07-30T16:07:52",
+      "informational_count": 0,
       "name": "Community Shaders  2026",
       "no_applicable_count": 0,
       "queued_fomod_recovery_count": 0,
       "report": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs/nxm-collection-install-warnings-4vz5sn-7-20260730-160752.json",
       "review_count": 0,
+      "review_severity": "actionable",
       "revision": 7,
       "root_level_count": 0,
       "status": "needs_review",
@@ -163,6 +176,7 @@
       "warning_count": 0
     },
     {
+      "actionable_review_count": 0,
       "add_collection_launch_count": 8,
       "add_collection_recovery_count": 7,
       "collection": "sklk3h",
@@ -180,11 +194,13 @@
       "failed_count": 0,
       "failed_entries": [],
       "generated": "2026-07-31T00:23:17",
+      "informational_count": 1,
       "name": "JK's All-in-one collection - SE/AE",
       "no_applicable_count": 1,
       "queued_fomod_recovery_count": 0,
       "report": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs/nxm-collection-install-warnings-sklk3h-2-20260731-002317.json",
       "review_count": 0,
+      "review_severity": "informational",
       "revision": 2,
       "root_level_count": 0,
       "status": "needs_review",
@@ -193,6 +209,7 @@
       "warning_count": 0
     },
     {
+      "actionable_review_count": 0,
       "add_collection_launch_count": 2,
       "add_collection_recovery_count": 1,
       "collection": "lwpfm1",
@@ -210,11 +227,13 @@
       "failed_count": 0,
       "failed_entries": [],
       "generated": "2026-07-31T00:29:48",
+      "informational_count": 0,
       "name": "I&A Houses Expansion",
       "no_applicable_count": 0,
       "queued_fomod_recovery_count": 0,
       "report": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs/nxm-collection-install-warnings-lwpfm1-2-20260731-002948.json",
       "review_count": 0,
+      "review_severity": "clean",
       "revision": 2,
       "root_level_count": 0,
       "status": "clean",
@@ -223,6 +242,7 @@
       "warning_count": 0
     },
     {
+      "actionable_review_count": 0,
       "add_collection_launch_count": 3,
       "add_collection_recovery_count": 2,
       "collection": "bdiz4d",
@@ -240,11 +260,13 @@
       "failed_count": 0,
       "failed_entries": [],
       "generated": "2026-07-31T00:31:30",
+      "informational_count": 0,
       "name": "I&A Followers Expansion",
       "no_applicable_count": 0,
       "queued_fomod_recovery_count": 0,
       "report": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs/nxm-collection-install-warnings-bdiz4d-9-20260731-003130.json",
       "review_count": 0,
+      "review_severity": "clean",
       "revision": 9,
       "root_level_count": 0,
       "status": "clean",
@@ -253,6 +275,7 @@
       "warning_count": 0
     },
     {
+      "actionable_review_count": 0,
       "add_collection_launch_count": 4,
       "add_collection_recovery_count": 3,
       "collection": "codkfz",
@@ -270,11 +293,13 @@
       "failed_count": 0,
       "failed_entries": [],
       "generated": "2026-07-31T01:07:40",
+      "informational_count": 0,
       "name": "Cathedral 3D Plants",
       "no_applicable_count": 0,
       "queued_fomod_recovery_count": 0,
       "report": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs/nxm-collection-install-warnings-codkfz-7-20260731-010740.json",
       "review_count": 0,
+      "review_severity": "clean",
       "revision": 7,
       "root_level_count": 0,
       "status": "clean",
@@ -283,6 +308,7 @@
       "warning_count": 0
     },
     {
+      "actionable_review_count": 0,
       "add_collection_launch_count": 3,
       "add_collection_recovery_count": 2,
       "collection": "fk0tha",
@@ -300,11 +326,13 @@
       "failed_count": 0,
       "failed_entries": [],
       "generated": "2026-07-31T01:30:14",
+      "informational_count": 0,
       "name": "[Xirconia] The Bathhouse",
       "no_applicable_count": 0,
       "queued_fomod_recovery_count": 0,
       "report": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs/nxm-collection-install-warnings-fk0tha-117-20260731-013014.json",
       "review_count": 0,
+      "review_severity": "clean",
       "revision": 117,
       "root_level_count": 0,
       "status": "clean",
@@ -313,6 +341,7 @@
       "warning_count": 0
     },
     {
+      "actionable_review_count": 3,
       "add_collection_launch_count": 4,
       "add_collection_recovery_count": 3,
       "collection": "otpzzr",
@@ -346,11 +375,13 @@
         }
       ],
       "generated": "2026-07-31T02:04:56",
+      "informational_count": 0,
       "name": "[Xirconia] Coldsun's World",
       "no_applicable_count": 0,
       "queued_fomod_recovery_count": 0,
       "report": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs/nxm-collection-install-warnings-otpzzr-86-20260731-020456.json",
       "review_count": 0,
+      "review_severity": "actionable",
       "revision": 86,
       "root_level_count": 0,
       "status": "needs_review",
@@ -363,6 +394,8 @@
   ],
   "current_profile_gate": {
     "clean": true,
+    "historical_actionable_review_count": 5,
+    "historical_informational_review_count": 1,
     "historical_needs_review_count": 6,
     "historical_review_only": true,
     "issue_count": 0,
@@ -373,6 +406,7 @@
     "failed_categories": [],
     "needs_review_only": false
   },
+  "informational_review_count": 1,
   "logs_dir": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs",
   "mode": "latest_per_collection_revision",
   "needs_review_count": 6,
@@ -475,6 +509,7 @@
   },
   "report_count": 10,
   "totals": {
+    "actionable_review_count": 8,
     "add_collection_launch_count": 24,
     "add_collection_recovery_count": 18,
     "download_metadata_review_count": 0,
@@ -489,6 +524,7 @@
       "other_failure": 0
     },
     "failed_count": 7,
+    "informational_count": 2,
     "no_applicable_count": 1,
     "queued_fomod_recovery_count": 0,
     "review_count": 0,
