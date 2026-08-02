@@ -4991,6 +4991,56 @@ def repairDownloadMetadataInstalledFlags(
     return result
 
 
+def repairInstalledWithoutValidContainerMetadata(
+    download_metadata_audit,
+    backup_dir=None,
+):
+    """Mark audited false-installed Downloads entries downloaded-only."""
+    result = {
+        "checked": 0,
+        "repaired": 0,
+        "failed": 0,
+        "skipped": 0,
+        "metadata": [],
+    }
+    metadata_paths = (
+        (download_metadata_audit or {}).get("installed_without_valid_container")
+        or []
+    )
+    backup_dir = Path(backup_dir) if backup_dir is not None else None
+    seen = set()
+    for metadata_path in metadata_paths:
+        metadata_file = Path(str(metadata_path or ""))
+        key = str(metadata_file)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        if metadata_file.name.endswith(".unfinished.meta"):
+            result["skipped"] += 1
+            continue
+        archive_file = metadata_file.with_suffix("")
+        if not metadata_file.is_file() or not archive_file.is_file():
+            result["skipped"] += 1
+            continue
+        result["checked"] += 1
+        if downloadMetaInstalledValue(metadata_file) != "true":
+            continue
+        if backup_dir is not None:
+            try:
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                backup_file = backup_dir / metadata_file.name
+                backup_file.write_bytes(metadata_file.read_bytes())
+            except OSError:
+                result["failed"] += 1
+                continue
+        if setDownloadMetaInstalledFlag(metadata_file, False):
+            result["repaired"] += 1
+            result["metadata"].append(str(metadata_file))
+        else:
+            result["failed"] += 1
+    return result
+
+
 def _normalizeArchiveIdentityText(value):
     text = Path(str(value or "").replace("\\", "/")).name.casefold()
     text = re.sub(r"\.(7z|zip|rar)(\.meta)?$", "", text)

@@ -47,6 +47,7 @@ from collection_helpers import (
     downloadedArchiveNameKeys,
     duplicateDownloadPromptArchiveAction,
     duplicateDownloadPromptActionLabel,
+    downloadMetaInstalledValue,
     downloadMetadataReviewEntries,
     manualInstallGuidanceForReason,
     downloadCompletionChoices,
@@ -124,6 +125,7 @@ from collection_helpers import (
     removeUnfinishedEntries,
     repairDownloadMetadataInstalledFlags,
     repairInstalledCollectionModMetadata,
+    repairInstalledWithoutValidContainerMetadata,
     repairMo2BaseModlistOrder,
     repairMo2ModlistOrderingDiagnostics,
     repairModlistEnabledStates,
@@ -661,6 +663,45 @@ class TopLevelDownloadMetadataAuditTests(unittest.TestCase):
 
             self.assertIn((17230, 658442), valid_keys)
             self.assertEqual(audit["installed_without_valid_container"], [])
+
+    def test_repairs_installed_metadata_without_valid_container(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Stale-123-456.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / "Stale-123-456.7z.meta"
+            metadata.write_text(
+                "[General]\nmodID=123\nfileID=456\ninstalled=true\n",
+                encoding="utf-8",
+            )
+            backup = downloads / "backups"
+
+            result = repairInstalledWithoutValidContainerMetadata(
+                {"installed_without_valid_container": [str(metadata), str(metadata)]},
+                backup_dir=backup,
+            )
+
+            self.assertEqual(result["checked"], 1)
+            self.assertEqual(result["repaired"], 1)
+            self.assertEqual(downloadMetaInstalledValue(metadata), "false")
+            self.assertTrue((backup / metadata.name).exists())
+
+    def test_skips_false_installed_metadata_without_archive(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            metadata = downloads / "Missing-123-456.7z.meta"
+            metadata.write_text(
+                "[General]\nmodID=123\nfileID=456\ninstalled=true\n",
+                encoding="utf-8",
+            )
+
+            result = repairInstalledWithoutValidContainerMetadata(
+                {"installed_without_valid_container": [str(metadata)]}
+            )
+
+            self.assertEqual(result["checked"], 0)
+            self.assertEqual(result["skipped"], 1)
+            self.assertEqual(downloadMetaInstalledValue(metadata), "true")
 
 
 class DownloadMetadataReviewEntriesTests(unittest.TestCase):

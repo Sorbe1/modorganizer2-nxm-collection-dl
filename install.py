@@ -109,6 +109,7 @@ from .collection_helpers import (
     repairInstalledCollectionModMetadata,
     repairMo2BaseModlistOrder,
     repairSingleWrapperPayload,
+    repairInstalledWithoutValidContainerMetadata,
     resetNativeArchiveWorkerTrackedProcess,
     repairPluginEnabledStates,
     safeDisplayText,
@@ -5215,7 +5216,35 @@ class stepInstallMods(QDialog):
             downloads_path,
             valid_installed_keys=valid_installed_keys,
         )
+        audit_stale_metadata_repair = repairInstalledWithoutValidContainerMetadata(
+            download_metadata_audit,
+            backup_dir=self.repairBackupDir(context, "download-metadata"),
+        )
+        if audit_stale_metadata_repair.get("repaired"):
+            self.log(
+                "Marked visible stale Downloads metadata downloaded-only for "
+                f"{audit_stale_metadata_repair['repaired']} archive(s) without "
+                "valid installed evidence.",
+                "note",
+            )
+            valid_installed_keys = validInstalledDownloadKeysForProfile(
+                Path(organizer.basePath()),
+                mods_path=Path(organizer.modsPath()),
+                downloads_path=downloads_path,
+            )
+            download_metadata_audit = topLevelDownloadMetadataAudit(
+                downloads_path,
+                valid_installed_keys=valid_installed_keys,
+            )
+        if audit_stale_metadata_repair.get("failed"):
+            self.logInstallIssue(
+                "Could not mark "
+                f"{audit_stale_metadata_repair['failed']} visible stale Downloads "
+                "metadata file(s) downloaded-only",
+                expected=True,
+            )
         context["download_metadata_audit"] = download_metadata_audit
+        context["audit_stale_metadata_repair"] = audit_stale_metadata_repair
         download_metadata_review_entries = downloadMetadataReviewEntries(
             download_metadata_audit
         )
@@ -5331,6 +5360,15 @@ class stepInstallMods(QDialog):
                 "  Downloaded-only metadata repairs: "
                 f"{postcondition_state.get('stale_metadata_repaired', 0)} repaired, "
                 f"{postcondition_state.get('stale_metadata_failed', 0)} failed",
+                "note",
+            )
+        if audit_stale_metadata_repair.get("repaired") or audit_stale_metadata_repair.get(
+            "failed"
+        ):
+            self.log(
+                "  Visible stale Downloads metadata repairs: "
+                f"{audit_stale_metadata_repair.get('repaired', 0)} repaired, "
+                f"{audit_stale_metadata_repair.get('failed', 0)} failed",
                 "note",
             )
         if postcondition_state.get(
