@@ -121,6 +121,7 @@ from .collection_helpers import (
     steamGameRootFromMo2BasePath,
     suppressedPostInstallErrorReviewEntries,
     topLevelDownloadMetadataAudit,
+    validInstalledDownloadKeysFromModContainers,
     warningReportNeedsWrite,
     zipArchiveMemberPaths,
     installedModRecordsFromDirectory,
@@ -5191,8 +5192,14 @@ class stepInstallMods(QDialog):
         review_entries = failedInstallReviewEntriesWithCategories(review_entries)
         context["review_entries"] = list(review_entries)
         queued_recovery_count = len(queued_fomod_recovery_entries)
+        downloads_path = Path(organizer.downloadsPath())
+        valid_installed_keys = validInstalledDownloadKeysFromModContainers(
+            Path(organizer.modsPath()),
+            downloads_path,
+        )
         download_metadata_audit = topLevelDownloadMetadataAudit(
-            Path(organizer.downloadsPath())
+            downloads_path,
+            valid_installed_keys=valid_installed_keys,
         )
         context["download_metadata_audit"] = download_metadata_audit
         download_metadata_review_entries = downloadMetadataReviewEntries(
@@ -5332,15 +5339,24 @@ class stepInstallMods(QDialog):
         audit_unknown_state = len(
             download_metadata_audit.get("unknown_installed_state", [])
         )
+        audit_installed_without_container = len(
+            download_metadata_audit.get("installed_without_valid_container", [])
+        )
         self.log(
             "  Top-level download metadata audit: "
             f"{download_metadata_audit.get('checked', 0)} checked, "
             f"{len(download_metadata_audit.get('installed', []))} installed, "
             f"{audit_downloaded_only} downloaded-only, "
             f"{audit_missing_archive} missing archive, "
-            f"{audit_unknown_state} unknown state"
+            f"{audit_unknown_state} unknown state, "
+            f"{audit_installed_without_container} installed without valid container"
         )
-        if audit_downloaded_only or audit_missing_archive or audit_unknown_state:
+        if (
+            audit_downloaded_only
+            or audit_missing_archive
+            or audit_unknown_state
+            or audit_installed_without_container
+        ):
             self.log(
                 "  Visible Downloads pane metadata needs review; see warning report.",
                 "warning",

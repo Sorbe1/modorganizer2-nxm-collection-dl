@@ -2271,6 +2271,7 @@ def warningReportNeedsWrite(
         or download_metadata_audit.get("downloaded_only")
         or download_metadata_audit.get("missing_archive")
         or download_metadata_audit.get("unknown_installed_state")
+        or download_metadata_audit.get("installed_without_valid_container")
     )
 
 

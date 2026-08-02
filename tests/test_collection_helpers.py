@@ -6042,6 +6042,20 @@ class WarningReportNeedsWriteTests(unittest.TestCase):
                 {"checked": 1, "missing_archive": ["archive.7z.meta"]},
             )
         )
+        self.assertTrue(
+            warningReportNeedsWrite(
+                [],
+                [],
+                [],
+                [],
+                [],
+                0,
+                {
+                    "checked": 1,
+                    "installed_without_valid_container": ["archive.7z.meta"],
+                },
+            )
+        )
 
     def test_empty_review_data_skips_report(self):
         self.assertFalse(warningReportNeedsWrite([], [], [], [], [], "0"))

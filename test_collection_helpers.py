@@ -6002,6 +6002,20 @@ class InvalidInstalledCollectionArchiveRetryTests(unittest.TestCase):
                 {"checked": 1, "unknown_installed_state": ["archive.7z.meta"]},
             )
         )
+        self.assertTrue(
+            warningReportNeedsWrite(
+                [],
+                [],
+                [],
+                [],
+                [],
+                0,
+                {
+                    "checked": 1,
+                    "installed_without_valid_container": ["archive.7z.meta"],
+                },
+            )
+        )
 
     def test_warning_report_is_skipped_when_no_review_data_exists(self):
         self.assertFalse(warningReportNeedsWrite([], [], [], [], [], "0"))
