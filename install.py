@@ -1315,6 +1315,11 @@ class stepInstallMods(QDialog):
             if self.install_context
             else []
         )
+        review_entries = (
+            self.install_context.get("review_entries", failed_entries)
+            if self.install_context
+            else failed_entries
+        )
         root_level_entries = (
             self.install_context.get("root_level_entries", [])
             if self.install_context
@@ -1338,7 +1343,7 @@ class stepInstallMods(QDialog):
         recovery_count = collection_metadata.get("addCollectionRecoveryCount", 0)
         if not warningReportNeedsWrite(
             self.install_warnings,
-            failed_entries,
+            review_entries,
             root_level_entries,
             no_applicable_entries,
             queued_fomod_recovery_entries,
@@ -1362,6 +1367,7 @@ class stepInstallMods(QDialog):
             "warning_summary": self.warningSummaryForReport(),
             "warnings": self.install_warnings,
             "failed_entries": failed_entries,
+            "review_entries": review_entries,
             "queued_fomod_recovery_entries": queued_fomod_recovery_entries,
             "root_level_entries": root_level_entries,
             "no_applicable_entries": no_applicable_entries,
@@ -5115,6 +5121,7 @@ class stepInstallMods(QDialog):
         review_entries.extend(
             suppressedPostInstallErrorReviewEntries(self.install_warnings)
         )
+        context["review_entries"] = list(review_entries)
         queued_recovery_count = len(queued_fomod_recovery_entries)
 
         self.progress_bar.setValue(len(mods_to_install))
