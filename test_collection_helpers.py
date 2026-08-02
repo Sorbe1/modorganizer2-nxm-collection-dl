@@ -4720,6 +4720,14 @@ class InstallRuntimeSourceTests(unittest.TestCase):
         self.assertIn("needs manual install", plan_source)
         self.assertNotIn("non-empty invalid kept installed", plan_source)
 
+    def test_invalid_payload_metadata_repairs_are_reported_separately(self):
+        source = self.install_source()
+
+        self.assertIn("invalid_payload_metadata_repair", source)
+        self.assertIn('"invalid_payload_metadata_repaired"', source)
+        self.assertIn('"invalid_payload_metadata_failed"', source)
+        self.assertIn("Invalid payload metadata repairs", source)
+
 
 class CoerceIntSettingTests(unittest.TestCase):
     def test_accepts_native_and_string_integer_values(self):

@@ -4718,6 +4718,7 @@ class stepInstallMods(QDialog):
         invalid_payload_mods = []
         invalid_payload_keys = set()
         invalid_payload_quarantine = {"moved": [], "missing": [], "failed": []}
+        invalid_payload_metadata_repair = {"checked": 0, "repaired": 0, "failed": 0}
         valid_installed_keys = set()
         layout_repairs = 0
         for nexus_key in ordered_keys:
@@ -4759,18 +4760,19 @@ class stepInstallMods(QDialog):
                 backup_dir=self.repairBackupDir(context, "download-metadata"),
                 expected_file_names=expected_file_names,
             )
-            if invalid_metadata_repair.get("repaired"):
+            invalid_payload_metadata_repair = invalid_metadata_repair
+            if invalid_payload_metadata_repair.get("repaired"):
                 self.log(
                     "Marked download metadata downloaded-only for "
-                    f"{invalid_metadata_repair['repaired']} invalid collection "
+                    f"{invalid_payload_metadata_repair['repaired']} invalid collection "
                     "container(s).",
                     "note",
                 )
-            if invalid_metadata_repair.get("failed"):
+            if invalid_payload_metadata_repair.get("failed"):
                 self.logInstallIssue(
                     "Could not mark "
-                    f"{invalid_metadata_repair['failed']} invalid download metadata "
-                    "file(s) downloaded-only",
+                    f"{invalid_payload_metadata_repair['failed']} invalid download "
+                    "metadata file(s) downloaded-only",
                     expected=True,
                 )
             quarantine_dir = (
@@ -4895,6 +4897,12 @@ class stepInstallMods(QDialog):
             "layout_repaired": layout_repairs,
             "metadata_repaired": metadata_repair.get("repaired", 0),
             "metadata_failed": metadata_repair.get("failed", 0),
+            "invalid_payload_metadata_repaired": invalid_payload_metadata_repair.get(
+                "repaired", 0
+            ),
+            "invalid_payload_metadata_failed": invalid_payload_metadata_repair.get(
+                "failed", 0
+            ),
             "stale_metadata_repaired": stale_installed_metadata_repair.get(
                 "repaired", 0
             ),
@@ -5231,6 +5239,17 @@ class stepInstallMods(QDialog):
                 "  Downloaded-only metadata repairs: "
                 f"{postcondition_state.get('stale_metadata_repaired', 0)} repaired, "
                 f"{postcondition_state.get('stale_metadata_failed', 0)} failed",
+                "note",
+            )
+        if postcondition_state.get(
+            "invalid_payload_metadata_repaired"
+        ) or postcondition_state.get("invalid_payload_metadata_failed"):
+            self.log(
+                "  Invalid payload metadata repairs: "
+                f"{postcondition_state.get('invalid_payload_metadata_repaired', 0)} "
+                "repaired, "
+                f"{postcondition_state.get('invalid_payload_metadata_failed', 0)} "
+                "failed",
                 "note",
             )
         audit_downloaded_only = len(
