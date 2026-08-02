@@ -121,7 +121,7 @@ from .collection_helpers import (
     steamGameRootFromMo2BasePath,
     suppressedPostInstallErrorReviewEntries,
     topLevelDownloadMetadataAudit,
-    validInstalledDownloadKeysFromModContainers,
+    validInstalledDownloadKeysForProfile,
     warningReportNeedsWrite,
     zipArchiveMemberPaths,
     installedModRecordsFromDirectory,
@@ -5204,9 +5204,10 @@ class stepInstallMods(QDialog):
         context["review_entries"] = list(review_entries)
         queued_recovery_count = len(queued_fomod_recovery_entries)
         downloads_path = Path(organizer.downloadsPath())
-        valid_installed_keys = validInstalledDownloadKeysFromModContainers(
-            Path(organizer.modsPath()),
-            downloads_path,
+        valid_installed_keys = validInstalledDownloadKeysForProfile(
+            Path(organizer.basePath()),
+            mods_path=Path(organizer.modsPath()),
+            downloads_path=downloads_path,
         )
         download_metadata_audit = topLevelDownloadMetadataAudit(
             downloads_path,

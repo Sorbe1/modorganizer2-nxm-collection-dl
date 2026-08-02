@@ -560,6 +560,26 @@ def validInstalledDownloadKeysFromModContainers(mods_path, downloads_path):
     }
 
 
+def validInstalledDownloadKeysForProfile(base_path, mods_path=None, downloads_path=None):
+    """Return Nexus file keys backed by valid MO2 or verified external installs."""
+    base_path = Path(base_path)
+    mods_path = Path(mods_path) if mods_path is not None else base_path / "mods"
+    downloads_path = (
+        Path(downloads_path) if downloads_path is not None else base_path / "downloads"
+    )
+    valid_installed_keys = validInstalledDownloadKeysFromModContainers(
+        mods_path,
+        downloads_path,
+    )
+    valid_external_keys = validExternalInstalledDownloadKeys(
+        downloads_path,
+        game_root=steamGameRootFromMo2BasePath(base_path),
+    )
+    if valid_installed_keys is None:
+        return None
+    return set(valid_installed_keys) | valid_external_keys
+
+
 def profileStateSnapshotAuditSummary(
     profile_path,
     base_path=None,
@@ -751,21 +771,10 @@ def snapshotMo2ProfileState(
     downloads_path = base_path / "downloads"
     download_metadata_audit = None
     if downloads_path.exists():
-        valid_installed_keys = validInstalledDownloadKeysFromModContainers(
-            base_path / "mods",
-            downloads_path,
-        )
-        game_root_path = steamGameRootFromMo2BasePath(base_path)
-        valid_external_keys = validExternalInstalledDownloadKeys(
-            downloads_path,
-            game_root=game_root_path,
-        )
-        if valid_installed_keys is not None:
-            valid_installed_keys = set(valid_installed_keys) | valid_external_keys
         download_metadata_audit = downloadMetadataAuditSummary(
             topLevelDownloadMetadataAudit(
                 downloads_path,
-                valid_installed_keys=valid_installed_keys,
+                valid_installed_keys=validInstalledDownloadKeysForProfile(base_path),
             )
         )
 
@@ -1195,21 +1204,14 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
 
     downloads_path = base_path / "downloads"
     if downloads_path.exists():
-        valid_installed_keys = validInstalledDownloadKeysFromModContainers(
-            mods_path,
-            downloads_path,
-        )
-        game_root_path = steamGameRootFromMo2BasePath(base_path)
-        valid_external_keys = validExternalInstalledDownloadKeys(
-            downloads_path,
-            game_root=game_root_path,
-        )
-        if valid_installed_keys is not None:
-            valid_installed_keys = set(valid_installed_keys) | valid_external_keys
         result["download_metadata_audit"] = downloadMetadataAuditSummary(
             topLevelDownloadMetadataAudit(
                 downloads_path,
-                valid_installed_keys=valid_installed_keys,
+                valid_installed_keys=validInstalledDownloadKeysForProfile(
+                    base_path,
+                    mods_path=mods_path,
+                    downloads_path=downloads_path,
+                ),
             )
         )
         dirty_downloads = {

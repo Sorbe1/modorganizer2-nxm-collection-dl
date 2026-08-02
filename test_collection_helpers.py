@@ -177,6 +177,7 @@ from collection_helpers import (
     steamShaderProcessingQueue,
     topLevelDownloadMetadataAudit,
     validExternalInstalledDownloadKeys,
+    validInstalledDownloadKeysForProfile,
     unfinishedDownloadEntries,
     zeroByteDownloadStartIsStalled,
     zeroByteUnfinishedEntries,
@@ -601,6 +602,47 @@ class TopLevelDownloadMetadataAuditTests(unittest.TestCase):
                 audit["installed_without_valid_container"],
                 [str(metadata)],
             )
+
+    def test_profile_valid_keys_include_external_game_root_evidence(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            steamapps = root / "steamapps"
+            base = (
+                steamapps
+                / "compatdata"
+                / "489830"
+                / "pfx"
+                / "drive_c"
+                / "users"
+                / "steamuser"
+                / "AppData"
+                / "Local"
+                / "ModOrganizer"
+                / "Skyrim Special Edition"
+            )
+            downloads = base / "downloads"
+            mods = base / "mods"
+            game_root = steamapps / "common" / "Skyrim Special Edition"
+            downloads.mkdir(parents=True)
+            mods.mkdir(parents=True)
+            game_root.mkdir(parents=True)
+            (game_root / "d3dx9_42.dll").write_bytes(b"preloader")
+            archive = downloads / "Engine Fixes - SKSE64 Preloader-17230-658442.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / f"{archive.name}.meta"
+            metadata.write_text(
+                "[General]\nmodID=17230\nfileID=658442\ninstalled=true\n",
+                encoding="utf-8",
+            )
+
+            valid_keys = validInstalledDownloadKeysForProfile(base)
+            audit = topLevelDownloadMetadataAudit(
+                downloads,
+                valid_installed_keys=valid_keys,
+            )
+
+            self.assertIn((17230, 658442), valid_keys)
+            self.assertEqual(audit["installed_without_valid_container"], [])
 
 
 class DownloadMetadataReviewEntriesTests(unittest.TestCase):
