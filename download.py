@@ -33,6 +33,8 @@ from .collection_helpers import (
     adaptiveDownloadQueueSubmissionLimit,
     adaptiveDownloadTailGraceSeconds,
     adaptiveDownloadTailRetryBatchLimit,
+    adaptiveDownloadTailRetryBudget,
+    adaptiveZeroByteRestartThreshold,
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
@@ -864,10 +866,13 @@ class stepDownloadProgress(QDialog):
         self.queue_start_timeout_seconds = 10
         self.zero_byte_start_timeout_seconds = 15
         self.zero_byte_start_max_retries = 20
-        self.zero_byte_restart_threshold = 999
         self.zero_byte_orphan_stale_seconds = 3
         self.max_unresolved_queue_submissions = adaptiveDownloadQueueSubmissionLimit(
             self.total_mods, 16
+        )
+        self.zero_byte_restart_threshold = adaptiveZeroByteRestartThreshold(
+            self.total_mods,
+            self.max_unresolved_queue_submissions,
         )
         self.queue_pending_mods = []
         self.queue_pending_filter = None
@@ -879,7 +884,11 @@ class stepDownloadProgress(QDialog):
         self.last_download_activity_fingerprint = None
         self.tail_boundary_started_at = None
         self.tail_boundary_completion_ratio = 0.75
-        self.tail_boundary_retry_budget = max(1, min(3, self.max_retries + 1))
+        self.tail_boundary_retry_budget = adaptiveDownloadTailRetryBudget(
+            self.total_mods,
+            self.max_retries,
+            self.max_unresolved_queue_submissions,
+        )
         self.tail_boundary_grace_seconds = adaptiveDownloadTailGraceSeconds(
             self.total_mods,
             self.max_unresolved_queue_submissions,

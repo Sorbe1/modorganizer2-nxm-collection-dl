@@ -164,6 +164,8 @@ from collection_helpers import (
     adaptiveDownloadQueueSubmissionLimit,
     adaptiveDownloadTailGraceSeconds,
     adaptiveDownloadTailRetryBatchLimit,
+    adaptiveDownloadTailRetryBudget,
+    adaptiveZeroByteRestartThreshold,
     downloadProgressIsStalled,
     downloadTailLaggardPlan,
     downloadTailBoundaryArmTime,
@@ -3494,6 +3496,25 @@ class DownloadTailBoundaryTests(unittest.TestCase):
 
     def test_adaptive_retry_batch_is_bounded(self):
         self.assertEqual(adaptiveDownloadTailRetryBatchLimit(200, 16), 64)
+
+    def test_adaptive_tail_retry_budget_stays_conservative_for_small_runs(self):
+        self.assertEqual(adaptiveDownloadTailRetryBudget(26, 0, 26), 1)
+        self.assertEqual(adaptiveDownloadTailRetryBudget(53, 2, 53), 3)
+
+    def test_adaptive_tail_retry_budget_scales_large_queue_pressure(self):
+        self.assertEqual(adaptiveDownloadTailRetryBudget(559, 2, 64), 5)
+
+    def test_adaptive_tail_retry_budget_is_bounded(self):
+        self.assertEqual(adaptiveDownloadTailRetryBudget(3000, 10, 64), 6)
+
+    def test_zero_byte_restart_threshold_stays_small_for_small_runs(self):
+        self.assertEqual(adaptiveZeroByteRestartThreshold(26, 26), 4)
+
+    def test_zero_byte_restart_threshold_scales_large_runs(self):
+        self.assertEqual(adaptiveZeroByteRestartThreshold(559, 64), 28)
+
+    def test_zero_byte_restart_threshold_is_bounded(self):
+        self.assertEqual(adaptiveZeroByteRestartThreshold(3000, 128), 64)
 
     def test_adaptive_submission_limit_uses_default_for_empty_run(self):
         self.assertEqual(adaptiveDownloadQueueSubmissionLimit(0, 16), 16)

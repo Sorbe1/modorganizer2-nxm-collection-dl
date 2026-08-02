@@ -6672,6 +6672,63 @@ def adaptiveDownloadTailRetryBatchLimit(
     return min(tail_count, maximum, limit)
 
 
+def adaptiveDownloadTailRetryBudget(
+    total,
+    max_retries,
+    unresolved_limit,
+    minimum=1,
+    maximum=6,
+):
+    """Return how many tail recycles a laggard gets before restart review.
+
+    The general retry count is intentionally conservative, but the final
+    download tail is where MO2 most often needs a few pause/resume-style
+    nudges. Scale the extra budget with queue pressure while keeping a hard
+    ceiling so bad entries still move to review instead of stalling the run.
+    """
+    try:
+        total = max(0, int(total or 0))
+        max_retries = max(0, int(max_retries or 0))
+        unresolved_limit = max(1, int(unresolved_limit or 1))
+        minimum = max(0, int(minimum or 0))
+        maximum = max(minimum, int(maximum or minimum))
+    except (TypeError, ValueError):
+        return 1
+
+    pressure_steps = max(0, (total + unresolved_limit - 1) // unresolved_limit - 1)
+    pressure_bonus = min(2, pressure_steps // 4)
+    budget = max(minimum, max_retries + 1 + pressure_bonus)
+    return min(maximum, budget)
+
+
+def adaptiveZeroByteRestartThreshold(
+    total,
+    unresolved_limit,
+    minimum=4,
+    maximum=64,
+):
+    """Return when zero-byte queue placeholders imply a stuck MO2 batch.
+
+    A single zero-byte placeholder is usually worth recycling. A large cluster
+    means MO2's queue state is stale enough that continuing in-process wastes
+    time, so the collection should stop at a restart/resume boundary.
+    """
+    try:
+        total = max(0, int(total or 0))
+        unresolved_limit = max(1, int(unresolved_limit or 1))
+        minimum = max(1, int(minimum or 1))
+        maximum = max(minimum, int(maximum or minimum))
+    except (TypeError, ValueError):
+        return 4
+
+    if total <= 0:
+        return minimum
+
+    size_threshold = max(minimum, int(math.ceil(total * 0.05)))
+    pressure_threshold = max(minimum, int(math.ceil(unresolved_limit * 0.5)))
+    return min(maximum, max(minimum, min(size_threshold, pressure_threshold)))
+
+
 def adaptiveDownloadQueueSubmissionLimit(total, default_limit, maximum=64):
     """Return how many MO2 download requests may be in flight.
 
