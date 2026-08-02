@@ -502,6 +502,15 @@ class ProfileSnapshotTests(unittest.TestCase):
             (profile / "loadorder.txt").write_text(
                 "Skyrim.esm\nA.esp\n", encoding="utf-8"
             )
+            downloads = base / "downloads"
+            downloads.mkdir()
+            (downloads / "Installed-1-2.7z").write_text("archive", encoding="utf-8")
+            (downloads / "Installed-1-2.7z.meta").write_text(
+                "[General]\ninstalled=true\n", encoding="utf-8"
+            )
+            (downloads / "NeedsReview-3-4.7z.meta").write_text(
+                "[General]\ninstalled=false\n", encoding="utf-8"
+            )
 
             snapshot_dir, manifest = snapshotMo2ProfileState(
                 base_path=base,
@@ -519,6 +528,17 @@ class ProfileSnapshotTests(unittest.TestCase):
             self.assertEqual(
                 manifest["files"]["modlist.txt"]["sha256"],
                 "af9e5677f5ec28038d0c4b08954e5a6272932acc4ade9cb9ae5b2610600b8173",
+            )
+            self.assertEqual(
+                manifest["download_metadata_audit"]["installed_count"], 1
+            )
+            self.assertEqual(
+                manifest["download_metadata_audit"]["downloaded_only"],
+                [str(downloads / "NeedsReview-3-4.7z.meta")],
+            )
+            self.assertEqual(
+                manifest["download_metadata_audit"]["missing_archive"],
+                [str(downloads / "NeedsReview-3-4.7z.meta")],
             )
             saved_manifest = json.loads(
                 (snapshot_dir / "manifest.json").read_text(encoding="utf-8")

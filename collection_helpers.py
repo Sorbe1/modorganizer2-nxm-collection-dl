@@ -195,6 +195,18 @@ def profileStateFileStats(path):
     }
 
 
+def downloadMetadataAuditSummary(audit):
+    """Return a compact snapshot/report view of a download metadata audit."""
+    audit = audit or {}
+    return {
+        "checked": audit.get("checked", 0),
+        "installed_count": len(audit.get("installed", [])),
+        "downloaded_only": list(audit.get("downloaded_only", [])),
+        "missing_archive": list(audit.get("missing_archive", [])),
+        "unknown_installed_state": list(audit.get("unknown_installed_state", [])),
+    }
+
+
 def snapshotMo2ProfileState(
     base_path=None,
     profile_name="Default",
@@ -242,13 +254,22 @@ def snapshotMo2ProfileState(
             shutil.copy2(source, snapshot_dir / file_name)
         files[file_name] = profileStateFileStats(source)
 
+    downloads_path = base_path / "downloads"
+    download_metadata_audit = None
+    if downloads_path.exists():
+        download_metadata_audit = downloadMetadataAuditSummary(
+            topLevelDownloadMetadataAudit(downloads_path)
+        )
+
     manifest = {
         "base": str(base_path),
         "profile_path": str(profile_path),
+        "downloads_path": str(downloads_path),
         "profile": profile_name,
         "label": label,
         "created": datetime.now().isoformat(timespec="seconds"),
         "files": files,
+        "download_metadata_audit": download_metadata_audit,
     }
     (snapshot_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"

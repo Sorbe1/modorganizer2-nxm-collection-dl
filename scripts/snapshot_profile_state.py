@@ -59,6 +59,16 @@ def main():
             )
         else:
             print(f"{file_name}: missing")
+    audit = manifest.get("download_metadata_audit")
+    if audit is not None:
+        print(
+            "downloads metadata: "
+            f"{audit.get('checked', 0)} checked, "
+            f"{audit.get('installed_count', 0)} installed, "
+            f"{len(audit.get('downloaded_only', []))} downloaded-only, "
+            f"{len(audit.get('missing_archive', []))} missing archive, "
+            f"{len(audit.get('unknown_installed_state', []))} unknown state"
+        )
     print(f"Snapshot: {snapshot_dir}")
 
 

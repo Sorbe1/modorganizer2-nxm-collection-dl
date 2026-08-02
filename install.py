@@ -54,6 +54,7 @@ from .collection_helpers import (
     collectionExpectedNexusKeys,
     contentTreeWarningDialogAction,
     detachedInstallCacheKeyFromPath,
+    downloadMetadataAuditSummary,
     extractHeadlessZipArchive,
     fastFinishMetadataRepairKeys,
     EMPTY_INSTALLER_OUTPUT_REASON,
@@ -1362,15 +1363,9 @@ class stepInstallMods(QDialog):
         download_metadata_audit = self.install_context.get(
             "download_metadata_audit", {}
         )
-        download_metadata_report = {
-            "checked": download_metadata_audit.get("checked", 0),
-            "installed_count": len(download_metadata_audit.get("installed", [])),
-            "downloaded_only": download_metadata_audit.get("downloaded_only", []),
-            "missing_archive": download_metadata_audit.get("missing_archive", []),
-            "unknown_installed_state": download_metadata_audit.get(
-                "unknown_installed_state", []
-            ),
-        }
+        download_metadata_report = downloadMetadataAuditSummary(
+            download_metadata_audit
+        )
         report = {
             "collection": var.collection,
             "revision": var.revision,
