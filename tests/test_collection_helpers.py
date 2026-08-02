@@ -165,6 +165,7 @@ from collection_helpers import (
     steamShaderCacheDisabled,
     steamShaderProcessingQueue,
     topLevelDownloadMetadataAudit,
+    validExternalInstalledDownloadKeys,
     unfinishedDownloadEntries,
     zeroByteDownloadStartIsStalled,
     zeroByteUnfinishedEntries,
@@ -562,6 +563,58 @@ class TopLevelDownloadMetadataAuditTests(unittest.TestCase):
             )
 
             self.assertEqual(audit["installed_without_valid_container"], [])
+
+    def test_accepts_installed_metadata_with_game_root_evidence(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            downloads = root / "downloads"
+            downloads.mkdir()
+            game_root = root / "game"
+            game_root.mkdir()
+            (game_root / "d3dx9_42.dll").write_bytes(b"preloader")
+            archive = downloads / "Engine Fixes - SKSE64 Preloader-17230-658442.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / f"{archive.name}.meta"
+            metadata.write_text(
+                "[General]\nmodID=17230\nfileID=658442\ninstalled=true\n",
+                encoding="utf-8",
+            )
+
+            valid_keys = validExternalInstalledDownloadKeys(downloads, game_root)
+            audit = topLevelDownloadMetadataAudit(
+                downloads,
+                valid_installed_keys=valid_keys,
+            )
+
+            self.assertEqual(valid_keys, {(17230, 658442)})
+            self.assertEqual(audit["installed_without_valid_container"], [])
+
+    def test_external_evidence_requires_known_game_root_file(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            downloads = root / "downloads"
+            downloads.mkdir()
+            game_root = root / "game"
+            game_root.mkdir()
+            archive = downloads / "Engine Fixes - SKSE64 Preloader-17230-658442.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / f"{archive.name}.meta"
+            metadata.write_text(
+                "[General]\nmodID=17230\nfileID=658442\ninstalled=true\n",
+                encoding="utf-8",
+            )
+
+            valid_keys = validExternalInstalledDownloadKeys(downloads, game_root)
+            audit = topLevelDownloadMetadataAudit(
+                downloads,
+                valid_installed_keys=valid_keys,
+            )
+
+            self.assertEqual(valid_keys, set())
+            self.assertEqual(
+                audit["installed_without_valid_container"],
+                [str(metadata)],
+            )
 
 
 class DownloadMetadataReviewEntriesTests(unittest.TestCase):

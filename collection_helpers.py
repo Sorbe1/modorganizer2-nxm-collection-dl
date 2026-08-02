@@ -755,6 +755,13 @@ def snapshotMo2ProfileState(
             base_path / "mods",
             downloads_path,
         )
+        game_root_path = steamGameRootFromMo2BasePath(base_path)
+        valid_external_keys = validExternalInstalledDownloadKeys(
+            downloads_path,
+            game_root=game_root_path,
+        )
+        if valid_installed_keys is not None:
+            valid_installed_keys = set(valid_installed_keys) | valid_external_keys
         download_metadata_audit = downloadMetadataAuditSummary(
             topLevelDownloadMetadataAudit(
                 downloads_path,
@@ -1192,6 +1199,13 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
             mods_path,
             downloads_path,
         )
+        game_root_path = steamGameRootFromMo2BasePath(base_path)
+        valid_external_keys = validExternalInstalledDownloadKeys(
+            downloads_path,
+            game_root=game_root_path,
+        )
+        if valid_installed_keys is not None:
+            valid_installed_keys = set(valid_installed_keys) | valid_external_keys
         result["download_metadata_audit"] = downloadMetadataAuditSummary(
             topLevelDownloadMetadataAudit(
                 downloads_path,
@@ -4681,6 +4695,28 @@ def topLevelDownloadMetadataAudit(downloads_dir, valid_installed_keys=None):
             result["downloaded_only"].append(metadata_path)
         else:
             result["unknown_installed_state"].append(metadata_path)
+    return result
+
+
+def validExternalInstalledDownloadKeys(downloads_dir, game_root=None):
+    """Return installed Nexus keys backed by verified non-MO-container evidence."""
+    result = set()
+    if game_root is None:
+        return result
+    downloads_dir = Path(downloads_dir)
+    if not downloads_dir.exists():
+        return result
+
+    for metadata_file in sorted(downloads_dir.glob("*.meta")):
+        if metadata_file.name.endswith(".unfinished.meta"):
+            continue
+        if downloadMetaInstalledValue(metadata_file) != "true":
+            continue
+        nexus_key = readDownloadMetaKey(metadata_file)
+        if nexus_key is None:
+            continue
+        if gameRootFileEvidenceForCollectionEntry(nexus_key, game_root):
+            result.add(nexus_key)
     return result
 
 
