@@ -259,6 +259,172 @@ def pluginCapacityAuditFromPluginsText(plugins_text):
     }
 
 
+def parseMo2PluginsText(plugins_text):
+    """Return available and active plugin names from MO2 plugins.txt text."""
+    available = []
+    active = []
+    seen_available = set()
+    seen_active = set()
+    for raw_line in str(plugins_text or "").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        enabled = stripped.startswith("*")
+        plugin_name = stripped[1:].strip() if enabled else stripped
+        if not plugin_name:
+            continue
+        key = plugin_name.casefold()
+        if key not in seen_available:
+            available.append(plugin_name)
+            seen_available.add(key)
+        if enabled and key not in seen_active:
+            active.append(plugin_name)
+            seen_active.add(key)
+    return {"available": available, "active": active}
+
+
+def parseMo2LoadOrderText(loadorder_text):
+    """Return plugin names from MO2 loadorder.txt text."""
+    plugins = []
+    seen = set()
+    for raw_line in str(loadorder_text or "").splitlines():
+        plugin_name = raw_line.strip()
+        if not plugin_name or plugin_name.startswith("#"):
+            continue
+        key = plugin_name.casefold()
+        if key in seen:
+            continue
+        plugins.append(plugin_name)
+        seen.add(key)
+    return plugins
+
+
+def mergePluginNameLists(*plugin_lists):
+    """Return plugin names merged case-insensitively while preserving order."""
+    merged = []
+    seen = set()
+    for plugin_list in plugin_lists:
+        for plugin_name in plugin_list or []:
+            plugin_name = str(plugin_name or "").strip()
+            if not plugin_name:
+                continue
+            key = plugin_name.casefold()
+            if key in seen:
+                continue
+            merged.append(plugin_name)
+            seen.add(key)
+    return merged
+
+
+def bethesdaPluginMastersFromBytes(data):
+    """Return TES4 header MAST subrecords from a Skyrim plugin byte string."""
+    data = bytes(data or b"")
+    if len(data) < 24 or data[:4] != b"TES4":
+        return []
+
+    header_size = int.from_bytes(data[4:8], "little", signed=False)
+    pos = 24
+    end = min(len(data), pos + header_size)
+    masters = []
+    extended_size = None
+    while pos + 6 <= end:
+        subrecord_type = data[pos : pos + 4]
+        subrecord_size = int.from_bytes(data[pos + 4 : pos + 6], "little", signed=False)
+        pos += 6
+
+        if subrecord_type == b"XXXX" and subrecord_size == 4 and pos + 4 <= end:
+            extended_size = int.from_bytes(data[pos : pos + 4], "little", signed=False)
+            pos += 4
+            continue
+
+        payload_size = extended_size if extended_size is not None else subrecord_size
+        extended_size = None
+        if pos + payload_size > end:
+            break
+        payload = data[pos : pos + payload_size]
+        pos += payload_size
+        if subrecord_type != b"MAST":
+            continue
+        master_name = (
+            payload.split(b"\x00", 1)[0]
+            .decode("utf-8", errors="replace")
+            .strip()
+        )
+        if master_name:
+            masters.append(master_name)
+    return masters
+
+
+def bethesdaPluginMastersFromPath(plugin_path):
+    """Return TES4 header MAST subrecords from a plugin file path."""
+    try:
+        return bethesdaPluginMastersFromBytes(Path(plugin_path).read_bytes())
+    except OSError:
+        return []
+
+
+def mo2PluginPathsFromActiveMods(mods_path, active_mod_names):
+    """Return plugin filename-to-path map using active MO2-managed containers."""
+    plugin_paths = {}
+    mods_path = Path(mods_path)
+    if not mods_path.exists():
+        return plugin_paths
+    for mod_name in active_mod_names or []:
+        mod_name = str(mod_name or "").strip()
+        if not mod_name or mod_name.startswith(("DLC:", "Creation Club:", "Unmanaged:")):
+            continue
+        mod_dir = mods_path / mod_name
+        if not mod_dir.is_dir():
+            continue
+        try:
+            children = list(mod_dir.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if (
+                child.is_file()
+                and child.suffix.casefold() in DIRECT_INSTALL_PLUGIN_EXTENSIONS
+            ):
+                plugin_paths[child.name.casefold()] = child
+    return plugin_paths
+
+
+def inferredSteamGameDataPathFromMo2Base(base_path):
+    """Return the likely Steam game Data path for a Proton MO2 base, if known."""
+    base_path = Path(base_path)
+    parts = base_path.parts
+    if "compatdata" not in parts:
+        return None
+    compat_index = parts.index("compatdata")
+    if compat_index + 1 >= len(parts):
+        return None
+    steamapps = Path(*parts[:compat_index])
+    app_id = parts[compat_index + 1]
+    game_names = {
+        "489830": "Skyrim Special Edition",
+    }
+    game_name = game_names.get(app_id)
+    if not game_name:
+        return None
+    return steamapps / "common" / game_name / "Data"
+
+
+def pluginPathsFromDirectory(data_path):
+    """Return plugin filename-to-path map for a directory of game plugins."""
+    plugin_paths = {}
+    data_path = Path(data_path)
+    if not data_path.is_dir():
+        return plugin_paths
+    try:
+        children = list(data_path.iterdir())
+    except OSError:
+        return plugin_paths
+    for child in children:
+        if child.is_file() and child.suffix.casefold() in DIRECT_INSTALL_PLUGIN_EXTENSIONS:
+            plugin_paths[child.name.casefold()] = child
+    return plugin_paths
+
+
 def downloadMetadataAuditSummary(audit):
     """Return a compact snapshot/report view of a download metadata audit."""
     audit = audit or {}
@@ -687,9 +853,8 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
             "checked": 0,
             "problem_count": 0,
             "note": (
-                "Standalone profile audits do not parse binary plugin masters. "
-                "Run the collection installer inside MO2, or use an xEdit/MO2 "
-                "metadata-backed audit, to verify missing or inactive masters."
+                "No active MO2-managed plugin files were discovered for "
+                "standalone dependency parsing."
             ),
         },
         "download_metadata_audit": None,
@@ -807,6 +972,19 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         plugins_text = plugins_path.read_text(
             encoding="utf-8", errors="replace"
         )
+        parsed_plugins = parseMo2PluginsText(plugins_text)
+        loadorder_plugins = []
+        loadorder_path = profile_path / "loadorder.txt"
+        if loadorder_path.exists():
+            loadorder_plugins = parseMo2LoadOrderText(
+                loadorder_path.read_text(encoding="utf-8", errors="replace")
+            )
+        available_plugins = mergePluginNameLists(
+            loadorder_plugins, parsed_plugins["available"]
+        )
+        active_plugins = mergePluginNameLists(
+            loadorder_plugins, parsed_plugins["active"]
+        )
         result["plugin_capacity_audit"] = pluginCapacityAuditFromPluginsText(
             plugins_text
         )
@@ -834,11 +1012,70 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
                     ),
                 }
             )
-        for raw_line in plugins_text.splitlines():
-            stripped = raw_line.strip()
-            if not stripped or stripped.startswith(("#", "*")):
+        game_data_path = inferredSteamGameDataPathFromMo2Base(base_path)
+        active_plugin_paths = (
+            pluginPathsFromDirectory(game_data_path) if game_data_path else {}
+        )
+        active_plugin_paths.update(
+            mo2PluginPathsFromActiveMods(mods_path, active_mod_names)
+        )
+        masters_by_plugin = {}
+        unresolved_active_plugins = []
+        for plugin_name in active_plugins:
+            plugin_path = active_plugin_paths.get(plugin_name.casefold())
+            if plugin_path is None:
+                if Path(plugin_name).suffix.casefold() in DIRECT_INSTALL_PLUGIN_EXTENSIONS:
+                    unresolved_active_plugins.append(plugin_name)
                 continue
-            result["disabled_plugins"].append(stripped)
+            masters_by_plugin[plugin_name] = bethesdaPluginMastersFromPath(plugin_path)
+        dependency_problems = pluginMasterDependencyAudit(
+            active_plugins,
+            available_plugins,
+            active_plugins,
+            masters_by_plugin,
+        )
+        result["plugin_dependency_audit"] = {
+            "supported": bool(masters_by_plugin),
+            "checked": len(masters_by_plugin),
+            "problem_count": len(dependency_problems),
+            "problems": dependency_problems,
+            "unresolved_active_plugins": unresolved_active_plugins[:50],
+            "note": (
+                "Parsed TES4 MAST records from active MO2-managed plugin files. "
+                "Game-root plugins are read when the Steam game Data path can "
+                "be inferred from the Proton compatdata path."
+            )
+            if masters_by_plugin
+            else (
+                "No active MO2-managed plugin files were discovered for "
+                "standalone dependency parsing."
+            ),
+        }
+        if dependency_problems:
+            result["issues"].append(
+                {
+                    "type": "plugin_master_dependencies",
+                    "count": len(dependency_problems),
+                    "examples": pluginMasterDependencyReviewEntries(
+                        dependency_problems
+                    )[:10],
+                    "message": (
+                        "Active plugins have missing or inactive master plugins"
+                    ),
+                }
+            )
+        available_by_key = {
+            plugin_name.casefold(): plugin_name
+            for plugin_name in parsed_plugins["available"]
+        }
+        active_by_key = {
+            plugin_name.casefold() for plugin_name in parsed_plugins["active"]
+        }
+        result["disabled_plugins"].extend(
+            plugin_name
+            for key, plugin_name in available_by_key.items()
+            if key not in active_by_key
+        )
     if result["disabled_plugins"]:
         result["issues"].append(
             {
