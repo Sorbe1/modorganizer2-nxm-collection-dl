@@ -3029,6 +3029,7 @@ def shouldAutoCloseInstallSummary(
     failed_count,
     recovery_count=0,
     no_applicable_count=0,
+    metadata_review_count=0,
 ):
     """Return True when a successful automatic install summary can close itself."""
     return (
@@ -3037,6 +3038,7 @@ def shouldAutoCloseInstallSummary(
         and int(failed_count or 0) == 0
         and int(recovery_count or 0) == 0
         and int(no_applicable_count or 0) == 0
+        and int(metadata_review_count or 0) == 0
     )
 
 

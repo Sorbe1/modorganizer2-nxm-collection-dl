@@ -3951,6 +3951,9 @@ class InstallSummaryAutoCloseTests(unittest.TestCase):
     def test_keeps_no_applicable_fomod_summary_visible(self):
         self.assertFalse(shouldAutoCloseInstallSummary(True, False, 0, 0, 1))
 
+    def test_keeps_dirty_download_metadata_summary_visible(self):
+        self.assertFalse(shouldAutoCloseInstallSummary(True, False, 0, 0, 0, 1))
+
 
 class CollectionInstallCompletedCountTests(unittest.TestCase):
     def test_no_applicable_entries_are_not_completed(self):

@@ -1367,6 +1367,13 @@ class stepInstallMods(QDialog):
         download_metadata_report = downloadMetadataAuditSummary(
             download_metadata_audit
         )
+        download_metadata_review_entries = self.install_context.get(
+            "download_metadata_review_entries"
+        )
+        if download_metadata_review_entries is None:
+            download_metadata_review_entries = downloadMetadataReviewEntries(
+                download_metadata_audit
+            )
         report = {
             "collection": var.collection,
             "revision": var.revision,
@@ -1382,9 +1389,7 @@ class stepInstallMods(QDialog):
             "root_level_entries": root_level_entries,
             "no_applicable_entries": no_applicable_entries,
             "download_metadata_audit": download_metadata_report,
-            "download_metadata_review_entries": downloadMetadataReviewEntries(
-                download_metadata_audit
-            ),
+            "download_metadata_review_entries": download_metadata_review_entries,
             "add_collection_launch_count": collection_metadata.get(
                 "addCollectionLaunchCount", 0
             ),
@@ -5149,12 +5154,19 @@ class stepInstallMods(QDialog):
             Path(organizer.downloadsPath())
         )
         context["download_metadata_audit"] = download_metadata_audit
+        download_metadata_review_entries = downloadMetadataReviewEntries(
+            download_metadata_audit
+        )
+        context["download_metadata_review_entries"] = list(
+            download_metadata_review_entries
+        )
+        metadata_review_count = len(download_metadata_review_entries)
 
         self.progress_bar.setValue(len(mods_to_install))
         failed_count = len(review_entries)
         if cancelled:
             self.progress_label.setText("Installation cancelled.")
-        elif failed_count:
+        elif failed_count or metadata_review_count:
             self.progress_label.setText("Installation completed; review needed.")
         elif queued_recovery_count:
             self.progress_label.setText("Installation completed; recovery queued.")
@@ -5163,15 +5175,15 @@ class stepInstallMods(QDialog):
         self.log("=" * 50)
         if cancelled:
             self.log("Installation Summary (cancelled):", "warning")
-        elif manual_install_pass and failed_count:
+        elif manual_install_pass and (failed_count or metadata_review_count):
             self.log("Manual Install Summary (review needed):", "note")
         elif manual_install_pass:
             self.log("Manual Install Summary:", "success")
-        elif queued_recovery_count and failed_count:
+        elif queued_recovery_count and (failed_count or metadata_review_count):
             self.log("Installation Summary (queued recovery; review needed):", "note")
         elif queued_recovery_count:
             self.log("Installation Summary (queued recovery):", "note")
-        elif failed_count:
+        elif failed_count or metadata_review_count:
             self.log("Installation Summary (review needed):", "note")
         else:
             self.log("Installation Summary:", "success")
@@ -5278,6 +5290,23 @@ class stepInstallMods(QDialog):
                 "  Visible Downloads pane metadata needs review; see warning report.",
                 "warning",
             )
+            self.log(
+                "  Downloads pane metadata review entries: "
+                f"{metadata_review_count}",
+                "warning",
+            )
+            for entry in download_metadata_review_entries[:10]:
+                self.log(
+                    "    "
+                    f"{safeDisplayText(Path(entry['archive']).name)}: "
+                    f"{safeDisplayText(entry['reason'])}",
+                    "note",
+                )
+            if metadata_review_count > 10:
+                self.log(
+                    f"    ... {metadata_review_count - 10} more omitted from dialog",
+                    "note",
+                )
         if priority_order:
             self.log(
                 "  Collection priority order: "
@@ -5407,6 +5436,7 @@ class stepInstallMods(QDialog):
             and failed_count == 0
             and queued_recovery_count == 0
             and no_applicable_count == 0
+            and metadata_review_count == 0
         )
 
         if review_entries:
@@ -5415,6 +5445,14 @@ class stepInstallMods(QDialog):
                 "Some mods were not installed. Use Retry Failed Manually to retry "
                 "the remaining entries with normal MO2 installer dialogs, or review "
                 "the generated reports.",
+                "note",
+            )
+        elif metadata_review_count:
+            self.log("", "note")
+            self.log(
+                "MO2 Downloads pane metadata still needs review. The collection "
+                "installer did not leave retryable mod installs, but the generated "
+                "warning report lists the dirty download metadata entries.",
                 "note",
             )
 
@@ -5428,6 +5466,7 @@ class stepInstallMods(QDialog):
             failed_count,
             recovery_count,
             no_applicable_count,
+            metadata_review_count,
         ):
             self.log(
                 "Successful automatic install; closing summary dialog.",
