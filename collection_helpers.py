@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 import os
@@ -165,9 +166,17 @@ def profileStateFileStats(path):
     """Return simple order-file stats for a snapshot manifest."""
     path = Path(path)
     if not path.exists():
-        return {"exists": False, "lines": 0, "enabled": 0, "disabled": 0}
+        return {
+            "exists": False,
+            "lines": 0,
+            "enabled": 0,
+            "disabled": 0,
+            "bytes": 0,
+            "sha256": None,
+        }
 
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    data = path.read_bytes()
+    lines = data.decode("utf-8", errors="replace").splitlines()
     enabled = 0
     disabled = 0
     for line in lines:
@@ -181,6 +190,8 @@ def profileStateFileStats(path):
         "lines": len(lines),
         "enabled": enabled,
         "disabled": disabled,
+        "bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
     }
 
 
