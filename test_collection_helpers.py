@@ -43,6 +43,7 @@ from collection_helpers import (
     duplicateDownloadPromptArchiveAction,
     duplicateDownloadPromptActionLabel,
     downloadMetadataReviewEntries,
+    manualInstallGuidanceForReason,
     downloadCompletionChoices,
     downloadCompletionPlan,
     downloadProgressCanClose,
@@ -515,6 +516,40 @@ class DownloadMetadataReviewEntriesTests(unittest.TestCase):
 
     def test_empty_audit_has_no_review_entries(self):
         self.assertEqual(downloadMetadataReviewEntries({}), [])
+
+
+class ManualInstallGuidanceForReasonTests(unittest.TestCase):
+    def test_explains_ambiguous_archive_layout(self):
+        guidance = manualInstallGuidanceForReason(
+            "manual archive layout: ambiguous archive layout"
+        )
+
+        self.assertIn("content tree", guidance)
+        self.assertIn("downloaded-only", guidance)
+
+    def test_explains_invalid_game_data_container(self):
+        guidance = manualInstallGuidanceForReason(
+            "installed container has no valid game data"
+        )
+
+        self.assertIn("invalid MO2 container", guidance)
+
+    def test_explains_downloaded_only_entries(self):
+        guidance = manualInstallGuidanceForReason(
+            "downloaded-only/no applicable files"
+        )
+
+        self.assertIn("downloaded-only", guidance)
+
+    def test_explains_native_archive_worker_timeout(self):
+        guidance = manualInstallGuidanceForReason(
+            "Native archive worker timed out"
+        )
+
+        self.assertIn("native archive worker", guidance)
+
+    def test_ignores_unrelated_reason(self):
+        self.assertIsNone(manualInstallGuidanceForReason("other"))
 
 
 class ProfileSnapshotTests(unittest.TestCase):

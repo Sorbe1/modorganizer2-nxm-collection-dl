@@ -83,6 +83,7 @@ from .collection_helpers import (
     isRequiredFomodGroupTitle,
     isSafeSingletonFomodOption,
     isTransientManualFomodPlanFailure,
+    manualInstallGuidanceForReason,
     moveHeadlessArchivePayload,
     normalizedButtonLabel,
     nativeArchiveWorkerHeartbeatStatus,
@@ -2465,6 +2466,9 @@ class stepInstallMods(QDialog):
                 "- Manual handling: this archive appears to target the game/base "
                 "directory rather than a normal MO2 mod container."
             )
+        manual_guidance = manualInstallGuidanceForReason(entry.get("reason", ""))
+        if manual_guidance:
+            lines.append(f"- Manual recovery: {safeDisplayText(manual_guidance)}")
 
         safe_prompts = guide.get("safe_singleton_prompts") or []
         if safe_prompts:

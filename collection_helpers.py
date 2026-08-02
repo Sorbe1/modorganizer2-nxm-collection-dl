@@ -243,6 +243,39 @@ def downloadMetadataReviewEntries(audit):
     return entries
 
 
+def manualInstallGuidanceForReason(reason):
+    """Return manual recovery guidance for common installer review reasons."""
+    reason_text = str(reason or "").casefold()
+    if (
+        "manual archive layout" in reason_text
+        or "ambiguous archive layout" in reason_text
+    ):
+        return (
+            "inspect the archive content tree in MO2; choose the folder that "
+            "contains valid game data, or leave the archive downloaded-only if "
+            "there is no useful game-data payload"
+        )
+    if (
+        "no valid game data" in reason_text
+        or "invalid collection container" in reason_text
+    ):
+        return (
+            "do not keep the empty or invalid MO2 container enabled; reinstall "
+            "manually only if the archive contains valid game data"
+        )
+    if "downloaded-only" in reason_text or "no applicable file" in reason_text:
+        return (
+            "leave this entry downloaded-only unless a manual content-tree "
+            "inspection identifies a valid installable payload"
+        )
+    if "native archive worker timed out" in reason_text:
+        return (
+            "retry manually through MO2, or rerun after starting the native "
+            "archive worker if headless archive inspection is required"
+        )
+    return None
+
+
 def snapshotMo2ProfileState(
     base_path=None,
     profile_name="Default",
