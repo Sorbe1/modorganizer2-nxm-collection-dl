@@ -2605,13 +2605,23 @@ def fomodDependencyOptionGuideLines(layout_plan):
         for option in group.get("options") or []:
             option_name = safeDisplayText(option.get("option"))
             plugin_type = safeDisplayText(option.get("plugin_type"))
+            details = [plugin_type]
             dependencies = []
             for dependency in option.get("dependencies") or []:
                 dep_file = safeDisplayText(dependency.get("file"))
                 dep_state = safeDisplayText(dependency.get("state"))
                 dependencies.append(f"{dep_file}={dep_state}")
             dependency_text = ", ".join(dependencies) or "no declared dependencies"
-            options.append(f"`{option_name}` [{plugin_type}; {dependency_text}]")
+            details.append(dependency_text)
+            payload_plugins = [
+                safeDisplayText(name)
+                for name in option.get("payload_plugins") or []
+            ]
+            if payload_plugins:
+                details.append("payload plugins: " + ", ".join(payload_plugins))
+            if option.get("matched_profile_evidence"):
+                details.append("profile evidence matched")
+            options.append(f"`{option_name}` [{'; '.join(details)}]")
         if options:
             lines.append("- Dependency options: " + "; ".join(options))
     return lines
@@ -2699,12 +2709,17 @@ def headlessFomodDependencyInstallLayout(
                 for mapping in mappings
             ):
                 continue
+            payload_plugins = sorted(
+                _fomodPayloadEvidencePluginNames(mappings, archive_members),
+                key=str.casefold,
+            )
             dependency_options.append(
                 {
                     "option": option_name,
                     "plugin_type": plugin_type,
                     "dependencies": _fomodPluginDependencyDiagnostics(plugin),
                     "payload_items": len(mappings),
+                    "payload_plugins": payload_plugins,
                     "matched_profile_evidence": (
                         _fomodOptionMatchesEvidence(option_name, evidence_labels)
                         or _fomodPayloadMatchesEvidence(

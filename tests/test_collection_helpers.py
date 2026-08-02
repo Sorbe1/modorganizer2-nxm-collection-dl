@@ -3387,6 +3387,40 @@ class FomodDependencyOptionGuideLinesTests(unittest.TestCase):
             ],
         )
 
+    def test_formats_payload_plugin_evidence(self):
+        lines = fomodDependencyOptionGuideLines(
+            {
+                "dependency_option_groups": [
+                    {
+                        "group": "Optional Patches",
+                        "type": "SelectAtLeastOne",
+                        "options": [
+                            {
+                                "option": "Cutting Room Floor",
+                                "plugin_type": "optional",
+                                "dependencies": [],
+                                "payload_plugins": [
+                                    "Cutting Room Floor TKAA Patch.esp"
+                                ],
+                                "matched_profile_evidence": True,
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(
+            lines,
+            [
+                "- FOMOD dependency group not auto-selected: "
+                "`Optional Patches` (SelectAtLeastOne)",
+                "- Dependency options: `Cutting Room Floor` "
+                "[optional; no declared dependencies; payload plugins: "
+                "Cutting Room Floor TKAA Patch.esp; profile evidence matched]",
+            ],
+        )
+
 
 class DependencyIssueGuideLinesTests(unittest.TestCase):
     def test_formats_structured_dependency_issues(self):
@@ -3473,6 +3507,7 @@ class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
                                 }
                             ],
                             "payload_items": 1,
+                            "payload_plugins": ["Missing Worldspace Patch.esp"],
                             "matched_profile_evidence": False,
                         }
                     ],
