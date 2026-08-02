@@ -7,7 +7,8 @@
       "collection": "8vdyr1",
       "download_metadata_review": false,
       "failed_categories": {
-        "manual_or_review": 2,
+        "duplicate_container": 2,
+        "manual_or_review": 0,
         "missing_download": 0,
         "other_failure": 0
       },
@@ -18,14 +19,14 @@
           "file": "New Mara Bowl Replacer",
           "mod": "New Mara Statue SE",
           "reason": "duplicate MO2 mod container for archive-default FOMOD install; needs manual rename/merge choice",
-          "review_category": "manual_or_review"
+          "review_category": "duplicate_container"
         },
         {
           "archive": "C:\\users\\steamuser\\AppData\\Local\\ModOrganizer\\Skyrim Special Edition - Derp\\downloads\\Add-ons All in One. correct alignment BOS-164606-1-0-3-1771945411.rar",
           "file": "Add-ons All in One. correct alignment BOS",
           "mod": "Alternate Start - Standing Stones correct alignment BOS",
           "reason": "duplicate MO2 mod container for archive-default FOMOD install; needs manual rename/merge choice",
-          "review_category": "manual_or_review"
+          "review_category": "duplicate_container"
         }
       ],
       "generated": "2026-07-26T18:40:35",
@@ -47,6 +48,7 @@
       "collection": "xxsqm4",
       "download_metadata_review": false,
       "failed_categories": {
+        "duplicate_container": 0,
         "manual_or_review": 1,
         "missing_download": 0,
         "other_failure": 0
@@ -79,6 +81,7 @@
       "collection": "egtcmf",
       "download_metadata_review": false,
       "failed_categories": {
+        "duplicate_container": 0,
         "manual_or_review": 1,
         "missing_download": 0,
         "other_failure": 0
@@ -111,6 +114,7 @@
       "collection": "4vz5sn",
       "download_metadata_review": false,
       "failed_categories": {
+        "duplicate_container": 0,
         "manual_or_review": 1,
         "missing_download": 0,
         "other_failure": 0
@@ -143,6 +147,7 @@
       "collection": "sklk3h",
       "download_metadata_review": false,
       "failed_categories": {
+        "duplicate_container": 0,
         "manual_or_review": 0,
         "missing_download": 0,
         "other_failure": 0
@@ -168,6 +173,7 @@
       "collection": "otpzzr",
       "download_metadata_review": false,
       "failed_categories": {
+        "duplicate_container": 0,
         "manual_or_review": 2,
         "missing_download": 0,
         "other_failure": 0
@@ -314,7 +320,8 @@
     "add_collection_recovery_count": 10,
     "download_metadata_review_count": 0,
     "failed_categories": {
-      "manual_or_review": 7,
+      "duplicate_container": 2,
+      "manual_or_review": 5,
       "missing_download": 0,
       "other_failure": 0
     },

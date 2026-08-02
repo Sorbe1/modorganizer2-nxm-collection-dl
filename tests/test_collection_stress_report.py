@@ -105,6 +105,7 @@ class CollectionStressReportTests(unittest.TestCase):
                 summary["failed_categories"],
                 {
                     "missing_download": 1,
+                    "duplicate_container": 0,
                     "manual_or_review": 1,
                     "other_failure": 1,
                 },
@@ -315,6 +316,7 @@ class CollectionStressReportTests(unittest.TestCase):
                 totals["failed_categories"],
                 {
                     "missing_download": 1,
+                    "duplicate_container": 0,
                     "manual_or_review": 1,
                     "other_failure": 1,
                 },

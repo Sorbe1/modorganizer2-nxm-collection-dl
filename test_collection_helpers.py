@@ -7041,6 +7041,14 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
             "missing_download",
         )
 
+    def test_classifies_duplicate_container_reasons(self):
+        self.assertEqual(
+            failedInstallReviewCategory(
+                "duplicate MO2 mod container for archive-default FOMOD install"
+            ),
+            "duplicate_container",
+        )
+
     def test_classifies_manual_and_review_reasons(self):
         reasons = [
             "manual archive layout: ambiguous archive layout",
@@ -7059,6 +7067,9 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
         counts = failedInstallReviewCategoryCounts(
             [
                 {"reason": "not found in downloads"},
+                {
+                    "reason": "duplicate MO2 mod container for archive-default FOMOD install"
+                },
                 {"reason": "manual archive layout: ambiguous archive layout"},
                 {"reason": "unexpected preflight failure"},
             ]
@@ -7068,6 +7079,7 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
             counts,
             {
                 "missing_download": 1,
+                "duplicate_container": 1,
                 "manual_or_review": 1,
                 "other_failure": 1,
             },
@@ -7085,6 +7097,10 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
         self.assertEqual(
             failedInstallReviewCategoryLabel("missing_download"),
             "Missing downloads",
+        )
+        self.assertEqual(
+            failedInstallReviewCategoryLabel("duplicate_container"),
+            "Duplicate MO2 mod containers",
         )
         self.assertEqual(
             failedInstallReviewCategoryLabel("manual_or_review"),

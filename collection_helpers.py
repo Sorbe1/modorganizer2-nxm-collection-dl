@@ -2197,6 +2197,8 @@ def invalidInstalledCollectionPlanAction(mod_dir, source_archive_available):
 def failedInstallReviewCategory(reason):
     """Return a stable summary bucket for a failed collection plan entry."""
     text = str(reason or "").casefold()
+    if "duplicate mo2 mod container" in text:
+        return "duplicate_container"
     if (
         "not found in downloads" in text
         or "archive is missing" in text
@@ -2218,7 +2220,12 @@ def failedInstallReviewCategory(reason):
 
 def failedInstallReviewCategoryCounts(entries):
     """Return counts of failed/review collection entries by summary category."""
-    counts = {"missing_download": 0, "manual_or_review": 0, "other_failure": 0}
+    counts = {
+        "missing_download": 0,
+        "duplicate_container": 0,
+        "manual_or_review": 0,
+        "other_failure": 0,
+    }
     for entry in entries or []:
         category = failedInstallReviewCategory(entry.get("reason"))
         counts[category] = counts.get(category, 0) + 1
@@ -2229,6 +2236,7 @@ def failedInstallReviewCategoryLabel(category):
     """Return a user-facing label for a failed/review summary category."""
     labels = {
         "missing_download": "Missing downloads",
+        "duplicate_container": "Duplicate MO2 mod containers",
         "manual_or_review": "Manual install/review required",
         "other_failure": "Other failures",
     }
