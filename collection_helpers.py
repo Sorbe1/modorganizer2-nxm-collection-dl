@@ -392,6 +392,120 @@ def compareMo2ProfileStateSnapshots(left_snapshot_dir, right_snapshot_dir):
     }
 
 
+def _resolveMo2ProfilePaths(base_path=None, profile_name="Default", profile_path=None):
+    if profile_path is None:
+        if base_path is None:
+            raise ValueError("base_path or profile_path is required")
+        base_path = Path(base_path)
+        profile_path = base_path / "profiles" / profile_name
+    else:
+        profile_path = Path(profile_path)
+        if base_path is None:
+            base_path = profile_path.parent.parent
+        else:
+            base_path = Path(base_path)
+        profile_name = profile_name or profile_path.name
+    return Path(base_path), Path(profile_path), profile_name
+
+
+def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=None):
+    """Return a read-only audit of profile order files and Downloads metadata."""
+    base_path, profile_path, profile_name = _resolveMo2ProfilePaths(
+        base_path=base_path,
+        profile_name=profile_name,
+        profile_path=profile_path,
+    )
+    result = {
+        "base": str(base_path),
+        "profile_path": str(profile_path),
+        "downloads_path": str(base_path / "downloads"),
+        "profile": profile_name,
+        "clean": True,
+        "issues": [],
+        "files": {},
+        "disabled_mods": [],
+        "disabled_plugins": [],
+        "base_modlist_order_needs_repair": False,
+        "download_metadata_audit": None,
+    }
+    if not profile_path.exists():
+        result["clean"] = False
+        result["issues"].append(
+            {"type": "missing_profile", "path": str(profile_path)}
+        )
+        return result
+
+    for file_name in MO2_PROFILE_STATE_FILES:
+        result["files"][file_name] = profileStateFileStats(profile_path / file_name)
+
+    modlist_path = profile_path / "modlist.txt"
+    if modlist_path.exists():
+        modlist_text = modlist_path.read_text(encoding="utf-8", errors="replace")
+        result["base_modlist_order_needs_repair"] = mo2BaseModlistOrderNeedsRepair(
+            modlist_text
+        )
+        if result["base_modlist_order_needs_repair"]:
+            result["issues"].append(
+                {
+                    "type": "base_modlist_order",
+                    "file": str(modlist_path),
+                    "message": "Unmanaged DLC/Creation Club entries are misplaced",
+                }
+            )
+        for raw_line in modlist_text.splitlines():
+            stripped = raw_line.strip()
+            if stripped.startswith("-") and len(stripped) > 1:
+                result["disabled_mods"].append(stripped[1:])
+    if result["disabled_mods"]:
+        result["issues"].append(
+            {
+                "type": "disabled_mods",
+                "count": len(result["disabled_mods"]),
+                "examples": result["disabled_mods"][:10],
+            }
+        )
+
+    plugins_path = profile_path / "plugins.txt"
+    if plugins_path.exists():
+        for raw_line in plugins_path.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines():
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith(("#", "*")):
+                continue
+            result["disabled_plugins"].append(stripped)
+    if result["disabled_plugins"]:
+        result["issues"].append(
+            {
+                "type": "disabled_plugins",
+                "count": len(result["disabled_plugins"]),
+                "examples": result["disabled_plugins"][:10],
+            }
+        )
+
+    downloads_path = base_path / "downloads"
+    if downloads_path.exists():
+        result["download_metadata_audit"] = downloadMetadataAuditSummary(
+            topLevelDownloadMetadataAudit(downloads_path)
+        )
+        dirty_downloads = {
+            key: value
+            for key, value in result["download_metadata_audit"].items()
+            if key in ("downloaded_only", "missing_archive", "unknown_installed_state")
+            and value
+        }
+        if dirty_downloads:
+            result["issues"].append(
+                {
+                    "type": "download_metadata",
+                    "details": dirty_downloads,
+                }
+            )
+
+    result["clean"] = not result["issues"]
+    return result
+
+
 def backgroundWorkerSubprocessKwargs():
     """Return subprocess options safe for long-lived helper workers from MO2."""
     kwargs = archiveInspectionSubprocessKwargs(
