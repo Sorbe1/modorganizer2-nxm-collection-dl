@@ -104,6 +104,8 @@ from collection_helpers import (
     pluginMasterDependencyAudit,
     pluginMasterDependencyReviewEntries,
     pluginNotFoundNamesFromMessage,
+    profileStateFileStats,
+    profileStateSnapshotAuditSummary,
     pluginRepairFailureReviewEntries,
     popDownloadKey,
     preferredCanonicalDownloadArchive,
@@ -622,6 +624,14 @@ class ProfileSnapshotTests(unittest.TestCase):
                 manifest["download_metadata_audit"]["missing_archive"],
                 [str(downloads / "NeedsReview-3-4.7z.meta")],
             )
+            self.assertFalse(manifest["profile_audit"]["clean"])
+            self.assertEqual(
+                manifest["profile_audit"]["issues"],
+                ["disabled_mods", "disabled_plugins", "download_metadata"],
+            )
+            self.assertEqual(manifest["profile_audit"]["disabled_mods_count"], 1)
+            self.assertEqual(manifest["profile_audit"]["disabled_plugins_count"], 1)
+            self.assertEqual(manifest["profile_audit"]["downloaded_only_count"], 1)
             saved_manifest = json.loads(
                 (snapshot_dir / "manifest.json").read_text(encoding="utf-8")
             )
@@ -733,6 +743,34 @@ class ProfileSnapshotTests(unittest.TestCase):
             self.assertTrue(comparison["changed"])
             self.assertEqual(comparison["changed_files"], [])
             self.assertTrue(comparison["download_metadata_changed"])
+            self.assertTrue(comparison["profile_audit_changed"])
+
+    def test_profile_snapshot_audit_flags_inverted_base_order(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile = base / "profiles" / "Default"
+            profile.mkdir(parents=True)
+            (profile / "modlist.txt").write_text(
+                "+Managed Mod\n"
+                "+DLC: Dawnguard\n"
+                "+Creation Club: ccbgssse001-fish\n",
+                encoding="utf-8",
+            )
+            (profile / "plugins.txt").write_text("*Managed.esp\n", encoding="utf-8")
+
+            files = {
+                "modlist.txt": profileStateFileStats(profile / "modlist.txt"),
+                "plugins.txt": profileStateFileStats(profile / "plugins.txt"),
+            }
+            summary = profileStateSnapshotAuditSummary(
+                profile,
+                base_path=base,
+                files=files,
+            )
+
+            self.assertFalse(summary["clean"])
+            self.assertTrue(summary["base_modlist_order_needs_repair"])
+            self.assertIn("base_modlist_order", summary["issues"])
 
 
 class PluginCapacityAuditTests(unittest.TestCase):

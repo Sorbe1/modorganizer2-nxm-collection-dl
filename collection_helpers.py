@@ -296,6 +296,99 @@ def downloadMetadataReviewEntries(audit):
     return entries
 
 
+def profileStateSnapshotAuditSummary(
+    profile_path,
+    base_path=None,
+    files=None,
+    download_metadata_audit=None,
+):
+    """Return a compact cleanliness summary for a profile snapshot manifest."""
+    profile_path = Path(profile_path)
+    base_path = Path(base_path) if base_path is not None else profile_path.parent.parent
+    files = files or {}
+    issues = []
+
+    summary = {
+        "clean": True,
+        "issues": issues,
+        "base_modlist_order_needs_repair": False,
+        "disabled_mods_count": 0,
+        "disabled_plugins_count": 0,
+        "invalid_active_mod_containers_count": 0,
+        "downloaded_only_count": 0,
+        "missing_archive_count": 0,
+        "unknown_download_state_count": 0,
+        "plugin_capacity_warning": False,
+    }
+
+    modlist_path = profile_path / "modlist.txt"
+    active_mod_names = []
+    if (files.get("modlist.txt") or {}).get("exists") and modlist_path.exists():
+        modlist_text = modlist_path.read_text(encoding="utf-8", errors="replace")
+        summary["base_modlist_order_needs_repair"] = mo2BaseModlistOrderNeedsRepair(
+            modlist_text
+        )
+        if summary["base_modlist_order_needs_repair"]:
+            issues.append("base_modlist_order")
+        for raw_line in modlist_text.splitlines():
+            stripped = raw_line.strip()
+            if stripped.startswith("-") and len(stripped) > 1:
+                summary["disabled_mods_count"] += 1
+            elif stripped.startswith("+") and len(stripped) > 1:
+                active_mod_names.append(stripped[1:])
+        if summary["disabled_mods_count"]:
+            issues.append("disabled_mods")
+
+    mods_path = base_path / "mods"
+    if mods_path.exists():
+        for mod_name in active_mod_names:
+            if mod_name.startswith(("DLC:", "Creation Club:", "Unmanaged:")):
+                continue
+            mod_dir = mods_path / mod_name
+            if not (mod_dir / "meta.ini").exists():
+                continue
+            if installedModCompletionIssueReason(mod_dir) is not None:
+                summary["invalid_active_mod_containers_count"] += 1
+        if summary["invalid_active_mod_containers_count"]:
+            issues.append("invalid_active_mod_containers")
+
+    plugins_path = profile_path / "plugins.txt"
+    if (files.get("plugins.txt") or {}).get("exists") and plugins_path.exists():
+        plugins_text = plugins_path.read_text(encoding="utf-8", errors="replace")
+        capacity = pluginCapacityAuditFromPluginsText(plugins_text)
+        summary["plugin_capacity_warning"] = capacity[
+            "regular_limit_exceeded_by_extension"
+        ]
+        for raw_line in plugins_text.splitlines():
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith(("#", "*")):
+                continue
+            summary["disabled_plugins_count"] += 1
+        if summary["disabled_plugins_count"]:
+            issues.append("disabled_plugins")
+
+    if download_metadata_audit:
+        summary["downloaded_only_count"] = len(
+            download_metadata_audit.get("downloaded_only", []) or []
+        )
+        summary["missing_archive_count"] = len(
+            download_metadata_audit.get("missing_archive", []) or []
+        )
+        summary["unknown_download_state_count"] = len(
+            download_metadata_audit.get("unknown_installed_state", []) or []
+        )
+        if (
+            summary["downloaded_only_count"]
+            or summary["missing_archive_count"]
+            or summary["unknown_download_state_count"]
+        ):
+            issues.append("download_metadata")
+
+    summary["issues"] = sorted(set(issues))
+    summary["clean"] = not summary["issues"]
+    return summary
+
+
 def manualInstallGuidanceForReason(reason):
     """Return manual recovery guidance for common installer review reasons."""
     reason_text = str(reason or "").casefold()
@@ -393,6 +486,12 @@ def snapshotMo2ProfileState(
         "files": files,
         "download_metadata_audit": download_metadata_audit,
     }
+    manifest["profile_audit"] = profileStateSnapshotAuditSummary(
+        profile_path,
+        base_path=base_path,
+        files=files,
+        download_metadata_audit=download_metadata_audit,
+    )
     (snapshot_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
@@ -500,16 +599,24 @@ def compareMo2ProfileStateSnapshots(left_snapshot_dir, right_snapshot_dir):
     left_audit = left.get("download_metadata_audit")
     right_audit = right.get("download_metadata_audit")
     download_metadata_changed = left_audit != right_audit
+    profile_audit_changed = left.get("profile_audit") != right.get("profile_audit")
     return {
         "left": str(left_snapshot_dir),
         "right": str(right_snapshot_dir),
-        "changed": bool(changed_files or download_metadata_changed),
+        "changed": bool(
+            changed_files or download_metadata_changed or profile_audit_changed
+        ),
         "changed_files": changed_files,
         "files": files,
         "download_metadata_changed": download_metadata_changed,
         "download_metadata": {
             "left": left_audit,
             "right": right_audit,
+        },
+        "profile_audit_changed": profile_audit_changed,
+        "profile_audit": {
+            "left": left.get("profile_audit"),
+            "right": right.get("profile_audit"),
         },
     }
 
