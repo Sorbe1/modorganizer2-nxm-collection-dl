@@ -5297,6 +5297,20 @@ class stepInstallMods(QDialog):
         if not ordered_mods:
             return result
 
+        base_order_result = self.repairBaseModlistFileOrder(organizer)
+        if base_order_result.get("failed"):
+            self.logInstallIssue(
+                "Could not repair unmanaged DLC/Creation Club modlist order",
+                expected=True,
+            )
+            result["failed"] += base_order_result.get("failed", 0)
+        elif base_order_result.get("moved"):
+            self.log(
+                "Unmanaged DLC/Creation Club modlist order repaired for "
+                f"{base_order_result['moved']} entries",
+                "success",
+            )
+
         priority_by_mod = {}
         missing_mods = []
         for mod_name in ordered_mods:
@@ -5387,6 +5401,26 @@ class stepInstallMods(QDialog):
         result["failed"] += len(missing_mods)
         return result
 
+    def repairBaseModlistFileOrder(self, organizer):
+        if organizer is None:
+            return {"moved": 0, "failed": 1}
+        profile_path = Path(organizer.profilePath())
+        self.snapshotProfileBeforeRepair(organizer, "base-order-repair")
+        backup_dir = (
+            profile_path
+            / "nxm-collection-dl-backups"
+            / datetime.now().strftime("base-order-repair-%Y%m%d-%H%M%S")
+        )
+        base_order_result = repairMo2BaseModlistOrder(
+            profile_path / "modlist.txt", backup_dir=backup_dir
+        )
+        if base_order_result.get("moved"):
+            try:
+                organizer.refresh(True)
+            except Exception:
+                base_order_result["failed"] = base_order_result.get("failed", 0) + 1
+        return base_order_result
+
     def repairCollectionModlistFileOrder(self, organizer, present_mods):
         if organizer is None:
             return {"moved": 0, "missing": list(present_mods), "failed": 1}
@@ -5400,11 +5434,6 @@ class stepInstallMods(QDialog):
         base_order_result = repairMo2BaseModlistOrder(
             profile_path / "modlist.txt", backup_dir=backup_dir
         )
-        if base_order_result.get("failed"):
-            self.logInstallIssue(
-                "Could not repair unmanaged DLC/Creation Club modlist order",
-                expected=True,
-            )
         repair_result = moveModlistEntriesToUiBottom(
             profile_path / "modlist.txt", present_mods, backup_dir=backup_dir
         )
