@@ -31,6 +31,7 @@ from .collection_helpers import (
     activeDownloadPromptKey,
     activeUnfinishedDownloadFingerprint,
     adaptiveDownloadTailGraceSeconds,
+    adaptiveDownloadTailRetryBatchLimit,
     coerceBoolSetting,
     coerceDownloadId,
     coerceIntSetting,
@@ -1552,7 +1553,10 @@ class stepDownloadProgress(QDialog):
             self.tail_boundary_started_at = None
             return False
 
-        retry_batch_limit = max(1, min(len(tail_keys), effective_unresolved_limit))
+        retry_batch_limit = adaptiveDownloadTailRetryBatchLimit(
+            len(tail_keys),
+            effective_unresolved_limit,
+        )
         plan = downloadTailLaggardPlan(
             tail_keys,
             self.retry_attempts,

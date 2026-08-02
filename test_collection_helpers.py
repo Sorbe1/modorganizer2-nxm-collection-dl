@@ -156,6 +156,7 @@ from collection_helpers import (
     shouldDelayTerminalDownloadFailure,
     staleAlreadyStartedAction,
     adaptiveDownloadTailGraceSeconds,
+    adaptiveDownloadTailRetryBatchLimit,
     downloadProgressIsStalled,
     downloadTailLaggardPlan,
     downloadTailBoundaryArmTime,
@@ -3025,6 +3026,15 @@ class DownloadTailBoundaryTests(unittest.TestCase):
         self.assertGreaterEqual(small, 20)
         self.assertGreater(large, small)
         self.assertLessEqual(large, 180)
+
+    def test_adaptive_retry_batch_keeps_small_tails_together(self):
+        self.assertEqual(adaptiveDownloadTailRetryBatchLimit(5, 16), 5)
+
+    def test_adaptive_retry_batch_scales_large_idle_tail(self):
+        self.assertEqual(adaptiveDownloadTailRetryBatchLimit(40, 16), 20)
+
+    def test_adaptive_retry_batch_is_bounded(self):
+        self.assertEqual(adaptiveDownloadTailRetryBatchLimit(200, 16), 64)
 
     def test_progress_stall_waits_while_recent_progress_exists(self):
         self.assertFalse(downloadProgressIsStalled(100, 119, 20))

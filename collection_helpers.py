@@ -6249,6 +6249,29 @@ def adaptiveDownloadTailGraceSeconds(
     return min(maximum, max(minimum, size_seconds + retry_seconds + stale_seconds))
 
 
+def adaptiveDownloadTailRetryBatchLimit(
+    tail_count,
+    unresolved_limit,
+    minimum=1,
+    maximum=64,
+):
+    """Return how many stalled tail downloads to recycle after an idle window."""
+    try:
+        tail_count = max(0, int(tail_count or 0))
+        unresolved_limit = max(1, int(unresolved_limit or 1))
+        minimum = max(0, int(minimum or 0))
+        maximum = max(minimum, int(maximum or minimum))
+    except (TypeError, ValueError):
+        return 0
+
+    if tail_count <= 0:
+        return 0
+
+    scaled_tail = int(math.ceil(tail_count * 0.5))
+    limit = max(minimum, unresolved_limit, scaled_tail)
+    return min(tail_count, maximum, limit)
+
+
 def downloadProgressIsStalled(last_progress_at, now, stall_seconds):
     """Return True when no overall download progress happened inside the window."""
     try:
