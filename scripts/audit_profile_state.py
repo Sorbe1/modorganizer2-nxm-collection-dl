@@ -113,12 +113,14 @@ def main():
                         print(f"  {message}")
                     for example in warning.get("examples", [])[:10]:
                         if example.get("type") == "variant_before_base":
+                            shared_file_count = example.get("shared_file_count", 0)
                             print(
                                 "  - variant before base: "
                                 f"{example.get('mod')} "
                                 f"({example.get('priority')}) before "
                                 f"{example.get('target')} "
-                                f"({example.get('target_priority')})"
+                                f"({example.get('target_priority')}); "
+                                f"{shared_file_count} shared file(s)"
                             )
                         elif example.get("type") == "patch_before_target":
                             print(

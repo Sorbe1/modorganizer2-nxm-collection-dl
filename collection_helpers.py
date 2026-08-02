@@ -557,6 +557,7 @@ def profileStateSnapshotAuditSummary(
         "plugin_capacity_warning": False,
     }
 
+    mods_path = base_path / "mods"
     modlist_path = profile_path / "modlist.txt"
     active_mod_names = []
     if (files.get("modlist.txt") or {}).get("exists") and modlist_path.exists():
@@ -567,7 +568,7 @@ def profileStateSnapshotAuditSummary(
         if summary["base_modlist_order_needs_repair"]:
             issues.append("base_modlist_order")
         summary["modlist_ordering_warning_count"] = len(
-            mo2ModlistOrderingDiagnostics(modlist_text)
+            mo2ModlistOrderingDiagnostics(modlist_text, mods_path=mods_path)
         )
         for raw_line in modlist_text.splitlines():
             stripped = raw_line.strip()
@@ -578,7 +579,6 @@ def profileStateSnapshotAuditSummary(
         if summary["disabled_mods_count"]:
             issues.append("disabled_mods")
 
-    mods_path = base_path / "mods"
     if mods_path.exists():
         for mod_name in active_mod_names:
             if mod_name.startswith(("DLC:", "Creation Club:", "Unmanaged:")):
@@ -927,6 +927,7 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
     for file_name in MO2_PROFILE_STATE_FILES:
         result["files"][file_name] = profileStateFileStats(profile_path / file_name)
 
+    mods_path = base_path / "mods"
     modlist_path = profile_path / "modlist.txt"
     active_mod_names = []
     if modlist_path.exists():
@@ -943,7 +944,8 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
                 }
             )
         result["modlist_ordering_diagnostics"] = mo2ModlistOrderingDiagnostics(
-            modlist_text
+            modlist_text,
+            mods_path=mods_path,
         )
         if result["modlist_ordering_diagnostics"]:
             result["warnings"].append(
@@ -955,7 +957,7 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
                     "message": (
                         "Likely left-pane ordering problems were found; review "
                         "patches/addons after their targets and numbered variants "
-                        "after their base mod"
+                        "that lose shared payload files to their base mod"
                     ),
                 }
             )
@@ -974,7 +976,6 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
             }
         )
 
-    mods_path = base_path / "mods"
     if mods_path.exists():
         try:
             result["transient_mod_dirs"] = sorted(
@@ -5240,12 +5241,43 @@ def _isMo2PatchLikeName(normalized_name):
     return any(f" {hint} " in padded for hint in MO2_MODLIST_PATCH_HINTS)
 
 
-def mo2ModlistOrderingDiagnostics(modlist_text, max_entries=50):
+def _mo2ModPayloadFiles(mods_path, mod_name):
+    """Return relative payload file names for one MO2 mod container."""
+    if mods_path is None:
+        return set()
+    mod_dir = Path(mods_path) / str(mod_name or "")
+    if not mod_dir.exists():
+        return set()
+    result = set()
+    try:
+        for path in mod_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                relative = path.relative_to(mod_dir)
+            except ValueError:
+                relative = path
+            if len(relative.parts) == 1 and relative.name.casefold() == "meta.ini":
+                continue
+            result.add(relative.as_posix().casefold())
+    except OSError:
+        return set()
+    return result
+
+
+def mo2ModlistOrderingDiagnostics(modlist_text, max_entries=50, mods_path=None):
     """Return warning-level diagnostics for likely left-pane order mistakes."""
     active_entries = [
         entry for entry in mo2ModlistEntries(modlist_text) if entry["enabled"]
     ]
     diagnostics = []
+    payload_cache = {}
+
+    def payload_files(mod_name):
+        if mod_name not in payload_cache:
+            payload_cache[mod_name] = _mo2ModPayloadFiles(mods_path, mod_name)
+        return payload_cache[mod_name]
+
     by_normalized = {}
     for entry in active_entries:
         normalized = _normalizedMo2ModOrderName(entry["name"])
@@ -5270,6 +5302,11 @@ def mo2ModlistOrderingDiagnostics(modlist_text, max_entries=50):
             continue
         seen_variant_pairs.add(key)
         if entry["priority"] < base_entry["priority"]:
+            shared_files = sorted(
+                payload_files(entry["name"]) & payload_files(base_entry["name"])
+            )
+            if not shared_files:
+                continue
             diagnostics.append(
                 {
                     "type": "variant_before_base",
@@ -5277,6 +5314,8 @@ def mo2ModlistOrderingDiagnostics(modlist_text, max_entries=50):
                     "priority": entry["priority"],
                     "target": base_entry["name"],
                     "target_priority": base_entry["priority"],
+                    "shared_file_count": len(shared_files),
+                    "shared_file_examples": shared_files[:5],
                 }
             )
             if len(diagnostics) >= max_entries:
