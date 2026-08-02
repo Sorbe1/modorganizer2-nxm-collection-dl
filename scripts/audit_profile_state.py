@@ -52,16 +52,23 @@ def main():
         capacity = result.get("plugin_capacity_audit") or {}
         print(
             "Plugin capacity: "
-            f"{capacity.get('regular_by_extension_count', 0)} regular by extension, "
-            f"{capacity.get('light_by_extension_count', 0)} light by extension, "
-            f"{capacity.get('regular_slots_remaining_by_extension', 0)} "
-            "regular slots remaining by extension"
+            f"{capacity.get('regular_count', 0)} regular, "
+            f"{capacity.get('light_count', 0)} light, "
+            f"{capacity.get('regular_slots_remaining', 0)} "
+            "regular slots remaining"
         )
-        if capacity.get("regular_limit_exceeded_by_extension"):
+        if capacity.get("header_capacity_supported"):
+            print(
+                "Plugin capacity evidence: "
+                f"{capacity.get('esl_flagged_plugin_count', 0)} "
+                "ESL-flagged plugin(s); "
+                f"{capacity.get('unresolved_header_plugin_count', 0)} "
+                "unresolved header(s)"
+            )
+        if capacity.get("regular_limit_exceeded"):
             print(
                 "Plugin capacity overage: "
-                f"{capacity.get('regular_overage_by_extension', 0)} "
-                "regular plugins by extension"
+                f"{capacity.get('regular_overage', 0)} regular plugin(s)"
             )
         dependency = result.get("plugin_dependency_audit") or {}
         dependency_status = "yes" if dependency.get("supported") else "no"
@@ -123,12 +130,19 @@ def main():
                             )
                         else:
                             print(f"  - {example}")
-                elif warning_type == "plugin_capacity_by_extension":
+                elif warning_type in ("plugin_capacity", "plugin_capacity_by_extension"):
+                    regular_count = warning.get(
+                        "regular_count",
+                        warning.get("regular_by_extension_count", 0),
+                    )
+                    overage = warning.get(
+                        "regular_overage",
+                        warning.get("regular_overage_by_extension", 0),
+                    )
                     print(
-                        "- plugin_capacity_by_extension: "
-                        f"{warning.get('regular_by_extension_count', 0)} "
-                        ".esm/.esp by extension; "
-                        f"overage {warning.get('regular_overage_by_extension', 0)}"
+                        f"- {warning_type}: "
+                        f"{regular_count} regular plugin(s); "
+                        f"overage {overage}"
                     )
                     message = warning.get("message")
                     if message:

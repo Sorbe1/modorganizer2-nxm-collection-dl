@@ -98,6 +98,7 @@ DIRECT_INSTALL_PLUGIN_EXTENSIONS = {
     ".esm",
     ".esl",
 }
+BETHESDA_TES4_ESL_FLAG = 0x00000200
 
 IGNORABLE_ARCHIVE_ROOT_FILE_EXTENSIONS = {
     ".bmp",
@@ -206,48 +207,74 @@ def profileStateFileStats(path):
     }
 
 
-def pluginCapacityAuditFromPluginsText(plugins_text):
-    """Return a conservative plugin-capacity audit from MO2 plugins.txt text."""
+def pluginCapacityAuditFromPluginNames(plugin_names, disabled_count=0, plugin_paths=None):
+    """Return plugin-capacity accounting from plugin names and optional headers."""
     enabled_plugins = []
-    disabled_plugins = []
     light_by_extension = []
     regular_by_extension = []
     unknown_extensions = []
-    for raw_line in str(plugins_text or "").splitlines():
-        stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        enabled = stripped.startswith("*")
-        plugin_name = stripped[1:].strip() if enabled else stripped
+    light_by_header = []
+    regular_by_header = []
+    esl_flagged_plugins = []
+    unresolved_header_plugins = []
+    plugin_paths = plugin_paths or {}
+    for raw_plugin_name in plugin_names or []:
+        plugin_name = str(raw_plugin_name or "").strip()
         if not plugin_name:
             continue
-        if enabled:
-            enabled_plugins.append(plugin_name)
-            suffix = Path(plugin_name).suffix.casefold()
-            if suffix == ".esl":
-                light_by_extension.append(plugin_name)
-            elif suffix in (".esp", ".esm"):
-                regular_by_extension.append(plugin_name)
+        enabled_plugins.append(plugin_name)
+        suffix = Path(plugin_name).suffix.casefold()
+        if suffix == ".esl":
+            light_by_extension.append(plugin_name)
+            light_by_header.append(plugin_name)
+            continue
+        if suffix in (".esp", ".esm"):
+            regular_by_extension.append(plugin_name)
+            plugin_path = plugin_paths.get(plugin_name.casefold())
+            if plugin_path is None:
+                unresolved_header_plugins.append(plugin_name)
+                regular_by_header.append(plugin_name)
+                continue
+            if bethesdaPluginIsEslFlaggedFromPath(plugin_path):
+                light_by_header.append(plugin_name)
+                esl_flagged_plugins.append(plugin_name)
             else:
-                unknown_extensions.append(plugin_name)
-        else:
-            disabled_plugins.append(plugin_name)
+                regular_by_header.append(plugin_name)
+            continue
+        unknown_extensions.append(plugin_name)
 
     regular_limit = 0xFD
-    regular_count = len(regular_by_extension)
+    regular_extension_count = len(regular_by_extension)
+    regular_extension_overage = max(0, regular_extension_count - regular_limit)
+    header_supported = bool(plugin_paths)
+    regular_count = len(regular_by_header) if header_supported else regular_extension_count
     regular_overage = max(0, regular_count - regular_limit)
     return {
         "enabled_count": len(enabled_plugins),
-        "disabled_count": len(disabled_plugins),
-        "regular_by_extension_count": regular_count,
+        "disabled_count": disabled_count,
+        "header_capacity_supported": header_supported,
+        "regular_count": regular_count,
+        "light_count": len(light_by_header) if header_supported else len(light_by_extension),
+        "regular_slots_remaining": max(0, regular_limit - regular_count),
+        "regular_limit_exceeded": regular_overage > 0,
+        "regular_overage": regular_overage,
+        "regular_by_header_count": len(regular_by_header),
+        "light_by_header_count": len(light_by_header),
+        "esl_flagged_plugin_count": len(esl_flagged_plugins),
+        "unresolved_header_plugin_count": len(unresolved_header_plugins),
+        "regular_by_extension_count": regular_extension_count,
         "light_by_extension_count": len(light_by_extension),
         "unknown_extension_count": len(unknown_extensions),
         "regular_limit": regular_limit,
         "regular_slots_remaining_by_extension": max(
-            0, regular_limit - regular_count
+            0, regular_limit - regular_extension_count
         ),
-        "regular_limit_exceeded_by_extension": regular_overage > 0,
-        "regular_overage_by_extension": regular_overage,
+        "regular_limit_exceeded_by_extension": regular_extension_overage > 0,
+        "regular_overage_by_extension": regular_extension_overage,
+        "regular_by_header_examples": regular_by_header[:10],
+        "light_by_header_examples": light_by_header[:10],
+        "esl_flagged_plugin_examples": esl_flagged_plugins[:10],
+        "unresolved_header_plugin_examples": unresolved_header_plugins[:10],
         "regular_by_extension_examples": regular_by_extension[:10],
         "light_by_extension_examples": light_by_extension[:10],
         "unknown_extension_examples": unknown_extensions[:10],
@@ -257,6 +284,15 @@ def pluginCapacityAuditFromPluginsText(plugins_text):
             "for exact capacity accounting."
         ),
     }
+
+
+def pluginCapacityAuditFromPluginsText(plugins_text):
+    """Return a conservative plugin-capacity audit from MO2 plugins.txt text."""
+    parsed = parseMo2PluginsText(plugins_text)
+    return pluginCapacityAuditFromPluginNames(
+        parsed["active"],
+        disabled_count=len(parsed["available"]) - len(parsed["active"]),
+    )
 
 
 def parseMo2PluginsText(plugins_text):
@@ -353,6 +389,28 @@ def bethesdaPluginMastersFromBytes(data):
         if master_name:
             masters.append(master_name)
     return masters
+
+
+def bethesdaPluginHeaderFlagsFromBytes(data):
+    """Return TES4 record flags from a Skyrim plugin byte string, if present."""
+    data = bytes(data or b"")
+    if len(data) < 12 or data[:4] != b"TES4":
+        return None
+    return int.from_bytes(data[8:12], "little", signed=False)
+
+
+def bethesdaPluginIsEslFlaggedFromBytes(data):
+    """Return whether a Skyrim plugin TES4 header carries the ESL flag."""
+    flags = bethesdaPluginHeaderFlagsFromBytes(data)
+    return bool(flags is not None and flags & BETHESDA_TES4_ESL_FLAG)
+
+
+def bethesdaPluginIsEslFlaggedFromPath(plugin_path):
+    """Return whether a plugin file path carries the TES4 ESL flag."""
+    try:
+        return bethesdaPluginIsEslFlaggedFromBytes(Path(plugin_path).read_bytes())
+    except OSError:
+        return False
 
 
 def bethesdaPluginMastersFromPath(plugin_path):
@@ -985,33 +1043,6 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         active_plugins = mergePluginNameLists(
             loadorder_plugins, parsed_plugins["active"]
         )
-        result["plugin_capacity_audit"] = pluginCapacityAuditFromPluginsText(
-            plugins_text
-        )
-        if result["plugin_capacity_audit"][
-            "regular_limit_exceeded_by_extension"
-        ]:
-            result["warnings"].append(
-                {
-                    "type": "plugin_capacity_by_extension",
-                    "file": str(plugins_path),
-                    "regular_by_extension_count": result[
-                        "plugin_capacity_audit"
-                    ]["regular_by_extension_count"],
-                    "regular_limit": result["plugin_capacity_audit"][
-                        "regular_limit"
-                    ],
-                    "regular_overage_by_extension": result[
-                        "plugin_capacity_audit"
-                    ]["regular_overage_by_extension"],
-                    "message": (
-                        "Enabled .esm/.esp plugin count exceeds the regular "
-                        "plugin slot limit by extension; ESL-flagged .esp files "
-                        "require MO2/xEdit metadata before treating this as a "
-                        "hard limit failure"
-                    ),
-                }
-            )
         game_data_path = inferredSteamGameDataPathFromMo2Base(base_path)
         active_plugin_paths = (
             pluginPathsFromDirectory(game_data_path) if game_data_path else {}
@@ -1019,6 +1050,35 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         active_plugin_paths.update(
             mo2PluginPathsFromActiveMods(mods_path, active_mod_names)
         )
+        result["plugin_capacity_audit"] = pluginCapacityAuditFromPluginNames(
+            active_plugins,
+            disabled_count=len(parsed_plugins["available"])
+            - len(parsed_plugins["active"]),
+            plugin_paths=active_plugin_paths,
+        )
+        if result["plugin_capacity_audit"]["regular_limit_exceeded"]:
+            result["warnings"].append(
+                {
+                    "type": "plugin_capacity",
+                    "file": str(plugins_path),
+                    "regular_count": result["plugin_capacity_audit"][
+                        "regular_count"
+                    ],
+                    "regular_limit": result["plugin_capacity_audit"][
+                        "regular_limit"
+                    ],
+                    "regular_overage": result["plugin_capacity_audit"][
+                        "regular_overage"
+                    ],
+                    "header_capacity_supported": result[
+                        "plugin_capacity_audit"
+                    ]["header_capacity_supported"],
+                    "message": (
+                        "Enabled regular plugin count exceeds the regular "
+                        "plugin slot limit"
+                    ),
+                }
+            )
         masters_by_plugin = {}
         unresolved_active_plugins = []
         for plugin_name in active_plugins:

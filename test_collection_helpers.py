@@ -110,6 +110,7 @@ from collection_helpers import (
     parseCollectionAddress,
     pluginActivationReviewEntries,
     pluginCapacityAuditFromPluginsText,
+    pluginCapacityAuditFromPluginNames,
     pluginMasterDependencyAudit,
     pluginMasterDependencyReviewEntries,
     parseMo2PluginsText,
@@ -801,14 +802,44 @@ class PluginCapacityAuditTests(unittest.TestCase):
         self.assertEqual(audit["regular_overage_by_extension"], 2)
         self.assertEqual(audit["regular_slots_remaining_by_extension"], 0)
 
+    def test_esl_flagged_esp_plugins_do_not_consume_regular_slots(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            plugin_paths = {}
+            plugin_names = []
+            for index in range(0xFD + 1):
+                plugin_name = f"Plugin{index:03d}.esp"
+                plugin_names.append(plugin_name)
+                plugin_path = base / plugin_name
+                flags = 0x00000200 if index == 0 else 0
+                plugin_path.write_bytes(fakeBethesdaPluginBytes([], flags=flags))
+                plugin_paths[plugin_name.casefold()] = plugin_path
 
-def fakeBethesdaPluginBytes(masters):
+            audit = pluginCapacityAuditFromPluginNames(
+                plugin_names,
+                plugin_paths=plugin_paths,
+            )
+
+            self.assertTrue(audit["regular_limit_exceeded_by_extension"])
+            self.assertFalse(audit["regular_limit_exceeded"])
+            self.assertEqual(audit["esl_flagged_plugin_count"], 1)
+            self.assertEqual(audit["regular_count"], 0xFD)
+            self.assertEqual(audit["light_count"], 1)
+
+
+def fakeBethesdaPluginBytes(masters, flags=0):
     payload = b""
     for master_name in masters:
         encoded_name = str(master_name).encode("utf-8") + b"\x00"
         payload += b"MAST" + len(encoded_name).to_bytes(2, "little") + encoded_name
         payload += b"DATA" + (8).to_bytes(2, "little") + (b"\x00" * 8)
-    return b"TES4" + len(payload).to_bytes(4, "little") + (b"\x00" * 16) + payload
+    return (
+        b"TES4"
+        + len(payload).to_bytes(4, "little")
+        + flags.to_bytes(4, "little")
+        + (b"\x00" * 12)
+        + payload
+    )
 
 
 class ProfileStateAuditTests(unittest.TestCase):
@@ -1066,10 +1097,10 @@ class ProfileStateAuditTests(unittest.TestCase):
             self.assertTrue(result["clean"])
             self.assertEqual(result["plugin_capacity_audit"]["regular_limit"], 0xFD)
             self.assertEqual(
-                result["plugin_capacity_audit"]["regular_overage_by_extension"], 1
+                result["plugin_capacity_audit"]["regular_overage"], 1
             )
             self.assertIn(
-                "plugin_capacity_by_extension",
+                "plugin_capacity",
                 [warning["type"] for warning in result["warnings"]],
             )
 
