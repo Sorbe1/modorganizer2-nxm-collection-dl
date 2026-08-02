@@ -30,6 +30,15 @@ def main():
         help="Directory for the automatic pre-restore backup.",
     )
     parser.add_argument("--backup-label", default="pre-restore")
+    parser.add_argument(
+        "--require-clean",
+        action="store_true",
+        help=(
+            "Refuse to restore snapshots whose manifest profile audit contains "
+            "disabled entries, bad base order, stale Downloads metadata, or "
+            "other known profile issues."
+        ),
+    )
     args = parser.parse_args()
 
     result = restoreMo2ProfileStateSnapshot(
@@ -37,6 +46,7 @@ def main():
         profile_path=args.profile_path,
         snapshot_root=args.backup_root,
         backup_label=args.backup_label,
+        require_clean=args.require_clean,
     )
     print(f"Profile: {result['profile_path']}")
     print(f"Pre-restore backup: {result['backup_dir']}")

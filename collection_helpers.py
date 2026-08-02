@@ -674,6 +674,7 @@ def profileStateSnapshotAuditSummary(
             summary["downloaded_only_count"]
             or summary["missing_archive_count"]
             or summary["unknown_download_state_count"]
+            or summary["installed_without_valid_container_count"]
         ):
             issues.append("download_metadata")
 
@@ -806,6 +807,7 @@ def restoreMo2ProfileStateSnapshot(
     profile_path=None,
     snapshot_root=None,
     backup_label="pre-restore",
+    require_clean=False,
 ):
     """Restore MO2 profile order files from a verified snapshot manifest."""
     snapshot_dir = Path(snapshot_dir)
@@ -818,6 +820,15 @@ def restoreMo2ProfileStateSnapshot(
         profile_path = manifest.get("profile_path")
     if not profile_path:
         raise ValueError("profile_path is required when manifest has none")
+    if require_clean:
+        profile_audit = manifest.get("profile_audit")
+        if not isinstance(profile_audit, dict):
+            raise ValueError(
+                "Snapshot manifest has no profile_audit; cannot verify clean restore"
+            )
+        if not profile_audit.get("clean"):
+            issues = ", ".join(profile_audit.get("issues") or ["unknown"])
+            raise ValueError(f"Snapshot profile audit is not clean: {issues}")
 
     profile_path = Path(profile_path)
     if not profile_path.exists():

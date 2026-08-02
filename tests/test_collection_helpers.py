@@ -884,6 +884,63 @@ class ProfileSnapshotTests(unittest.TestCase):
                 "-A\n+B\n",
             )
 
+    def test_restore_require_clean_rejects_dirty_snapshot(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile = base / "profiles" / "Default"
+            profile.mkdir(parents=True)
+            (profile / "modlist.txt").write_text("+A\n-B\n", encoding="utf-8")
+            (profile / "plugins.txt").write_text("*A.esp\n", encoding="utf-8")
+            (profile / "loadorder.txt").write_text("A.esp\n", encoding="utf-8")
+            snapshot_dir, _manifest = snapshotMo2ProfileState(
+                base_path=base,
+                profile_name="Default",
+                label="dirty disabled mod",
+                timestamp="20260802-120000",
+            )
+
+            with self.assertRaisesRegex(ValueError, "disabled_mods"):
+                restoreMo2ProfileStateSnapshot(
+                    snapshot_dir,
+                    snapshot_root=base / "restore-backups",
+                    require_clean=True,
+                )
+
+            self.assertFalse((base / "restore-backups").exists())
+
+    def test_snapshot_marks_installed_without_valid_container_metadata_dirty(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile = base / "profiles" / "Default"
+            downloads = base / "downloads"
+            mods = base / "mods"
+            profile.mkdir(parents=True)
+            downloads.mkdir()
+            mods.mkdir()
+            (profile / "modlist.txt").write_text("+A\n", encoding="utf-8")
+            (profile / "plugins.txt").write_text("*A.esp\n", encoding="utf-8")
+            (profile / "loadorder.txt").write_text("A.esp\n", encoding="utf-8")
+            archive = downloads / "Installed-123-456.7z"
+            archive.write_bytes(b"archive")
+            (downloads / f"{archive.name}.meta").write_text(
+                "[General]\nmodID=123\nfileID=456\ninstalled=true\n",
+                encoding="utf-8",
+            )
+
+            _snapshot_dir, manifest = snapshotMo2ProfileState(
+                base_path=base,
+                profile_name="Default",
+                label="stale metadata",
+                timestamp="20260802-120000",
+            )
+
+            self.assertFalse(manifest["profile_audit"]["clean"])
+            self.assertEqual(manifest["profile_audit"]["issues"], ["download_metadata"])
+            self.assertEqual(
+                manifest["profile_audit"]["installed_without_valid_container_count"],
+                1,
+            )
+
     def test_restore_rejects_tampered_snapshot_file(self):
         with TemporaryDirectory() as tmp:
             base = Path(tmp)
