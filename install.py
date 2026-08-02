@@ -96,6 +96,7 @@ from .collection_helpers import (
     pluginRepairFailureReviewEntries,
     preferredCanonicalDownloadArchive,
     failedInstallReviewCategoryCounts,
+    failedInstallReviewEntriesWithCategories,
     quarantineInvalidPayloadModContainers,
     mo2CategoryNameMap,
     moveModlistEntriesToUiBottom,
@@ -1328,6 +1329,8 @@ class stepInstallMods(QDialog):
             if self.install_context
             else failed_entries
         )
+        failed_entries = failedInstallReviewEntriesWithCategories(failed_entries)
+        review_entries = failedInstallReviewEntriesWithCategories(review_entries)
         root_level_entries = (
             self.install_context.get("root_level_entries", [])
             if self.install_context
@@ -5193,6 +5196,7 @@ class stepInstallMods(QDialog):
         review_entries.extend(
             suppressedPostInstallErrorReviewEntries(self.install_warnings)
         )
+        review_entries = failedInstallReviewEntriesWithCategories(review_entries)
         context["review_entries"] = list(review_entries)
         queued_recovery_count = len(queued_fomod_recovery_entries)
         download_metadata_audit = topLevelDownloadMetadataAudit(

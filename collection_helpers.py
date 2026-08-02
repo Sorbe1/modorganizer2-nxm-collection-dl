@@ -1652,6 +1652,16 @@ def failedInstallReviewCategoryCounts(entries):
     return counts
 
 
+def failedInstallReviewEntriesWithCategories(entries):
+    """Return failed/review entries with stable review_category values."""
+    categorized = []
+    for entry in entries or []:
+        item = dict(entry)
+        item["review_category"] = failedInstallReviewCategory(item.get("reason"))
+        categorized.append(item)
+    return categorized
+
+
 def isBenignEmptyFomodInstallerResult(fomod_state, guide):
     """Return True when an empty FOMOD result is a valid no-op for this profile."""
     if fomod_state is not True:

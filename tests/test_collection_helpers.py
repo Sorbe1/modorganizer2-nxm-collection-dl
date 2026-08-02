@@ -56,6 +56,7 @@ from collection_helpers import (
     extractHeadlessZipArchive,
     failedInstallReviewCategory,
     failedInstallReviewCategoryCounts,
+    failedInstallReviewEntriesWithCategories,
     fastFinishMetadataRepairKeys,
     fomodDependencyOptionGuideLines,
     fomodManualChoiceGuide,
@@ -5394,6 +5395,14 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
                 "other_failure": 1,
             },
         )
+
+    def test_adds_review_category_without_mutating_original_entries(self):
+        entries = [{"mod": "Example", "reason": "not found in downloads"}]
+
+        categorized = failedInstallReviewEntriesWithCategories(entries)
+
+        self.assertEqual(categorized[0]["review_category"], "missing_download")
+        self.assertNotIn("review_category", entries[0])
 
 
 class AutomatedInstallCadenceDefaultsTests(unittest.TestCase):
