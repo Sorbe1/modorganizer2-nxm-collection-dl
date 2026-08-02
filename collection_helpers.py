@@ -195,6 +195,59 @@ def profileStateFileStats(path):
     }
 
 
+def pluginCapacityAuditFromPluginsText(plugins_text):
+    """Return a conservative plugin-capacity audit from MO2 plugins.txt text."""
+    enabled_plugins = []
+    disabled_plugins = []
+    light_by_extension = []
+    regular_by_extension = []
+    unknown_extensions = []
+    for raw_line in str(plugins_text or "").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        enabled = stripped.startswith("*")
+        plugin_name = stripped[1:].strip() if enabled else stripped
+        if not plugin_name:
+            continue
+        if enabled:
+            enabled_plugins.append(plugin_name)
+            suffix = Path(plugin_name).suffix.casefold()
+            if suffix == ".esl":
+                light_by_extension.append(plugin_name)
+            elif suffix in (".esp", ".esm"):
+                regular_by_extension.append(plugin_name)
+            else:
+                unknown_extensions.append(plugin_name)
+        else:
+            disabled_plugins.append(plugin_name)
+
+    regular_limit = 0xFD
+    regular_count = len(regular_by_extension)
+    regular_overage = max(0, regular_count - regular_limit)
+    return {
+        "enabled_count": len(enabled_plugins),
+        "disabled_count": len(disabled_plugins),
+        "regular_by_extension_count": regular_count,
+        "light_by_extension_count": len(light_by_extension),
+        "unknown_extension_count": len(unknown_extensions),
+        "regular_limit": regular_limit,
+        "regular_slots_remaining_by_extension": max(
+            0, regular_limit - regular_count
+        ),
+        "regular_limit_exceeded_by_extension": regular_overage > 0,
+        "regular_overage_by_extension": regular_overage,
+        "regular_by_extension_examples": regular_by_extension[:10],
+        "light_by_extension_examples": light_by_extension[:10],
+        "unknown_extension_examples": unknown_extensions[:10],
+        "note": (
+            "This text audit counts .esm/.esp as regular and .esl as light by "
+            "extension. ESL-flagged .esp files require MO2/xEdit plugin metadata "
+            "for exact capacity accounting."
+        ),
+    }
+
+
 def downloadMetadataAuditSummary(audit):
     """Return a compact snapshot/report view of a download metadata audit."""
     audit = audit or {}
@@ -491,10 +544,12 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         "profile": profile_name,
         "clean": True,
         "issues": [],
+        "warnings": [],
         "files": {},
         "disabled_mods": [],
         "disabled_plugins": [],
         "base_modlist_order_needs_repair": False,
+        "plugin_capacity_audit": None,
         "download_metadata_audit": None,
     }
     if not profile_path.exists():
@@ -536,9 +591,37 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
 
     plugins_path = profile_path / "plugins.txt"
     if plugins_path.exists():
-        for raw_line in plugins_path.read_text(
+        plugins_text = plugins_path.read_text(
             encoding="utf-8", errors="replace"
-        ).splitlines():
+        )
+        result["plugin_capacity_audit"] = pluginCapacityAuditFromPluginsText(
+            plugins_text
+        )
+        if result["plugin_capacity_audit"][
+            "regular_limit_exceeded_by_extension"
+        ]:
+            result["warnings"].append(
+                {
+                    "type": "plugin_capacity_by_extension",
+                    "file": str(plugins_path),
+                    "regular_by_extension_count": result[
+                        "plugin_capacity_audit"
+                    ]["regular_by_extension_count"],
+                    "regular_limit": result["plugin_capacity_audit"][
+                        "regular_limit"
+                    ],
+                    "regular_overage_by_extension": result[
+                        "plugin_capacity_audit"
+                    ]["regular_overage_by_extension"],
+                    "message": (
+                        "Enabled .esm/.esp plugin count exceeds the regular "
+                        "plugin slot limit by extension; ESL-flagged .esp files "
+                        "require MO2/xEdit metadata before treating this as a "
+                        "hard limit failure"
+                    ),
+                }
+            )
+        for raw_line in plugins_text.splitlines():
             stripped = raw_line.strip()
             if not stripped or stripped.startswith(("#", "*")):
                 continue

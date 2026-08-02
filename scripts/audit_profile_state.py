@@ -49,6 +49,20 @@ def main():
             f"{plugins.get('enabled', 0)} enabled, "
             f"{plugins.get('disabled', 0)} disabled"
         )
+        capacity = result.get("plugin_capacity_audit") or {}
+        print(
+            "Plugin capacity: "
+            f"{capacity.get('regular_by_extension_count', 0)} regular by extension, "
+            f"{capacity.get('light_by_extension_count', 0)} light by extension, "
+            f"{capacity.get('regular_slots_remaining_by_extension', 0)} "
+            "regular slots remaining by extension"
+        )
+        if capacity.get("regular_limit_exceeded_by_extension"):
+            print(
+                "Plugin capacity overage: "
+                f"{capacity.get('regular_overage_by_extension', 0)} "
+                "regular plugins by extension"
+            )
         audit = result.get("download_metadata_audit") or {}
         print(
             "Downloads metadata: "
@@ -64,6 +78,12 @@ def main():
                 print(f"- {issue['type']}: {issue}")
         else:
             print("Issues: none")
+        if result.get("warnings"):
+            print("Warnings:")
+            for warning in result["warnings"]:
+                print(f"- {warning['type']}: {warning}")
+        else:
+            print("Warnings: none")
 
     if args.strict and not result["clean"]:
         return 1
