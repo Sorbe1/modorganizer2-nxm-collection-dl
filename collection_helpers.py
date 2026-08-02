@@ -344,6 +344,54 @@ def restoreMo2ProfileStateSnapshot(
     }
 
 
+def compareMo2ProfileStateSnapshots(left_snapshot_dir, right_snapshot_dir):
+    """Compare two profile snapshot manifests without reading live MO2 state."""
+    left_snapshot_dir = Path(left_snapshot_dir)
+    right_snapshot_dir = Path(right_snapshot_dir)
+    left_manifest_path = left_snapshot_dir / "manifest.json"
+    right_manifest_path = right_snapshot_dir / "manifest.json"
+    if not left_manifest_path.exists():
+        raise FileNotFoundError(f"Snapshot manifest not found: {left_manifest_path}")
+    if not right_manifest_path.exists():
+        raise FileNotFoundError(f"Snapshot manifest not found: {right_manifest_path}")
+
+    left = json.loads(left_manifest_path.read_text(encoding="utf-8"))
+    right = json.loads(right_manifest_path.read_text(encoding="utf-8"))
+    files = {}
+    changed_files = []
+    for file_name in MO2_PROFILE_STATE_FILES:
+        left_stats = (left.get("files") or {}).get(file_name) or {}
+        right_stats = (right.get("files") or {}).get(file_name) or {}
+        changed = (
+            left_stats.get("exists") != right_stats.get("exists")
+            or left_stats.get("sha256") != right_stats.get("sha256")
+            or left_stats.get("bytes") != right_stats.get("bytes")
+        )
+        files[file_name] = {
+            "changed": changed,
+            "left": left_stats,
+            "right": right_stats,
+        }
+        if changed:
+            changed_files.append(file_name)
+
+    left_audit = left.get("download_metadata_audit")
+    right_audit = right.get("download_metadata_audit")
+    download_metadata_changed = left_audit != right_audit
+    return {
+        "left": str(left_snapshot_dir),
+        "right": str(right_snapshot_dir),
+        "changed": bool(changed_files or download_metadata_changed),
+        "changed_files": changed_files,
+        "files": files,
+        "download_metadata_changed": download_metadata_changed,
+        "download_metadata": {
+            "left": left_audit,
+            "right": right_audit,
+        },
+    }
+
+
 def backgroundWorkerSubprocessKwargs():
     """Return subprocess options safe for long-lived helper workers from MO2."""
     kwargs = archiveInspectionSubprocessKwargs(

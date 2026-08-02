@@ -33,6 +33,7 @@ from collection_helpers import (
     collectionMetadataFromFile,
     collectionPriorityOrderNeedsRepair,
     collectionRecoveryTargets,
+    compareMo2ProfileStateSnapshots,
     contentTreeWarningDialogAction,
     collectionDownloadExpectedSizes,
     collectionInstallCompletedCount,
@@ -620,6 +621,51 @@ class ProfileSnapshotTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "hash mismatch"):
                 restoreMo2ProfileStateSnapshot(snapshot_dir)
+
+    def test_compares_profile_snapshots(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile = base / "profiles" / "Default"
+            profile.mkdir(parents=True)
+            (profile / "modlist.txt").write_text("+A\n", encoding="utf-8")
+            (profile / "plugins.txt").write_text("*A.esp\n", encoding="utf-8")
+            (profile / "loadorder.txt").write_text("A.esp\n", encoding="utf-8")
+            downloads = base / "downloads"
+            downloads.mkdir()
+            (downloads / "Archive-1-2.7z").write_text("archive", encoding="utf-8")
+            (downloads / "Archive-1-2.7z.meta").write_text(
+                "[General]\ninstalled=true\n", encoding="utf-8"
+            )
+
+            first, _manifest = snapshotMo2ProfileState(
+                base_path=base,
+                timestamp="20260802-120000",
+            )
+            self.assertFalse(
+                compareMo2ProfileStateSnapshots(first, first)["changed"]
+            )
+
+            (profile / "modlist.txt").write_text("+A\n+B\n", encoding="utf-8")
+            second, _manifest = snapshotMo2ProfileState(
+                base_path=base,
+                timestamp="20260802-120001",
+            )
+            comparison = compareMo2ProfileStateSnapshots(first, second)
+            self.assertTrue(comparison["changed"])
+            self.assertEqual(comparison["changed_files"], ["modlist.txt"])
+            self.assertFalse(comparison["download_metadata_changed"])
+
+            (downloads / "NeedsReview-3-4.7z.meta").write_text(
+                "[General]\ninstalled=false\n", encoding="utf-8"
+            )
+            third, _manifest = snapshotMo2ProfileState(
+                base_path=base,
+                timestamp="20260802-120002",
+            )
+            comparison = compareMo2ProfileStateSnapshots(second, third)
+            self.assertTrue(comparison["changed"])
+            self.assertEqual(comparison["changed_files"], [])
+            self.assertTrue(comparison["download_metadata_changed"])
 
 
 class InstalledCollectionMetadataRepairTests(unittest.TestCase):
