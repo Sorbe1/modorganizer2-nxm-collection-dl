@@ -2169,20 +2169,12 @@ class stepInstallMods(QDialog):
             except Exception as e:
                 qDebug(f"[NXMColDL Install] Native archive worker cleanup failed: {e}")
 
-        if process is not None:
-            try:
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=2)
-            except Exception as e:
-                qDebug(
-                    "[NXMColDL Install] Native archive worker process cleanup failed: "
-                    f"{e}"
-                )
+        result = resetNativeArchiveWorkerTrackedProcess(process)
+        if result.get("error"):
+            qDebug(
+                "[NXMColDL Install] Native archive worker process cleanup failed: "
+                f"{result['error']}"
+            )
         self._native_archive_worker_process = None
 
     def nativeArchiveWorkerAvailable(
