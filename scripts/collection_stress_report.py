@@ -161,7 +161,35 @@ def _strip_sort_keys(summaries):
     return clean
 
 
-def _filter_summaries(summaries, collection_filters=None, needs_review_only=False):
+def _filter_failed_entries_by_categories(summary, failed_category_filters):
+    filters = {
+        str(item).casefold()
+        for item in (failed_category_filters or [])
+        if str(item or "").strip()
+    }
+    if not filters:
+        return summary
+    matching = [
+        item
+        for item in (summary.get("failed_entries") or [])
+        if str(item.get("review_category") or "").casefold() in filters
+    ]
+    if not matching:
+        return None
+    summary = dict(summary)
+    summary["failed_entries"] = matching
+    summary["failed_count"] = len(matching)
+    summary["failed_categories"] = failedInstallReviewCategoryCounts(matching)
+    summary["status"] = "needs_review"
+    return summary
+
+
+def _filter_summaries(
+    summaries,
+    collection_filters=None,
+    needs_review_only=False,
+    failed_category_filters=None,
+):
     filters = {str(item).lower() for item in (collection_filters or []) if item}
     filtered = []
     for item in summaries:
@@ -173,6 +201,9 @@ def _filter_summaries(summaries, collection_filters=None, needs_review_only=Fals
             if not labels.intersection(filters):
                 continue
         if needs_review_only and item.get("status") != "needs_review":
+            continue
+        item = _filter_failed_entries_by_categories(item, failed_category_filters)
+        if item is None:
             continue
         filtered.append(item)
     return filtered
@@ -240,6 +271,7 @@ def build_stress_report(
     all_runs=False,
     collection_filters=None,
     needs_review_only=False,
+    failed_category_filters=None,
 ):
     report_paths = discover_collection_reports(logs_dir)
     summaries = (
@@ -251,6 +283,7 @@ def build_stress_report(
         summaries,
         collection_filters=collection_filters,
         needs_review_only=needs_review_only,
+        failed_category_filters=failed_category_filters,
     )
     clean_summaries = _strip_sort_keys(summaries)
     result = {
@@ -259,6 +292,7 @@ def build_stress_report(
         "filters": {
             "collections": list(collection_filters or []),
             "needs_review_only": bool(needs_review_only),
+            "failed_categories": list(failed_category_filters or []),
         },
         "report_count": len(clean_summaries),
         "clean_count": sum(1 for item in clean_summaries if item["status"] == "clean"),
@@ -378,6 +412,15 @@ def main():
         help="Only include collection summaries that currently need review.",
     )
     parser.add_argument(
+        "--failed-category",
+        action="append",
+        default=None,
+        help=(
+            "Only include failed entries whose review_category exactly matches "
+            "this value. May be supplied more than once."
+        ),
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help=(
@@ -413,6 +456,7 @@ def main():
         all_runs=args.all_runs,
         collection_filters=args.collection,
         needs_review_only=args.needs_review_only,
+        failed_category_filters=args.failed_category,
     )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))

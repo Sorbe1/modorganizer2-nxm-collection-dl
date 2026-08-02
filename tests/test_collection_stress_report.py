@@ -261,6 +261,76 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertTrue(result["filters"]["needs_review_only"])
             self.assertEqual(result["collections"][0]["collection"], "dirty")
 
+    def test_filters_failed_entries_by_review_category(self):
+        with TemporaryDirectory() as tmp:
+            logs = Path(tmp)
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-alpha-1-20260802-010000.json",
+                {
+                    "collection": "alpha",
+                    "revision": 1,
+                    "name": "Alpha",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {"mod": "Ambiguous", "reason": "ambiguous archive layout"},
+                        {
+                            "mod": "Duplicate",
+                            "reason": "duplicate MO2 mod container",
+                        },
+                    ],
+                },
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-beta-1-20260802-010000.json",
+                {
+                    "collection": "beta",
+                    "revision": 1,
+                    "name": "Beta",
+                    "generated": "2026-08-02T02:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {"mod": "Empty", "reason": "empty mod container"},
+                    ],
+                },
+            )
+
+            result = collection_stress_report.build_stress_report(
+                logs,
+                failed_category_filters=["duplicate_container"],
+            )
+
+            self.assertEqual(result["report_count"], 1)
+            self.assertEqual(result["needs_review_count"], 1)
+            self.assertEqual(
+                result["filters"]["failed_categories"],
+                ["duplicate_container"],
+            )
+            summary = result["collections"][0]
+            self.assertEqual(summary["collection"], "alpha")
+            self.assertEqual(summary["failed_count"], 1)
+            self.assertEqual(
+                summary["failed_entries"],
+                [
+                    {
+                        "mod": "Duplicate",
+                        "reason": "duplicate MO2 mod container",
+                        "review_category": "duplicate_container",
+                    }
+                ],
+            )
+            self.assertEqual(
+                result["totals"]["failed_categories"]["duplicate_container"],
+                1,
+            )
+            self.assertEqual(result["totals"]["failed_count"], 1)
+
     def test_summarizes_report_totals(self):
         with TemporaryDirectory() as tmp:
             logs = Path(tmp)
