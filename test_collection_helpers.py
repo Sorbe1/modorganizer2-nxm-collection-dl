@@ -558,6 +558,8 @@ class ManualInstallGuidanceForReasonTests(unittest.TestCase):
         )
 
         self.assertIn("native archive worker", guidance)
+        self.assertIn("relaunch", guidance)
+        self.assertNotIn("starting the native archive worker", guidance)
 
     def test_ignores_unrelated_reason(self):
         self.assertIsNone(manualInstallGuidanceForReason("other"))

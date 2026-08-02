@@ -431,8 +431,8 @@ def manualInstallGuidanceForReason(reason):
         )
     if "native archive worker timed out" in reason_text:
         return (
-            "retry manually through MO2, or rerun after starting the native "
-            "archive worker if headless archive inspection is required"
+            "retry manually through MO2, or rerun the collection installer; "
+            "the native archive worker is relaunched automatically"
         )
     return None
 
