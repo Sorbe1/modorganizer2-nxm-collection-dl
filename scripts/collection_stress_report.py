@@ -315,12 +315,23 @@ def build_stress_report(
             base_path=Path(base_path),
             profile_name=profile_name,
         )
+        profile_issues = profile_audit.get("issues", [])
+        profile_warnings = profile_audit.get("warnings", [])
         result["profile_audit"] = {
             "clean": profile_audit.get("clean"),
-            "issues": profile_audit.get("issues", []),
-            "warnings": profile_audit.get("warnings", []),
+            "issues": profile_issues,
+            "warnings": profile_warnings,
             "plugin_capacity_audit": profile_audit.get("plugin_capacity_audit"),
             "download_metadata_audit": profile_audit.get("download_metadata_audit"),
+        }
+        result["current_profile_gate"] = {
+            "clean": bool(profile_audit.get("clean")),
+            "issue_count": len(profile_issues),
+            "warning_count": len(profile_warnings),
+            "historical_needs_review_count": result["needs_review_count"],
+            "historical_review_only": bool(
+                profile_audit.get("clean") and result["needs_review_count"]
+            ),
         }
     return result
 
@@ -337,6 +348,16 @@ def print_text_report(report):
     profile = report.get("profile_audit")
     if profile is not None:
         print(f"Profile audit: {'clean' if profile.get('clean') else 'needs review'}")
+    current_gate = report.get("current_profile_gate")
+    if current_gate is not None:
+        print(
+            "Current profile gate: "
+            f"{'clean' if current_gate.get('clean') else 'needs review'}"
+        )
+        if current_gate.get("historical_review_only"):
+            print(
+                "Historical review rows remain, but the current profile audit is clean."
+            )
     totals = report.get("totals") or {}
     if totals:
         print(
@@ -371,6 +392,16 @@ def stress_report_is_clean(report):
     if profile is not None and not profile.get("clean"):
         return False
     return True
+
+
+def current_profile_gate_is_clean(report):
+    gate = report.get("current_profile_gate")
+    if gate is not None:
+        return bool(gate.get("clean"))
+    profile = report.get("profile_audit")
+    if profile is not None:
+        return bool(profile.get("clean"))
+    return stress_report_is_clean(report)
 
 
 def write_json_report(report, output_path):
@@ -436,6 +467,14 @@ def main():
             "included profile audit is not clean."
         ),
     )
+    parser.add_argument(
+        "--strict-profile",
+        action="store_true",
+        help=(
+            "Exit non-zero only when the current profile audit is not clean. "
+            "Historical collection review rows remain visible in the report."
+        ),
+    )
     parser.add_argument("--json", action="store_true")
     parser.add_argument(
         "--output",
@@ -473,6 +512,8 @@ def main():
     if args.output is not None:
         output_path = write_json_report(report, args.output)
         print(f"Wrote JSON report: {output_path}")
+    if args.strict_profile and not current_profile_gate_is_clean(report):
+        return 1
     if args.strict and not stress_report_is_clean(report):
         return 1
     return 0

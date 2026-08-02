@@ -180,6 +180,16 @@ class CollectionStressReportTests(unittest.TestCase):
 
             self.assertTrue(result["profile_audit"]["clean"])
             self.assertEqual(result["profile_audit"]["issues"], [])
+            self.assertEqual(
+                result["current_profile_gate"],
+                {
+                    "clean": True,
+                    "issue_count": 0,
+                    "warning_count": 0,
+                    "historical_needs_review_count": 0,
+                    "historical_review_only": False,
+                },
+            )
 
     def test_filters_reports_by_collection_slug_or_name(self):
         with TemporaryDirectory() as tmp:
@@ -449,6 +459,31 @@ class CollectionStressReportTests(unittest.TestCase):
                 {
                     "needs_review_count": 0,
                     "profile_audit": {"clean": False},
+                }
+            )
+        )
+
+    def test_current_profile_gate_allows_historical_review_when_profile_clean(self):
+        self.assertTrue(
+            collection_stress_report.current_profile_gate_is_clean(
+                {
+                    "needs_review_count": 1,
+                    "profile_audit": {"clean": True},
+                    "current_profile_gate": {
+                        "clean": True,
+                        "historical_review_only": True,
+                    },
+                }
+            )
+        )
+
+    def test_current_profile_gate_rejects_dirty_profile(self):
+        self.assertFalse(
+            collection_stress_report.current_profile_gate_is_clean(
+                {
+                    "needs_review_count": 0,
+                    "profile_audit": {"clean": False},
+                    "current_profile_gate": {"clean": False},
                 }
             )
         )
