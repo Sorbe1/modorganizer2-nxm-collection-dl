@@ -42,6 +42,7 @@ from collection_helpers import (
     downloadedArchiveNameKeys,
     duplicateDownloadPromptArchiveAction,
     duplicateDownloadPromptActionLabel,
+    downloadMetadataReviewEntries,
     downloadCompletionChoices,
     downloadCompletionPlan,
     downloadProgressCanClose,
@@ -491,6 +492,29 @@ class TopLevelDownloadMetadataAuditTests(unittest.TestCase):
             audit = topLevelDownloadMetadataAudit(downloads)
 
             self.assertEqual(audit["downloaded_only"], [str(metadata)])
+
+
+class DownloadMetadataReviewEntriesTests(unittest.TestCase):
+    def test_builds_actionable_entries_for_dirty_metadata(self):
+        entries = downloadMetadataReviewEntries(
+            {
+                "downloaded_only": ["/tmp/downloads/NeedsReview.7z.meta"],
+                "missing_archive": ["/tmp/downloads/Missing.7z.meta"],
+                "unknown_installed_state": ["/tmp/downloads/Unknown.7z.meta"],
+            }
+        )
+
+        self.assertEqual(
+            [entry["status"] for entry in entries],
+            ["downloaded_only", "missing_archive", "unknown_installed_state"],
+        )
+        self.assertEqual(
+            entries[0]["archive"], "/tmp/downloads/NeedsReview.7z"
+        )
+        self.assertIn("install/review", entries[0]["reason"])
+
+    def test_empty_audit_has_no_review_entries(self):
+        self.assertEqual(downloadMetadataReviewEntries({}), [])
 
 
 class ProfileSnapshotTests(unittest.TestCase):

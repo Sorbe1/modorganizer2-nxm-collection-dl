@@ -207,6 +207,42 @@ def downloadMetadataAuditSummary(audit):
     }
 
 
+def downloadMetadataReviewEntries(audit):
+    """Return actionable report entries for dirty MO2 Downloads metadata."""
+    audit = audit or {}
+    reasons = (
+        (
+            "downloaded_only",
+            "download is visible as downloaded-only and may need install/review",
+        ),
+        (
+            "missing_archive",
+            "download metadata exists but the archive is missing",
+        ),
+        (
+            "unknown_installed_state",
+            "download metadata has an unknown installed state",
+        ),
+    )
+    entries = []
+    seen = set()
+    for status, reason in reasons:
+        for metadata_path in audit.get(status, []) or []:
+            key = (str(metadata_path), status)
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append(
+                {
+                    "metadata": str(metadata_path),
+                    "archive": str(Path(metadata_path).with_suffix("")),
+                    "status": status,
+                    "reason": reason,
+                }
+            )
+    return entries
+
+
 def snapshotMo2ProfileState(
     base_path=None,
     profile_name="Default",

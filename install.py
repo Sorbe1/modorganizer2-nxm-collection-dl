@@ -55,6 +55,7 @@ from .collection_helpers import (
     contentTreeWarningDialogAction,
     detachedInstallCacheKeyFromPath,
     downloadMetadataAuditSummary,
+    downloadMetadataReviewEntries,
     extractHeadlessZipArchive,
     fastFinishMetadataRepairKeys,
     EMPTY_INSTALLER_OUTPUT_REASON,
@@ -1381,6 +1382,9 @@ class stepInstallMods(QDialog):
             "root_level_entries": root_level_entries,
             "no_applicable_entries": no_applicable_entries,
             "download_metadata_audit": download_metadata_report,
+            "download_metadata_review_entries": downloadMetadataReviewEntries(
+                download_metadata_audit
+            ),
             "add_collection_launch_count": collection_metadata.get(
                 "addCollectionLaunchCount", 0
             ),
