@@ -4837,6 +4837,7 @@ class stepInstallMods(QDialog):
                 "repaired", 0
             ),
             "stale_metadata_failed": stale_installed_metadata_repair.get("failed", 0),
+            "stale_metadata_keys": sorted(stale_installed_metadata_keys),
             "mod_metadata_repaired": mod_metadata_repair.get("repaired", 0),
             "mod_metadata_failed": mod_metadata_repair.get("failed", 0),
             "invalid_payload_mods": invalid_payload_mods,
@@ -4910,24 +4911,19 @@ class stepInstallMods(QDialog):
                 f"{cleanup_failure}",
                 expected=True,
             )
-        invalid_payload_mods = set(postcondition_state.get("invalid_payload_mods", []))
-        if invalid_payload_mods:
-            invalid_payload_keys = {
-                tuple(key)
-                for key in postcondition_state.get("invalid_payload_keys", [])
-                if isinstance(key, (list, tuple)) and len(key) == 2
-            }
+        entries_by_key = {}
+        for mod_info in mods_to_install:
+            nexus_key = collectionEntryNexusKey(mod_info)
+            if nexus_key is not None and nexus_key not in entries_by_key:
+                entries_by_key[nexus_key] = mod_info
+
+        def append_postcondition_review_entries(nexus_keys, reason):
             failed_keys = {
                 (int(entry["mod_id"]), int(entry["file_id"]))
                 for entry in failed_entries
                 if entry.get("mod_id") is not None and entry.get("file_id") is not None
             }
-            entries_by_key = {}
-            for mod_info in mods_to_install:
-                nexus_key = collectionEntryNexusKey(mod_info)
-                if nexus_key is not None and nexus_key not in entries_by_key:
-                    entries_by_key[nexus_key] = mod_info
-            for nexus_key in sorted(invalid_payload_keys - failed_keys):
+            for nexus_key in sorted(set(nexus_keys) - failed_keys):
                 mod_info = entries_by_key.get(nexus_key)
                 if mod_info is None:
                     continue
@@ -4937,9 +4933,32 @@ class stepInstallMods(QDialog):
                         "file": mod_info["file"]["name"],
                         "mod_id": int(nexus_key[0]),
                         "file_id": int(nexus_key[1]),
-                        "reason": "installed container has no valid game data",
+                        "reason": reason,
                     }
                 )
+                failed_keys.add(nexus_key)
+
+        stale_metadata_keys = {
+            tuple(key)
+            for key in postcondition_state.get("stale_metadata_keys", [])
+            if isinstance(key, (list, tuple)) and len(key) == 2
+        }
+        append_postcondition_review_entries(
+            stale_metadata_keys,
+            "download metadata was marked installed without a valid installed container",
+        )
+
+        invalid_payload_mods = set(postcondition_state.get("invalid_payload_mods", []))
+        if invalid_payload_mods:
+            invalid_payload_keys = {
+                tuple(key)
+                for key in postcondition_state.get("invalid_payload_keys", [])
+                if isinstance(key, (list, tuple)) and len(key) == 2
+            }
+            append_postcondition_review_entries(
+                invalid_payload_keys,
+                "installed container has no valid game data",
+            )
 
             mods_to_activate = [
                 name for name in mods_to_activate if name not in invalid_payload_mods
