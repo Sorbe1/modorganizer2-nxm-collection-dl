@@ -2446,6 +2446,11 @@ class stepInstallMods(QDialog):
             ),
             f"- Reason: {safeDisplayText(entry.get('reason'))}",
         ]
+        if entry.get("recommended_action"):
+            lines.append(
+                "- Recommended action: "
+                f"{safeDisplayText(entry.get('recommended_action'))}"
+            )
         if entry.get("archive"):
             lines.append(f"- Archive: `{entry['archive']}`")
         layout_plan = entry.get("headless_archive_layout") or {}

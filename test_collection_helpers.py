@@ -62,6 +62,7 @@ from collection_helpers import (
     failedInstallReviewCategory,
     failedInstallReviewCategoryCounts,
     failedInstallReviewCategoryLabel,
+    failedInstallReviewRecommendedAction,
     failedInstallReviewEntriesWithCategories,
     fastFinishMetadataRepairKeys,
     fomodDependencyOptionGuideLines,
@@ -7124,7 +7125,31 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
         categorized = failedInstallReviewEntriesWithCategories(entries)
 
         self.assertEqual(categorized[0]["review_category"], "missing_download")
+        self.assertIn("Download the missing archive", categorized[0]["recommended_action"])
         self.assertNotIn("review_category", entries[0])
+        self.assertNotIn("recommended_action", entries[0])
+
+    def test_returns_recommended_actions_for_review_categories(self):
+        self.assertIn(
+            "rename, merge, or replace",
+            failedInstallReviewRecommendedAction("duplicate MO2 mod container"),
+        )
+        self.assertIn(
+            "native archive worker",
+            failedInstallReviewRecommendedAction("Native archive worker timed out"),
+        )
+        self.assertIn(
+            "content tree",
+            failedInstallReviewRecommendedAction("ambiguous archive layout"),
+        )
+        self.assertIn(
+            "FOMOD installer",
+            failedInstallReviewRecommendedAction("FOMOD choices required"),
+        )
+        self.assertIn(
+            "no-op install",
+            failedInstallReviewRecommendedAction("empty mod container"),
+        )
 
     def test_returns_user_facing_category_labels(self):
         self.assertEqual(

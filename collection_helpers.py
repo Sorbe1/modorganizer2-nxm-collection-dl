@@ -2262,12 +2262,51 @@ def failedInstallReviewCategoryLabel(category):
     return labels.get(category, "Other failures")
 
 
+def failedInstallReviewRecommendedAction(reason):
+    """Return conservative operator guidance for a failed/review entry."""
+    category = failedInstallReviewCategory(reason)
+    actions = {
+        "missing_download": (
+            "Download the missing archive, then rerun Add Collection or retry manually."
+        ),
+        "duplicate_container": (
+            "Resolve the duplicate MO2 mod container with an explicit rename, merge, "
+            "or replace choice."
+        ),
+        "native_worker_timeout": (
+            "Restart the native archive worker and retry; fall back to the normal MO2 "
+            "installer if it times out again."
+        ),
+        "ambiguous_archive_layout": (
+            "Review the archive content tree and choose the intended game-data root."
+        ),
+        "fomod_choices": (
+            "Open the normal MO2 FOMOD installer and choose the required options."
+        ),
+        "empty_installer_output": (
+            "Treat this as a no-op install until explicit choices or a valid payload "
+            "are confirmed."
+        ),
+        "manual_or_review": (
+            "Review with the normal MO2 installer or content-tree view before marking "
+            "the archive installed."
+        ),
+        "other_failure": (
+            "Inspect the warning report and plugin log before retrying this entry."
+        ),
+    }
+    return actions.get(category, actions["other_failure"])
+
+
 def failedInstallReviewEntriesWithCategories(entries):
-    """Return failed/review entries with stable review_category values."""
+    """Return failed/review entries with stable review metadata values."""
     categorized = []
     for entry in entries or []:
         item = dict(entry)
         item["review_category"] = failedInstallReviewCategory(item.get("reason"))
+        item["recommended_action"] = failedInstallReviewRecommendedAction(
+            item.get("reason")
+        )
         categorized.append(item)
     return categorized
 

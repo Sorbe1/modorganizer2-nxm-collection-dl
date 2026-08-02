@@ -49,7 +49,15 @@ def _download_metadata_needs_review(download_metadata):
 
 def _trim_failed_entry(entry):
     kept = {}
-    for key in ("mod", "name", "file", "archive", "reason", "review_category"):
+    for key in (
+        "mod",
+        "name",
+        "file",
+        "archive",
+        "reason",
+        "review_category",
+        "recommended_action",
+    ):
         value = entry.get(key)
         if value is not None:
             kept[key] = value

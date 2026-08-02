@@ -121,16 +121,28 @@ class CollectionStressReportTests(unittest.TestCase):
                         "mod": "Missing",
                         "reason": "not found in downloads",
                         "review_category": "missing_download",
+                        "recommended_action": (
+                            "Download the missing archive, then rerun Add Collection "
+                            "or retry manually."
+                        ),
                     },
                     {
                         "mod": "Manual",
                         "reason": "ambiguous archive layout",
                         "review_category": "ambiguous_archive_layout",
+                        "recommended_action": (
+                            "Review the archive content tree and choose the intended "
+                            "game-data root."
+                        ),
                     },
                     {
                         "mod": "Other",
                         "reason": "unexpected failure",
                         "review_category": "other_failure",
+                        "recommended_action": (
+                            "Inspect the warning report and plugin log before "
+                            "retrying this entry."
+                        ),
                     },
                 ],
             )
@@ -322,6 +334,10 @@ class CollectionStressReportTests(unittest.TestCase):
                         "mod": "Duplicate",
                         "reason": "duplicate MO2 mod container",
                         "review_category": "duplicate_container",
+                        "recommended_action": (
+                            "Resolve the duplicate MO2 mod container with an "
+                            "explicit rename, merge, or replace choice."
+                        ),
                     }
                 ],
             )

@@ -23,6 +23,7 @@
           "file": "New Mara Bowl Replacer",
           "mod": "New Mara Statue SE",
           "reason": "duplicate MO2 mod container for archive-default FOMOD install; needs manual rename/merge choice",
+          "recommended_action": "Resolve the duplicate MO2 mod container with an explicit rename, merge, or replace choice.",
           "review_category": "duplicate_container"
         },
         {
@@ -30,6 +31,7 @@
           "file": "Add-ons All in One. correct alignment BOS",
           "mod": "Alternate Start - Standing Stones correct alignment BOS",
           "reason": "duplicate MO2 mod container for archive-default FOMOD install; needs manual rename/merge choice",
+          "recommended_action": "Resolve the duplicate MO2 mod container with an explicit rename, merge, or replace choice.",
           "review_category": "duplicate_container"
         }
       ],
@@ -67,6 +69,7 @@
           "file": "Quest Journal Fixes - FOMOD",
           "mod": "Quest Journal Fix for SkyUI",
           "reason": "manual archive layout: Native archive worker timed out; start scripts/native_archive_worker.py for headless archive installs.",
+          "recommended_action": "Restart the native archive worker and retry; fall back to the normal MO2 installer if it times out again.",
           "review_category": "native_worker_timeout"
         }
       ],
@@ -104,6 +107,7 @@
           "file": "Loadscreenart Giant",
           "mod": "New Female Giant",
           "reason": "manual archive layout: ambiguous archive layout",
+          "recommended_action": "Review the archive content tree and choose the intended game-data root.",
           "review_category": "ambiguous_archive_layout"
         }
       ],
@@ -141,6 +145,7 @@
           "file": "NAT - TrueStorms Merged Compatibility",
           "mod": "NAT - TrueStorms Merged Compatibility SSE",
           "reason": "manual FOMOD choices required: no FOMOD options matched installed profile evidence",
+          "recommended_action": "Open the normal MO2 FOMOD installer and choose the required options.",
           "review_category": "fomod_choices"
         }
       ],
@@ -328,6 +333,7 @@
           "file": "1_Vilja in Skyrim version 4.3",
           "mod": "Vilja in Skyrim",
           "reason": "manual archive layout: ambiguous archive layout",
+          "recommended_action": "Review the archive content tree and choose the intended game-data root.",
           "review_category": "ambiguous_archive_layout"
         },
         {
@@ -335,6 +341,7 @@
           "file": "Northgirl Armor 3BA",
           "mod": "Northgirl Armor Neko Edition - 3BA - BHUNP - CBBE",
           "reason": "installer completed but produced an empty mod container; review FOMOD/manual choices",
+          "recommended_action": "Treat this as a no-op install until explicit choices or a valid payload are confirmed.",
           "review_category": "empty_installer_output"
         }
       ],
