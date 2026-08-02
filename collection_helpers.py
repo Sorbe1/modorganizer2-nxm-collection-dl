@@ -2394,6 +2394,66 @@ def _fomodOptionEvidenceScore(option_name, evidence_labels):
     return score
 
 
+def _fomodPayloadEvidencePluginNames(mappings, archive_members):
+    plugin_names = set()
+    for mapping in mappings or []:
+        source = normalizedArchiveMemberPath(mapping.get("source", ""))
+        if not source:
+            continue
+        source_suffix = Path(source).suffix.casefold()
+        if source_suffix in DIRECT_INSTALL_PLUGIN_EXTENSIONS:
+            if source in archive_members:
+                plugin_names.add(Path(source).name)
+            continue
+
+        source_prefix = source.rstrip("/") + "/"
+        for member in archive_members:
+            if not member.startswith(source_prefix):
+                continue
+            if Path(member).suffix.casefold() in DIRECT_INSTALL_PLUGIN_EXTENSIONS:
+                plugin_names.add(Path(member).name)
+    return plugin_names
+
+
+def _fomodPayloadMatchesEvidence(mappings, archive_members, evidence_files):
+    payload_plugin_names = _fomodPayloadEvidencePluginNames(mappings, archive_members)
+    if not payload_plugin_names or not evidence_files:
+        return False
+    for payload_name in payload_plugin_names:
+        payload_tokens = set(_fomodMeaningfulTokens(payload_name))
+        if not payload_tokens:
+            continue
+        for evidence_name in evidence_files:
+            evidence_tokens = set(_fomodMeaningfulTokens(evidence_name))
+            if not evidence_tokens:
+                continue
+            if payload_name.casefold() == evidence_name.casefold():
+                return True
+            if evidence_tokens <= payload_tokens:
+                return True
+    return False
+
+
+def _fomodPayloadEvidenceScore(mappings, archive_members, evidence_files):
+    score = 0
+    payload_plugin_names = _fomodPayloadEvidencePluginNames(mappings, archive_members)
+    for payload_name in payload_plugin_names:
+        payload_tokens = set(_fomodMeaningfulTokens(payload_name))
+        if not payload_tokens:
+            continue
+        for evidence_name in evidence_files:
+            evidence_tokens = set(_fomodMeaningfulTokens(evidence_name))
+            if not evidence_tokens:
+                continue
+            if payload_name.casefold() == evidence_name.casefold():
+                score += 100 + len(evidence_tokens)
+            elif evidence_tokens <= payload_tokens:
+                score += 50 + len(evidence_tokens)
+            else:
+                score += len(payload_tokens.intersection(evidence_tokens))
+    return score
+
+
 def _fomodPluginFileMappings(plugin, module_base_prefix):
     mappings = []
     for files_node in _directChildren(plugin, "files"):
@@ -2645,19 +2705,28 @@ def headlessFomodDependencyInstallLayout(
                     "plugin_type": plugin_type,
                     "dependencies": _fomodPluginDependencyDiagnostics(plugin),
                     "payload_items": len(mappings),
-                    "matched_profile_evidence": _fomodOptionMatchesEvidence(
-                        option_name, evidence_labels
+                    "matched_profile_evidence": (
+                        _fomodOptionMatchesEvidence(option_name, evidence_labels)
+                        or _fomodPayloadMatchesEvidence(
+                            mappings, archive_members, evidence_files
+                        )
                     ),
                 }
             )
             if plugin_type in {"notusable", "not usable"}:
                 continue
-            matched_profile_evidence = _fomodOptionMatchesEvidence(
-                option_name, evidence_labels
+            matched_profile_evidence = (
+                _fomodOptionMatchesEvidence(option_name, evidence_labels)
+                or _fomodPayloadMatchesEvidence(
+                    mappings, archive_members, evidence_files
+                )
             )
             if matched_profile_evidence:
                 score = (
                     _fomodOptionEvidenceScore(option_name, evidence_labels)
+                    + _fomodPayloadEvidenceScore(
+                        mappings, archive_members, evidence_files
+                    )
                     + _fomodPluginTypeScore(plugin_type)
                 )
                 candidates.append(
@@ -2682,11 +2751,35 @@ def headlessFomodDependencyInstallLayout(
                 )
 
         selected_candidate = None
+        selected_group_candidates = False
         if group_type == "SelectAny":
             for option_name, mappings, score, plugin_type, evidence_match in candidates:
                 selected_records.append(
                     (option_name, mappings, score, plugin_type, evidence_match)
                 )
+            selected_group_candidates = bool(candidates)
+        elif group_type == "SelectAtLeastOne":
+            evidence_candidates = [
+                candidate for candidate in candidates if candidate[4]
+            ]
+            if evidence_candidates:
+                for option_name, mappings, score, plugin_type, evidence_match in (
+                    evidence_candidates
+                ):
+                    selected_records.append(
+                        (option_name, mappings, score, plugin_type, evidence_match)
+                    )
+                selected_group_candidates = True
+            elif len(candidates) == 1:
+                selected_candidate = candidates[0]
+            elif candidates:
+                ranked_candidates = sorted(
+                    candidates,
+                    key=lambda candidate: candidate[2],
+                    reverse=True,
+                )
+                if ranked_candidates[0][2] > ranked_candidates[1][2]:
+                    selected_candidate = ranked_candidates[0]
         elif len(candidates) == 1:
             selected_candidate = candidates[0]
         elif candidates:
@@ -2703,7 +2796,8 @@ def headlessFomodDependencyInstallLayout(
             selected_records.append(
                 (option_name, mappings, score, plugin_type, evidence_match)
             )
-        elif group_type != "SelectAny" and candidates:
+            selected_group_candidates = True
+        elif group_type != "SelectAny" and candidates and not selected_group_candidates:
             ranked_candidates = sorted(
                 candidates,
                 key=lambda candidate: (candidate[2], candidate[0].casefold()),

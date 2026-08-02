@@ -3529,6 +3529,58 @@ class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
             ],
         )
 
+    def test_select_at_least_one_uses_payload_plugins_to_match_active_evidence(self):
+        module_config = """\
+<config>
+  <installSteps>
+    <installStep name="Patch Pack">
+      <optionalFileGroups>
+        <group name="Installed patches" type="SelectAtLeastOne">
+          <plugins>
+            <plugin name="Beyond Skyrim Bruma">
+              <files><folder source="BSHeartland" destination="" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Cutting Room Floor">
+              <files><folder source="Cutting Room Floor" destination="" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Wyrmstooth">
+              <files><folder source="Wyrmstooth" destination="" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+  </installSteps>
+</config>
+"""
+
+        plan = headlessFomodDependencyInstallLayout(
+            module_config,
+            "fomod/ModuleConfig.xml",
+            [
+                "BSHeartland/BSHeartland TKAA Patch.esp",
+                "BSHeartland/BSHeartland TKAA Patch.bsa",
+                "Cutting Room Floor/Cutting Room Floor TKAA Patch.esp",
+                "Cutting Room Floor/Cutting Room Floor TKAA Patch.bsa",
+                "Wyrmstooth/Wyrmstooth TKAA Patch.esp",
+                "Wyrmstooth/Wyrmstooth TKAA Patch.bsa",
+            ],
+            ["Cutting Room Floor.esp", "Wyrmstooth.esp"],
+        )
+
+        self.assertTrue(plan["installable"])
+        self.assertEqual(
+            plan["selected_options"],
+            ["Cutting Room Floor", "Wyrmstooth"],
+        )
+        self.assertEqual(
+            [mapping["source"] for mapping in plan["mappings"]],
+            ["Cutting Room Floor", "Wyrmstooth"],
+        )
+
 
 class FomodManualChoiceGuideTests(unittest.TestCase):
     def test_lists_required_groups_without_defaults(self):
