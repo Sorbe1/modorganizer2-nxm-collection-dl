@@ -835,6 +835,55 @@ class ProfileStateAuditTests(unittest.TestCase):
                 ],
             )
 
+    def test_reports_transient_and_invalid_active_mod_containers(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile = base / "profiles" / "Default"
+            profile.mkdir(parents=True)
+            (profile / "modlist.txt").write_text(
+                "+DLC: Dawnguard\n"
+                "+DLC: HearthFires\n"
+                "+DLC: Dragonborn\n"
+                "+Valid Mod\n"
+                "+Empty Mod\n"
+                "+Nested Invalid Mod\n",
+                encoding="utf-8",
+            )
+            (profile / "plugins.txt").write_text("*Valid.esp\n", encoding="utf-8")
+            (profile / "loadorder.txt").write_text("Valid.esp\n", encoding="utf-8")
+            mods = base / "mods"
+            (mods / ".nxm-collection-extracting-leftover").mkdir(parents=True)
+            valid = mods / "Valid Mod"
+            valid.mkdir()
+            (valid / "meta.ini").write_text("[General]\n", encoding="utf-8")
+            (valid / "meshes").mkdir()
+            (valid / "meshes" / "valid.nif").write_text("nif", encoding="utf-8")
+            empty = mods / "Empty Mod"
+            empty.mkdir()
+            (empty / "meta.ini").write_text("[General]\n", encoding="utf-8")
+            nested = mods / "Nested Invalid Mod"
+            (nested / "bad-wrapper").mkdir(parents=True)
+            (nested / "meta.ini").write_text("[General]\n", encoding="utf-8")
+            (nested / "bad-wrapper" / "readme.txt").write_text(
+                "not game data", encoding="utf-8"
+            )
+
+            result = auditMo2ProfileState(base_path=base)
+
+            self.assertFalse(result["clean"])
+            self.assertEqual(
+                result["transient_mod_dirs"],
+                [".nxm-collection-extracting-leftover"],
+            )
+            self.assertEqual(
+                [item["name"] for item in result["invalid_active_mod_containers"]],
+                ["Empty Mod", "Nested Invalid Mod"],
+            )
+            self.assertEqual(
+                [issue["type"] for issue in result["issues"]],
+                ["transient_mod_dirs", "invalid_active_mod_containers"],
+            )
+
     def test_reports_plugin_capacity_warning(self):
         with TemporaryDirectory() as tmp:
             base = Path(tmp)

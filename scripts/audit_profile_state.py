@@ -71,6 +71,12 @@ def main():
             f"{dependency.get('checked', 0)} checked, "
             f"{dependency.get('problem_count', 0)} problem(s)"
         )
+        print(
+            "Mod containers: "
+            f"{len(result.get('transient_mod_dirs') or [])} transient, "
+            f"{len(result.get('invalid_active_mod_containers') or [])} "
+            "invalid active"
+        )
         audit = result.get("download_metadata_audit") or {}
         print(
             "Downloads metadata: "

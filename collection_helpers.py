@@ -548,6 +548,8 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         "files": {},
         "disabled_mods": [],
         "disabled_plugins": [],
+        "transient_mod_dirs": [],
+        "invalid_active_mod_containers": [],
         "base_modlist_order_needs_repair": False,
         "plugin_capacity_audit": None,
         "plugin_dependency_audit": {
@@ -573,6 +575,7 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         result["files"][file_name] = profileStateFileStats(profile_path / file_name)
 
     modlist_path = profile_path / "modlist.txt"
+    active_mod_names = []
     if modlist_path.exists():
         modlist_text = modlist_path.read_text(encoding="utf-8", errors="replace")
         result["base_modlist_order_needs_repair"] = mo2BaseModlistOrderNeedsRepair(
@@ -590,6 +593,8 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
             stripped = raw_line.strip()
             if stripped.startswith("-") and len(stripped) > 1:
                 result["disabled_mods"].append(stripped[1:])
+            elif stripped.startswith("+") and len(stripped) > 1:
+                active_mod_names.append(stripped[1:])
     if result["disabled_mods"]:
         result["issues"].append(
             {
@@ -598,6 +603,57 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
                 "examples": result["disabled_mods"][:10],
             }
         )
+
+    mods_path = base_path / "mods"
+    if mods_path.exists():
+        try:
+            result["transient_mod_dirs"] = sorted(
+                path.name
+                for path in mods_path.iterdir()
+                if path.is_dir() and isCollectionTransientModDirName(path.name)
+            )
+        except OSError:
+            result["transient_mod_dirs"] = []
+        if result["transient_mod_dirs"]:
+            result["issues"].append(
+                {
+                    "type": "transient_mod_dirs",
+                    "count": len(result["transient_mod_dirs"]),
+                    "examples": result["transient_mod_dirs"][:10],
+                    "message": (
+                        "Plugin-owned temporary collection mod directories remain "
+                        "in the active MO2 mods directory"
+                    ),
+                }
+            )
+
+        for mod_name in active_mod_names:
+            if mod_name.startswith(("DLC:", "Creation Club:", "Unmanaged:")):
+                continue
+            mod_dir = mods_path / mod_name
+            if not (mod_dir / "meta.ini").exists():
+                continue
+            reason = installedModCompletionIssueReason(mod_dir)
+            if reason is not None:
+                result["invalid_active_mod_containers"].append(
+                    {
+                        "name": mod_name,
+                        "path": str(mod_dir),
+                        "reason": reason,
+                    }
+                )
+        if result["invalid_active_mod_containers"]:
+            result["issues"].append(
+                {
+                    "type": "invalid_active_mod_containers",
+                    "count": len(result["invalid_active_mod_containers"]),
+                    "examples": result["invalid_active_mod_containers"][:10],
+                    "message": (
+                        "Enabled MO2 mod containers are empty or do not contain "
+                        "valid game data"
+                    ),
+                }
+            )
 
     plugins_path = profile_path / "plugins.txt"
     if plugins_path.exists():
