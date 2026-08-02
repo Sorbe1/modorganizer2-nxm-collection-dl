@@ -2359,6 +2359,18 @@ def fomodDependencyOptionGuideLines(layout_plan):
     return lines
 
 
+def dependencyIssueGuideLines(entry):
+    lines = []
+    dependency_issues = []
+    for issue in (entry or {}).get("dependency_issues") or []:
+        issue_type = safeDisplayText(issue.get("type"))
+        name = safeDisplayText(issue.get("name"))
+        dependency_issues.append(f"`{name}` ({issue_type})")
+    if dependency_issues:
+        lines.append("- Dependency issues: " + ", ".join(dependency_issues))
+    return lines
+
+
 def headlessFomodDependencyInstallLayout(
     module_config_xml, module_config_path, member_names, evidence_names
 ):

@@ -53,6 +53,7 @@ from .collection_helpers import (
     collectionExpectedFileNames,
     collectionExpectedNexusKeys,
     contentTreeWarningDialogAction,
+    dependencyIssueGuideLines,
     detachedInstallCacheKeyFromPath,
     downloadMetadataAuditSummary,
     downloadMetadataReviewEntries,
@@ -2450,6 +2451,7 @@ class stepInstallMods(QDialog):
                     for name in entry.get("inactive_masters") or []
                 )
             )
+        lines.extend(dependencyIssueGuideLines(entry))
         if entry.get("suggested_action"):
             lines.append(
                 f"- Suggested action: {safeDisplayText(entry.get('suggested_action'))}"

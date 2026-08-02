@@ -38,6 +38,7 @@ from collection_helpers import (
     contentTreeWarningDialogAction,
     collectionDownloadExpectedSizes,
     collectionInstallCompletedCount,
+    dependencyIssueGuideLines,
     detachedInstallCacheKeyFromPath,
     downloadedArchiveNameKeys,
     duplicateDownloadPromptArchiveAction,
@@ -3011,6 +3012,28 @@ class FomodDependencyOptionGuideLinesTests(unittest.TestCase):
                 "`Optional Patches` (SelectAny)",
                 "- Dependency options: "
                 "`Bruma Patch` [notusable; BSHeartland.esm=Active]",
+            ],
+        )
+
+
+class DependencyIssueGuideLinesTests(unittest.TestCase):
+    def test_formats_structured_dependency_issues(self):
+        lines = dependencyIssueGuideLines(
+            {
+                "dependency_issues": [
+                    {"type": "missing_plugin", "name": "Missing.esp"},
+                    {"type": "missing_master", "name": "Missing.esm"},
+                    {"type": "inactive_master", "name": "Inactive.esm"},
+                ]
+            }
+        )
+
+        self.assertEqual(
+            lines,
+            [
+                "- Dependency issues: `Missing.esp` (missing_plugin), "
+                "`Missing.esm` (missing_master), "
+                "`Inactive.esm` (inactive_master)"
             ],
         )
 
