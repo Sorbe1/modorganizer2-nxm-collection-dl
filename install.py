@@ -93,6 +93,7 @@ from .collection_helpers import (
     nativeArchiveWorkerHeartbeatStatus,
     nativePathForArchiveInspection,
     pluginActivationReviewEntries,
+    pluginActivationDependencyPlan,
     pluginMasterDependencyAudit,
     pluginMasterDependencyReviewEntries,
     pluginRepairFailureReviewEntries,
@@ -5817,6 +5818,98 @@ class stepInstallMods(QDialog):
                     }
                     for entry in pluginActivationReviewEntries(
                         unavailable_plugins, source="plugin availability"
+                    ):
+                        key = (
+                            str(entry.get("mod") or ""),
+                            str(entry.get("file") or ""),
+                            str(entry.get("reason") or ""),
+                        )
+                        if key in seen_review_entries:
+                            continue
+                        seen_review_entries.add(key)
+                        failed_entries.append(entry)
+
+        if plugin_list is not None and available_plugin_names is not None:
+            available_by_key = {
+                str(plugin_name or "").casefold(): str(plugin_name or "")
+                for plugin_name in available_plugin_names
+                if str(plugin_name or "").strip()
+            }
+            active_plugins = []
+            for plugin_name in available_plugin_names:
+                try:
+                    if plugin_list.state(plugin_name) == mobase.PluginState.ACTIVE:
+                        active_plugins.append(plugin_name)
+                except Exception as e:
+                    self.logInstallIssue(
+                        "Could not read plugin state during activation preflight: "
+                        f"{safeDisplayText(plugin_name)} ({e})",
+                        expected=True,
+                    )
+
+            masters_by_plugin = {}
+            for plugin_name in plugin_names_from_dirs:
+                canonical_name = available_by_key.get(
+                    plugin_name.casefold(), plugin_name
+                )
+                try:
+                    masters_by_plugin[canonical_name] = list(
+                        plugin_list.masters(canonical_name)
+                    )
+                except Exception as e:
+                    self.logInstallIssue(
+                        "Could not read plugin masters during activation preflight: "
+                        f"{safeDisplayText(plugin_name)} ({e})",
+                        expected=True,
+                    )
+
+            dependency_plan = pluginActivationDependencyPlan(
+                plugin_names_from_dirs,
+                available_plugin_names,
+                active_plugins,
+                masters_by_plugin,
+            )
+            blocked_dependency_plugins = dependency_plan["blocked"]
+            plugin_names_from_dirs = dependency_plan["activatable"]
+            if blocked_dependency_plugins:
+                blocked += len(blocked_dependency_plugins)
+                for problem in blocked_dependency_plugins[:10]:
+                    details = []
+                    missing = problem.get("missing_masters") or []
+                    inactive = problem.get("inactive_masters") or []
+                    if missing:
+                        details.append(
+                            "missing "
+                            + ", ".join(
+                                safeDisplayText(name) for name in missing[:5]
+                            )
+                        )
+                    if inactive:
+                        details.append(
+                            "inactive "
+                            + ", ".join(
+                                safeDisplayText(name) for name in inactive[:5]
+                            )
+                        )
+                    self.logInstallIssue(
+                        "Plugin activation blocked by unresolved master: "
+                        f"{safeDisplayText(problem.get('plugin'))} "
+                        + "; ".join(details),
+                        expected=True,
+                    )
+                if failed_entries is not None:
+                    seen_review_entries = {
+                        (
+                            str(entry.get("mod") or ""),
+                            str(entry.get("file") or ""),
+                            str(entry.get("reason") or ""),
+                        )
+                        for entry in failed_entries
+                        if isinstance(entry, dict)
+                    }
+                    for entry in pluginMasterDependencyReviewEntries(
+                        blocked_dependency_plugins,
+                        source="plugin activation preflight",
                     ):
                         key = (
                             str(entry.get("mod") or ""),

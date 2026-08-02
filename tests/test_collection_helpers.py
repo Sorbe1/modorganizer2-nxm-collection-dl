@@ -104,6 +104,7 @@ from collection_helpers import (
     normalizedButtonLabel,
     orphanUnfinishedDownloadEntries,
     parseCollectionAddress,
+    pluginActivationDependencyPlan,
     pluginActivationReviewEntries,
     pluginCapacityAuditFromPluginsText,
     pluginCapacityAuditFromPluginNames,
@@ -4644,6 +4645,62 @@ class PluginActivationReviewEntriesTests(unittest.TestCase):
                     "plugin_active": False,
                     "missing_masters": ["Missing.esm"],
                     "inactive_masters": ["Inactive.esm"],
+                }
+            ],
+        )
+
+    def test_activation_dependency_plan_blocks_missing_masters(self):
+        plan = pluginActivationDependencyPlan(
+            ["Patch.esp", "Standalone.esp"],
+            ["Patch.esp", "Standalone.esp", "Skyrim.esm"],
+            ["Skyrim.esm"],
+            {
+                "Patch.esp": ["Skyrim.esm", "Missing.esm"],
+                "Standalone.esp": ["Skyrim.esm"],
+            },
+        )
+
+        self.assertEqual(plan["activatable"], ["Standalone.esp"])
+        self.assertEqual(
+            plan["blocked"],
+            [
+                {
+                    "plugin": "Patch.esp",
+                    "plugin_active": True,
+                    "missing_masters": ["Missing.esm"],
+                    "inactive_masters": [],
+                }
+            ],
+        )
+
+    def test_activation_dependency_plan_allows_master_activated_together(self):
+        plan = pluginActivationDependencyPlan(
+            ["Master.esm", "Patch.esp"],
+            ["Master.esm", "Patch.esp", "Skyrim.esm"],
+            ["Skyrim.esm"],
+            {"Master.esm": ["Skyrim.esm"], "Patch.esp": ["Master.esm"]},
+        )
+
+        self.assertEqual(plan["activatable"], ["Master.esm", "Patch.esp"])
+        self.assertEqual(plan["blocked"], [])
+
+    def test_activation_dependency_plan_blocks_inactive_external_master(self):
+        plan = pluginActivationDependencyPlan(
+            ["Patch.esp"],
+            ["Patch.esp", "External.esm", "Skyrim.esm"],
+            ["Skyrim.esm"],
+            {"Patch.esp": ["Skyrim.esm", "External.esm"]},
+        )
+
+        self.assertEqual(plan["activatable"], [])
+        self.assertEqual(
+            plan["blocked"],
+            [
+                {
+                    "plugin": "Patch.esp",
+                    "plugin_active": True,
+                    "missing_masters": [],
+                    "inactive_masters": ["External.esm"],
                 }
             ],
         )

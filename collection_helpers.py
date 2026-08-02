@@ -3736,6 +3736,70 @@ def pluginMasterDependencyAudit(
     return problems
 
 
+def pluginActivationDependencyPlan(
+    target_plugins,
+    available_plugins,
+    active_plugins,
+    masters_by_plugin,
+):
+    """Split activation targets into plugins that can be enabled and blocked plugins.
+
+    Treat the requested activation set as planned-active when checking inactive
+    masters, so a plugin and its newly installed master can be enabled together.
+    Missing masters and inactive masters outside the activation set block the
+    dependent plugin before profile state is changed.
+    """
+    available_lookup = {}
+    for plugin_name in available_plugins or []:
+        plugin_name = str(plugin_name or "").strip()
+        if plugin_name:
+            available_lookup.setdefault(plugin_name.casefold(), plugin_name)
+
+    target_lookup = {}
+    ordered_targets = []
+    for plugin_name in target_plugins or []:
+        plugin_name = str(plugin_name or "").strip()
+        if not plugin_name:
+            continue
+        key = plugin_name.casefold()
+        if key in target_lookup:
+            continue
+        canonical = available_lookup.get(key, plugin_name)
+        target_lookup[key] = canonical
+        ordered_targets.append(canonical)
+
+    planned_active = []
+    planned_seen = set()
+    for plugin_name in list(active_plugins or []) + ordered_targets:
+        plugin_name = str(plugin_name or "").strip()
+        if not plugin_name:
+            continue
+        key = plugin_name.casefold()
+        if key in planned_seen:
+            continue
+        planned_seen.add(key)
+        planned_active.append(available_lookup.get(key, plugin_name))
+
+    problems = pluginMasterDependencyAudit(
+        ordered_targets,
+        available_plugins,
+        planned_active,
+        masters_by_plugin,
+        include_inactive_targets=True,
+    )
+    blocked_keys = {
+        str(problem.get("plugin") or "").strip().casefold()
+        for problem in problems
+        if str(problem.get("plugin") or "").strip()
+    }
+    activatable = [
+        plugin_name
+        for plugin_name in ordered_targets
+        if plugin_name.casefold() not in blocked_keys
+    ]
+    return {"activatable": activatable, "blocked": problems}
+
+
 def pluginMasterDependencyReviewEntries(
     dependency_problems, source="plugin dependency audit"
 ):
