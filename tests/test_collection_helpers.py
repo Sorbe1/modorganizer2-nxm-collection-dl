@@ -791,6 +791,8 @@ class ProfileStateAuditTests(unittest.TestCase):
             self.assertEqual(
                 result["plugin_capacity_audit"]["regular_by_extension_count"], 1
             )
+            self.assertFalse(result["plugin_dependency_audit"]["supported"])
+            self.assertEqual(result["plugin_dependency_audit"]["checked"], 0)
 
     def test_reports_dirty_profile_state(self):
         with TemporaryDirectory() as tmp:

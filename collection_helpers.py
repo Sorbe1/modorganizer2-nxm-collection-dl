@@ -550,6 +550,16 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         "disabled_plugins": [],
         "base_modlist_order_needs_repair": False,
         "plugin_capacity_audit": None,
+        "plugin_dependency_audit": {
+            "supported": False,
+            "checked": 0,
+            "problem_count": 0,
+            "note": (
+                "Standalone profile audits do not parse binary plugin masters. "
+                "Run the collection installer inside MO2, or use an xEdit/MO2 "
+                "metadata-backed audit, to verify missing or inactive masters."
+            ),
+        },
         "download_metadata_audit": None,
     }
     if not profile_path.exists():

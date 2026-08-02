@@ -63,6 +63,14 @@ def main():
                 f"{capacity.get('regular_overage_by_extension', 0)} "
                 "regular plugins by extension"
             )
+        dependency = result.get("plugin_dependency_audit") or {}
+        dependency_status = "yes" if dependency.get("supported") else "no"
+        print(
+            "Plugin dependency audit supported: "
+            f"{dependency_status}; "
+            f"{dependency.get('checked', 0)} checked, "
+            f"{dependency.get('problem_count', 0)} problem(s)"
+        )
         audit = result.get("download_metadata_audit") or {}
         print(
             "Downloads metadata: "
