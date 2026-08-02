@@ -160,6 +160,56 @@ def _filter_summaries(summaries, collection_filters=None, needs_review_only=Fals
     return filtered
 
 
+def summarize_stress_totals(summaries):
+    failed_categories = {
+        "missing_download": 0,
+        "manual_or_review": 0,
+        "other_failure": 0,
+    }
+    warning_categories = {}
+    totals = {
+        "failed_count": 0,
+        "review_count": 0,
+        "warning_count": 0,
+        "unique_warning_count": 0,
+        "root_level_count": 0,
+        "no_applicable_count": 0,
+        "queued_fomod_recovery_count": 0,
+        "add_collection_launch_count": 0,
+        "add_collection_recovery_count": 0,
+        "download_metadata_review_count": 0,
+        "failed_categories": failed_categories,
+        "warning_categories": warning_categories,
+    }
+    for item in summaries:
+        totals["failed_count"] += int(item.get("failed_count") or 0)
+        totals["review_count"] += int(item.get("review_count") or 0)
+        totals["warning_count"] += int(item.get("warning_count") or 0)
+        totals["unique_warning_count"] += int(item.get("unique_warning_count") or 0)
+        totals["root_level_count"] += int(item.get("root_level_count") or 0)
+        totals["no_applicable_count"] += int(item.get("no_applicable_count") or 0)
+        totals["queued_fomod_recovery_count"] += int(
+            item.get("queued_fomod_recovery_count") or 0
+        )
+        totals["add_collection_launch_count"] += int(
+            item.get("add_collection_launch_count") or 0
+        )
+        totals["add_collection_recovery_count"] += int(
+            item.get("add_collection_recovery_count") or 0
+        )
+        if item.get("download_metadata_review"):
+            totals["download_metadata_review_count"] += 1
+        for category, count in (item.get("failed_categories") or {}).items():
+            failed_categories[category] = failed_categories.get(category, 0) + int(
+                count or 0
+            )
+        for category, count in (item.get("warning_categories") or {}).items():
+            warning_categories[category] = warning_categories.get(category, 0) + int(
+                count or 0
+            )
+    return totals
+
+
 def build_stress_report(
     logs_dir,
     base_path=None,
@@ -192,6 +242,7 @@ def build_stress_report(
         "needs_review_count": sum(
             1 for item in clean_summaries if item["status"] == "needs_review"
         ),
+        "totals": summarize_stress_totals(clean_summaries),
         "collections": clean_summaries,
     }
     if base_path is not None:
@@ -221,6 +272,14 @@ def print_text_report(report):
     profile = report.get("profile_audit")
     if profile is not None:
         print(f"Profile audit: {'clean' if profile.get('clean') else 'needs review'}")
+    totals = report.get("totals") or {}
+    if totals:
+        print(
+            "Review totals: "
+            f"{totals.get('failed_count', 0)} failed, "
+            f"{totals.get('warning_count', 0)} warning(s), "
+            f"{totals.get('add_collection_recovery_count', 0)} recovery launch(es)"
+        )
     for item in report["collections"]:
         label = f"{item['collection']} r{item['revision']}"
         name = item.get("name")

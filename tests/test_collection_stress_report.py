@@ -236,6 +236,77 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertTrue(result["filters"]["needs_review_only"])
             self.assertEqual(result["collections"][0]["collection"], "dirty")
 
+    def test_summarizes_report_totals(self):
+        with TemporaryDirectory() as tmp:
+            logs = Path(tmp)
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-alpha-1-20260802-010000.json",
+                {
+                    "collection": "alpha",
+                    "revision": 1,
+                    "name": "Alpha",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 2,
+                    "unique_warning_count": 1,
+                    "warning_summary": [
+                        {"category": "plugin_state_missing", "occurrences": 2}
+                    ],
+                    "failed_entries": [
+                        {"mod": "Missing", "reason": "not found in downloads"},
+                        {"mod": "Manual", "reason": "ambiguous archive layout"},
+                    ],
+                    "root_level_entries": [{"mod": "Root"}],
+                    "add_collection_recovery_count": 3,
+                },
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-beta-1-20260802-010000.json",
+                {
+                    "collection": "beta",
+                    "revision": 1,
+                    "name": "Beta",
+                    "generated": "2026-08-02T02:00:00",
+                    "warning_count": 1,
+                    "unique_warning_count": 1,
+                    "warning_summary": [
+                        {"category": "metadata_update_failed", "occurrences": 1}
+                    ],
+                    "failed_entries": [
+                        {"mod": "Other", "reason": "unexpected failure"},
+                    ],
+                    "download_metadata_audit": {
+                        "downloaded_only": ["Downloaded.7z.meta"],
+                    },
+                },
+            )
+
+            result = collection_stress_report.build_stress_report(logs)
+            totals = result["totals"]
+
+            self.assertEqual(totals["failed_count"], 3)
+            self.assertEqual(totals["warning_count"], 3)
+            self.assertEqual(totals["unique_warning_count"], 2)
+            self.assertEqual(totals["root_level_count"], 1)
+            self.assertEqual(totals["add_collection_recovery_count"], 3)
+            self.assertEqual(totals["download_metadata_review_count"], 1)
+            self.assertEqual(
+                totals["failed_categories"],
+                {
+                    "missing_download": 1,
+                    "manual_or_review": 1,
+                    "other_failure": 1,
+                },
+            )
+            self.assertEqual(
+                totals["warning_categories"],
+                {
+                    "plugin_state_missing": 2,
+                    "metadata_update_failed": 1,
+                },
+            )
+
     def test_strict_gate_accepts_clean_report(self):
         self.assertTrue(
             collection_stress_report.stress_report_is_clean(

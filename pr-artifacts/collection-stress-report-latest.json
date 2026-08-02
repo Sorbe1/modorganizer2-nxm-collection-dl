@@ -244,6 +244,10 @@
       "warning_count": 1
     }
   ],
+  "filters": {
+    "collections": [],
+    "needs_review_only": false
+  },
   "logs_dir": "/mnt/STEAMNTFS/SteamLibrary/steamapps/compatdata/489830/pfx/drive_c/users/steamuser/AppData/Local/ModOrganizer/Skyrim Special Edition - Derp/logs",
   "mode": "latest_per_collection_revision",
   "needs_review_count": 6,
@@ -344,5 +348,25 @@
     },
     "warnings": []
   },
-  "report_count": 10
+  "report_count": 10,
+  "totals": {
+    "add_collection_launch_count": 24,
+    "add_collection_recovery_count": 18,
+    "download_metadata_review_count": 0,
+    "failed_categories": {
+      "manual_or_review": 7,
+      "missing_download": 0,
+      "other_failure": 0
+    },
+    "failed_count": 7,
+    "no_applicable_count": 1,
+    "queued_fomod_recovery_count": 0,
+    "review_count": 0,
+    "root_level_count": 1,
+    "unique_warning_count": 1,
+    "warning_categories": {
+      "plugin_state_missing": 1
+    },
+    "warning_count": 1
+  }
 }
