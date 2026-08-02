@@ -1208,6 +1208,29 @@ def splitQueuedFomodRecoveryEntries(failed_entries, enabled):
     return review_entries, queued_entries
 
 
+def warningReportNeedsWrite(
+    warnings,
+    failed_entries,
+    root_level_entries,
+    no_applicable_entries,
+    queued_fomod_recovery_entries,
+    recovery_count,
+):
+    """Return True when the installer has review data worth persisting."""
+    try:
+        recovery_count = int(recovery_count)
+    except (TypeError, ValueError):
+        recovery_count = 0
+    return bool(
+        warnings
+        or failed_entries
+        or root_level_entries
+        or no_applicable_entries
+        or queued_fomod_recovery_entries
+        or recovery_count > 0
+    )
+
+
 def headlessArchivePreflightFallback(layout_plan):
     """Return the next route when a candidate archive is not headless-safe."""
     reason = str((layout_plan or {}).get("reason") or "").casefold()

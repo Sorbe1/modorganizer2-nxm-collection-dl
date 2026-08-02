@@ -110,6 +110,7 @@ from .collection_helpers import (
     splitQueuedFomodRecoveryEntries,
     steamGameRootFromMo2BasePath,
     suppressedPostInstallErrorReviewEntries,
+    warningReportNeedsWrite,
     zipArchiveMemberPaths,
     installedModRecordsFromDirectory,
 )
@@ -1324,22 +1325,24 @@ class stepInstallMods(QDialog):
             if self.install_context
             else []
         )
+        queued_fomod_recovery_entries = (
+            self.install_context.get("queued_fomod_recovery_entries", [])
+            if self.install_context
+            else []
+        )
         collection_metadata = (
             self.install_context.get("collection_metadata", {})
             if self.install_context
             else {}
         )
         recovery_count = collection_metadata.get("addCollectionRecoveryCount", 0)
-        try:
-            recovery_count = int(recovery_count)
-        except (TypeError, ValueError):
-            recovery_count = 0
-        if (
-            not self.install_warnings
-            and not failed_entries
-            and not root_level_entries
-            and not no_applicable_entries
-            and recovery_count <= 0
+        if not warningReportNeedsWrite(
+            self.install_warnings,
+            failed_entries,
+            root_level_entries,
+            no_applicable_entries,
+            queued_fomod_recovery_entries,
+            recovery_count,
         ):
             return None
 
@@ -1359,6 +1362,7 @@ class stepInstallMods(QDialog):
             "warning_summary": self.warningSummaryForReport(),
             "warnings": self.install_warnings,
             "failed_entries": failed_entries,
+            "queued_fomod_recovery_entries": queued_fomod_recovery_entries,
             "root_level_entries": root_level_entries,
             "no_applicable_entries": no_applicable_entries,
             "add_collection_launch_count": collection_metadata.get(
@@ -5107,6 +5111,7 @@ class stepInstallMods(QDialog):
                 failed_entries, can_queue_fomod_recovery
             )
         )
+        context["queued_fomod_recovery_entries"] = queued_fomod_recovery_entries
         review_entries.extend(
             suppressedPostInstallErrorReviewEntries(self.install_warnings)
         )

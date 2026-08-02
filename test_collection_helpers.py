@@ -132,6 +132,7 @@ from collection_helpers import (
     shouldUseCollectionTargetModName,
     snapshotMo2ProfileState,
     splitQueuedFomodRecoveryEntries,
+    warningReportNeedsWrite,
     shouldDelayTerminalDownloadFailure,
     staleAlreadyStartedAction,
     adaptiveDownloadTailGraceSeconds,
@@ -4847,6 +4848,27 @@ class InvalidInstalledCollectionArchiveRetryTests(unittest.TestCase):
 
         self.assertEqual(review_entries, failed_entries)
         self.assertEqual(queued_entries, [])
+
+    def test_warning_report_is_written_for_queued_fomod_recovery_only(self):
+        self.assertTrue(
+            warningReportNeedsWrite(
+                [],
+                [],
+                [],
+                [],
+                [
+                    {
+                        "archive": "JK's Windhelm Outskirts Patch Collection.rar",
+                        "target": "JK's Windhelm Outskirts Patch Collection",
+                        "observe": False,
+                    }
+                ],
+                0,
+            )
+        )
+
+    def test_warning_report_is_skipped_when_no_review_data_exists(self):
+        self.assertFalse(warningReportNeedsWrite([], [], [], [], [], "0"))
 
     def test_fomod_invalid_container_retries_with_native_installer(self):
         self.assertTrue(shouldRetryInvalidInstalledCollectionArchive(True))

@@ -121,6 +121,7 @@ from collection_helpers import (
     shouldUseArchiveDefaultForFomodCompatibility,
     shouldUseCollectionTargetModName,
     snapshotMo2ProfileState,
+    warningReportNeedsWrite,
     shouldDelayTerminalDownloadFailure,
     staleAlreadyStartedAction,
     adaptiveDownloadTailGraceSeconds,
@@ -4817,6 +4818,29 @@ class ShouldUseCollectionTargetModNameTests(unittest.TestCase):
                 manual_install_pass=False,
             )
         )
+
+
+class WarningReportNeedsWriteTests(unittest.TestCase):
+    def test_queued_fomod_recovery_entries_force_report(self):
+        self.assertTrue(
+            warningReportNeedsWrite(
+                [],
+                [],
+                [],
+                [],
+                [
+                    {
+                        "archive": "JK's Windhelm Outskirts Patch Collection.rar",
+                        "target": "JK's Windhelm Outskirts Patch Collection",
+                        "observe": False,
+                    }
+                ],
+                0,
+            )
+        )
+
+    def test_empty_review_data_skips_report(self):
+        self.assertFalse(warningReportNeedsWrite([], [], [], [], [], "0"))
 
 
 class ShouldUseArchiveDefaultForFomodCompatibilityTests(unittest.TestCase):
