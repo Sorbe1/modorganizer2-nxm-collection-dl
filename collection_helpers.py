@@ -3547,6 +3547,42 @@ def suppressedPostInstallErrorReviewEntries(warnings):
     return entries
 
 
+def collectionFlowFailureReport(
+    collection,
+    revision,
+    name,
+    url,
+    message,
+    stage,
+    generated=None,
+):
+    """Return a durable report payload for direct collection flow failures."""
+    message = str(message or "").strip() or "Unknown direct collection flow failure"
+    stage = str(stage or "").strip() or "unknown"
+    return {
+        "collection": collection,
+        "revision": revision,
+        "name": name,
+        "url": str(url or ""),
+        "generated": generated or datetime.now().isoformat(timespec="seconds"),
+        "stage": stage,
+        "message": message,
+        "review_entries": [
+            {
+                "mod": "collection download",
+                "file": "",
+                "reason": f"direct collection flow failed during {stage}: {message}",
+                "category": "collection_flow_failure",
+                "suggested_action": (
+                    "Retry the collection link after reviewing this report; "
+                    "if the failure repeats, use the recorded stage and message "
+                    "to fix the plugin path instead of relying on a transient dialog."
+                ),
+            }
+        ],
+    }
+
+
 def pluginActivationReviewEntries(missing_plugins, source="plugin activation"):
     """Return review entries for plugins that could not be enabled in profile state."""
     entries = []

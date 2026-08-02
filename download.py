@@ -38,6 +38,7 @@ from .collection_helpers import (
     collectionDownloadExpectedSizes,
     collectionExpectedFileNames,
     collectionExpectedNexusKeys,
+    collectionFlowFailureReport,
     collectionLinkCompletionPolicy,
     collectionRecoveryTargets,
     downloadedArchiveNameKeys,
@@ -3708,14 +3709,56 @@ class stepCollectionLinkFlow(QDialog):
         self.setLayout(layout)
         QTimer.singleShot(0, self.start)
 
-    def fail(self, message):
-        qDebug(f"[NXMColDL] Direct collection flow failed: {message}")
-        QMessageBox.critical(self, "Collection Download Failed", message)
+    def write_failure_report(self, message, stage):
+        plugin_instance = getattr(__meta__, "_download_plugin", None)
+        organizer = getattr(plugin_instance, "_organizer", None)
+        if not organizer:
+            return None
+
+        try:
+            log_dir = Path(organizer.basePath()) / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            report_path = (
+                log_dir
+                / (
+                    "nxm-collection-download-failure-"
+                    f"{var.collection}-{var.revision}-{timestamp}.json"
+                )
+            )
+            report = collectionFlowFailureReport(
+                var.collection,
+                var.revision,
+                var.name,
+                self.collection_url,
+                message,
+                stage,
+            )
+            report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            return report_path
+        except OSError as e:
+            qDebug(
+                "[NXMColDL] Failed to write direct collection failure report: "
+                f"{e}"
+            )
+            return None
+
+    def fail(self, message, stage="unknown"):
+        report_path = self.write_failure_report(message, stage)
+        qDebug(
+            "[NXMColDL] Direct collection flow failed: "
+            f"stage={stage}, message={message}, report={report_path}"
+        )
+        display_message = message
+        if report_path:
+            display_message = f"{message}\n\nFailure report:\n{report_path}"
+        self.label.setText(display_message)
+        QMessageBox.critical(self, "Collection Download Failed", display_message)
         self.reject()
 
     def start(self):
         if not applyCollectionAddress(self.collection_url):
-            self.fail("The Nexus collection link was not recognized.")
+            self.fail("The Nexus collection link was not recognized.", "parse_link")
             return
         qDebug(
             "[NXMColDL] Direct collection flow started: "
@@ -3723,13 +3766,19 @@ class stepCollectionLinkFlow(QDialog):
         )
 
         if not populateCollectionInfo():
-            self.fail("Failed to fetch collection information from Nexus Mods.")
+            self.fail(
+                "Failed to fetch collection information from Nexus Mods.",
+                "fetch_collection_info",
+            )
             return
 
         if var.revision is None:
             var.revision = selectLatestRevision()
             if var.revision is None:
-                self.fail("Failed to determine the latest collection revision.")
+                self.fail(
+                    "Failed to determine the latest collection revision.",
+                    "select_revision",
+                )
                 return
             qDebug(
                 f"[NXMColDL] Direct collection selected latest revision: {var.revision}"
@@ -3740,7 +3789,10 @@ class stepCollectionLinkFlow(QDialog):
         )
         mods = fetchModInfo(var.uri)
         if mods is None:
-            self.fail("Failed to fetch collection mod information from Nexus Mods.")
+            self.fail(
+                "Failed to fetch collection mod information from Nexus Mods.",
+                "fetch_mod_info",
+            )
             return
 
         populateCollectionMods(mods)
@@ -3753,7 +3805,7 @@ class stepCollectionLinkFlow(QDialog):
 
         plugin_instance = getattr(__meta__, "_download_plugin", None)
         if not plugin_instance or not getattr(plugin_instance, "_organizer", None):
-            self.fail("Failed to access Mod Organizer.")
+            self.fail("Failed to access Mod Organizer.", "access_organizer")
             return
 
         try:
@@ -3770,7 +3822,7 @@ class stepCollectionLinkFlow(QDialog):
             )
             qDebug(f"[NXMColDL] Collection metadata saved to: {metadata_file}")
         except (ValueError, IOError) as e:
-            self.fail(f"Failed to save collection metadata:\n\n{e}")
+            self.fail(f"Failed to save collection metadata:\n\n{e}", "save_metadata")
             return
 
         if var.chosenExternal and var.externalMods:

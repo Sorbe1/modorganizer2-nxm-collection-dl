@@ -30,6 +30,7 @@ from collection_helpers import (
     collectionExpectedStateFromMetadataFiles,
     collectionInstallPostconditionAudit,
     collectionInstallRoute,
+    collectionFlowFailureReport,
     collectionLinkCompletionPolicy,
     collectionMetadataFiles,
     collectionMetadataFromFile,
@@ -4443,6 +4444,47 @@ class ContentTreeWarningDialogActionTests(unittest.TestCase):
                 [("Ignore", False), ("Cancel", True)],
             )
         )
+
+
+class CollectionFlowFailureReportTests(unittest.TestCase):
+    def test_reports_stage_message_and_review_entry(self):
+        report = collectionFlowFailureReport(
+            "abc123",
+            7,
+            "Example Collection",
+            "nxm://skyrimspecialedition/collections/abc123/revisions/7",
+            "Failed to fetch collection mod information from Nexus Mods.",
+            "fetch_mod_info",
+            generated="2026-08-02T12:00:00",
+        )
+
+        self.assertEqual(report["collection"], "abc123")
+        self.assertEqual(report["revision"], 7)
+        self.assertEqual(report["name"], "Example Collection")
+        self.assertEqual(report["stage"], "fetch_mod_info")
+        self.assertEqual(report["generated"], "2026-08-02T12:00:00")
+        self.assertIn("Failed to fetch", report["message"])
+        self.assertEqual(len(report["review_entries"]), 1)
+        self.assertEqual(
+            report["review_entries"][0]["category"],
+            "collection_flow_failure",
+        )
+        self.assertIn("fetch_mod_info", report["review_entries"][0]["reason"])
+
+    def test_defaults_blank_stage_and_message(self):
+        report = collectionFlowFailureReport(
+            None,
+            None,
+            None,
+            None,
+            "",
+            "",
+            generated="2026-08-02T12:00:00",
+        )
+
+        self.assertEqual(report["stage"], "unknown")
+        self.assertEqual(report["message"], "Unknown direct collection flow failure")
+        self.assertIn("unknown", report["review_entries"][0]["reason"])
 
 
 class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
