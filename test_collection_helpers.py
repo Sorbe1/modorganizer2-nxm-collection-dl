@@ -56,6 +56,7 @@ from collection_helpers import (
     extractHeadlessZipArchive,
     failedInstallReviewCategory,
     failedInstallReviewCategoryCounts,
+    failedInstallReviewCategoryLabel,
     failedInstallReviewEntriesWithCategories,
     fastFinishMetadataRepairKeys,
     fomodDependencyOptionGuideLines,
@@ -5980,6 +5981,20 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
 
         self.assertEqual(categorized[0]["review_category"], "missing_download")
         self.assertNotIn("review_category", entries[0])
+
+    def test_returns_user_facing_category_labels(self):
+        self.assertEqual(
+            failedInstallReviewCategoryLabel("missing_download"),
+            "Missing downloads",
+        )
+        self.assertEqual(
+            failedInstallReviewCategoryLabel("manual_or_review"),
+            "Manual install/review required",
+        )
+        self.assertEqual(
+            failedInstallReviewCategoryLabel("unknown"),
+            "Other failures",
+        )
 
 
 class AutomatedInstallCadenceDefaultsTests(unittest.TestCase):

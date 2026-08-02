@@ -1652,6 +1652,16 @@ def failedInstallReviewCategoryCounts(entries):
     return counts
 
 
+def failedInstallReviewCategoryLabel(category):
+    """Return a user-facing label for a failed/review summary category."""
+    labels = {
+        "missing_download": "Missing downloads",
+        "manual_or_review": "Manual install/review required",
+        "other_failure": "Other failures",
+    }
+    return labels.get(category, "Other failures")
+
+
 def failedInstallReviewEntriesWithCategories(entries):
     """Return failed/review entries with stable review_category values."""
     categorized = []

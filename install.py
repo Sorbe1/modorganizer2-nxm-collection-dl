@@ -96,6 +96,7 @@ from .collection_helpers import (
     pluginRepairFailureReviewEntries,
     preferredCanonicalDownloadArchive,
     failedInstallReviewCategoryCounts,
+    failedInstallReviewCategoryLabel,
     failedInstallReviewEntriesWithCategories,
     quarantineInvalidPayloadModContainers,
     mo2CategoryNameMap,
@@ -1416,11 +1417,13 @@ class stepInstallMods(QDialog):
         if not failed_entries:
             return None
 
+        failed_entries = failedInstallReviewEntriesWithCategories(failed_entries)
         guide_path = (
             self.interfaceLogPath(organizer).parent
             / f"nxm-collection-fomod-guide-{var.collection}-{var.revision}-{timestamp}.md"
         )
         entries = []
+        category_counts = failedInstallReviewCategoryCounts(failed_entries)
         summary = {
             "needs_user_choices": 0,
             "only_safe_singleton_prompts": 0,
@@ -1452,6 +1455,12 @@ class stepInstallMods(QDialog):
             "## Summary",
             "",
             f"- Failed/skipped entries: {len(failed_entries)}",
+            f"- Missing downloads: {category_counts['missing_download']}",
+            (
+                "- Manual install/review required: "
+                f"{category_counts['manual_or_review']}"
+            ),
+            f"- Other failures: {category_counts['other_failure']}",
             f"- Need user choices: {summary['needs_user_choices']}",
             (
                 "- Only safe singleton prompts detected: "
@@ -1466,8 +1475,18 @@ class stepInstallMods(QDialog):
             "## Entries",
         ]
 
-        for entry, guide in entries:
-            lines.extend(self.formatFomodGuideEntry(entry, guide))
+        category_order = ["missing_download", "manual_or_review", "other_failure"]
+        for category in category_order:
+            category_entries = [
+                (entry, guide)
+                for entry, guide in entries
+                if entry.get("review_category") == category
+            ]
+            if not category_entries:
+                continue
+            lines.extend(["", f"**{failedInstallReviewCategoryLabel(category)}**", ""])
+            for entry, guide in category_entries:
+                lines.extend(self.formatFomodGuideEntry(entry, guide))
 
         try:
             with open(guide_path, "w", encoding="utf-8") as guide_file:
