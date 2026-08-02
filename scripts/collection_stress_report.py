@@ -207,6 +207,15 @@ def print_text_report(report):
             print(f"  {', '.join(details)}")
 
 
+def stress_report_is_clean(report):
+    if int(report.get("needs_review_count") or 0):
+        return False
+    profile = report.get("profile_audit")
+    if profile is not None and not profile.get("clean"):
+        return False
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -229,6 +238,14 @@ def main():
     )
     parser.add_argument("--profile", default="Default")
     parser.add_argument("--all-runs", action="store_true")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help=(
+            "Exit non-zero when any collection report needs review or the "
+            "included profile audit is not clean."
+        ),
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -254,7 +271,10 @@ def main():
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print_text_report(report)
+    if args.strict and not stress_report_is_clean(report):
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -141,6 +141,36 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertTrue(result["profile_audit"]["clean"])
             self.assertEqual(result["profile_audit"]["issues"], [])
 
+    def test_strict_gate_accepts_clean_report(self):
+        self.assertTrue(
+            collection_stress_report.stress_report_is_clean(
+                {
+                    "needs_review_count": 0,
+                    "profile_audit": {"clean": True},
+                }
+            )
+        )
+
+    def test_strict_gate_rejects_needs_review_report(self):
+        self.assertFalse(
+            collection_stress_report.stress_report_is_clean(
+                {
+                    "needs_review_count": 1,
+                    "profile_audit": {"clean": True},
+                }
+            )
+        )
+
+    def test_strict_gate_rejects_dirty_profile_audit(self):
+        self.assertFalse(
+            collection_stress_report.stress_report_is_clean(
+                {
+                    "needs_review_count": 0,
+                    "profile_audit": {"clean": False},
+                }
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
