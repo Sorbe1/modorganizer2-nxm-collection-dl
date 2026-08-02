@@ -4577,6 +4577,61 @@ def collectionInstallPostconditionAudit(
     }
 
 
+def _nexusKeyTuple(value):
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        return (int(value[0]), int(value[1]))
+    except (TypeError, ValueError):
+        return None
+
+
+def collectionPostconditionReviewEntries(
+    postcondition_state,
+    entries_by_key,
+    existing_entries=None,
+):
+    """Return collection review entries for failed post-install state checks."""
+    state = postcondition_state or {}
+    entries_by_key = entries_by_key or {}
+    failed_keys = set()
+    for entry in existing_entries or []:
+        key = _nexusKeyTuple((entry.get("mod_id"), entry.get("file_id")))
+        if key is not None:
+            failed_keys.add(key)
+
+    review_entries = []
+
+    def append_entries(nexus_keys, reason):
+        for raw_key in sorted(nexus_keys or []):
+            nexus_key = _nexusKeyTuple(raw_key)
+            if nexus_key is None or nexus_key in failed_keys:
+                continue
+            mod_info = entries_by_key.get(nexus_key)
+            if mod_info is None:
+                continue
+            review_entries.append(
+                {
+                    "mod": mod_info["file"]["mod"]["name"],
+                    "file": mod_info["file"]["name"],
+                    "mod_id": int(nexus_key[0]),
+                    "file_id": int(nexus_key[1]),
+                    "reason": reason,
+                }
+            )
+            failed_keys.add(nexus_key)
+
+    append_entries(
+        state.get("stale_metadata_keys", []),
+        "download metadata was marked installed without a valid installed container",
+    )
+    append_entries(
+        state.get("invalid_payload_keys", []),
+        "installed container has no valid game data",
+    )
+    return review_entries
+
+
 def quarantineInvalidPayloadModContainers(mods_dir, mod_names, quarantine_dir):
     """Move invalid collection containers out of MO2's active mods directory."""
     result = {"moved": [], "missing": [], "failed": []}

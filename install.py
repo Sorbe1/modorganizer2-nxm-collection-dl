@@ -44,6 +44,7 @@ from .collection_helpers import (
     collectionInstallCompletedCount,
     collectionMetadataFromFile,
     collectionInstallRoute,
+    collectionPostconditionReviewEntries,
     collectionPriorityOrderNeedsRepair,
     collectionPluginNamesFromModDirs,
     coerceBoolSetting,
@@ -5063,49 +5064,14 @@ class stepInstallMods(QDialog):
             if nexus_key is not None and nexus_key not in entries_by_key:
                 entries_by_key[nexus_key] = mod_info
 
-        def append_postcondition_review_entries(nexus_keys, reason):
-            failed_keys = {
-                (int(entry["mod_id"]), int(entry["file_id"]))
-                for entry in failed_entries
-                if entry.get("mod_id") is not None and entry.get("file_id") is not None
-            }
-            for nexus_key in sorted(set(nexus_keys) - failed_keys):
-                mod_info = entries_by_key.get(nexus_key)
-                if mod_info is None:
-                    continue
-                failed_entries.append(
-                    {
-                        "mod": mod_info["file"]["mod"]["name"],
-                        "file": mod_info["file"]["name"],
-                        "mod_id": int(nexus_key[0]),
-                        "file_id": int(nexus_key[1]),
-                        "reason": reason,
-                    }
-                )
-                failed_keys.add(nexus_key)
-
-        stale_metadata_keys = {
-            tuple(key)
-            for key in postcondition_state.get("stale_metadata_keys", [])
-            if isinstance(key, (list, tuple)) and len(key) == 2
-        }
-        append_postcondition_review_entries(
-            stale_metadata_keys,
-            "download metadata was marked installed without a valid installed container",
+        failed_entries.extend(
+            collectionPostconditionReviewEntries(
+                postcondition_state, entries_by_key, existing_entries=failed_entries
+            )
         )
 
         invalid_payload_mods = set(postcondition_state.get("invalid_payload_mods", []))
         if invalid_payload_mods:
-            invalid_payload_keys = {
-                tuple(key)
-                for key in postcondition_state.get("invalid_payload_keys", [])
-                if isinstance(key, (list, tuple)) and len(key) == 2
-            }
-            append_postcondition_review_entries(
-                invalid_payload_keys,
-                "installed container has no valid game data",
-            )
-
             mods_to_activate = [
                 name for name in mods_to_activate if name not in invalid_payload_mods
             ]

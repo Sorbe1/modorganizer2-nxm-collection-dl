@@ -32,6 +32,7 @@ from collection_helpers import (
     collectionLinkCompletionPolicy,
     collectionMetadataFiles,
     collectionMetadataFromFile,
+    collectionPostconditionReviewEntries,
     collectionPriorityOrderNeedsRepair,
     collectionRecoveryTargets,
     compareMo2ProfileStateSnapshots,
@@ -1334,6 +1335,50 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
             )
 
             self.assertTrue(result["ok"])
+
+    def test_postcondition_review_entries_report_stale_metadata(self):
+        entries = collectionPostconditionReviewEntries(
+            {"stale_metadata_keys": [(123, 456)]},
+            {
+                (123, 456): {
+                    "file": {"name": "Example Archive", "mod": {"name": "Example Mod"}}
+                }
+            },
+        )
+
+        self.assertEqual(
+            entries,
+            [
+                {
+                    "mod": "Example Mod",
+                    "file": "Example Archive",
+                    "mod_id": 123,
+                    "file_id": 456,
+                    "reason": (
+                        "download metadata was marked installed without a valid "
+                        "installed container"
+                    ),
+                }
+            ],
+        )
+
+    def test_postcondition_review_entries_deduplicate_invalid_payloads(self):
+        entries = collectionPostconditionReviewEntries(
+            {"invalid_payload_keys": [(123, 456), (200, 300)]},
+            {
+                (123, 456): {
+                    "file": {"name": "Broken Archive", "mod": {"name": "Broken Mod"}}
+                },
+                (200, 300): {
+                    "file": {"name": "Other Archive", "mod": {"name": "Other Mod"}}
+                },
+            },
+            existing_entries=[{"mod_id": 123, "file_id": 456}],
+        )
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["mod"], "Other Mod")
+        self.assertEqual(entries[0]["reason"], "installed container has no valid game data")
 
     def test_reads_installed_records_from_mo2_metadata(self):
         with TemporaryDirectory() as tmp:
