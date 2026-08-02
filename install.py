@@ -60,6 +60,7 @@ from .collection_helpers import (
     fastFinishMetadataRepairKeys,
     EMPTY_INSTALLER_OUTPUT_REASON,
     EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON,
+    fomodDependencyOptionGuideLines,
     headlessArchiveInstallLayout,
     headlessFomodDependencyInstallLayout,
     gameRootFileEvidenceForCollectionEntry,
@@ -2424,27 +2425,7 @@ class stepInstallMods(QDialog):
                 candidates.append(f"`{option}` [{plugin_type}, score {score}]")
             if candidates:
                 lines.append("- Matching FOMOD options: " + ", ".join(candidates))
-        dependency_option_groups = layout_plan.get("dependency_option_groups") or []
-        for group in dependency_option_groups:
-            group_name = safeDisplayText(group.get("group"))
-            group_type = safeDisplayText(group.get("type"))
-            lines.append(
-                "- FOMOD dependency group not auto-selected: "
-                f"`{group_name}` ({group_type})"
-            )
-            options = []
-            for option in group.get("options") or []:
-                option_name = safeDisplayText(option.get("option"))
-                plugin_type = safeDisplayText(option.get("plugin_type"))
-                dependencies = []
-                for dependency in option.get("dependencies") or []:
-                    dep_file = safeDisplayText(dependency.get("file"))
-                    dep_state = safeDisplayText(dependency.get("state"))
-                    dependencies.append(f"{dep_file}={dep_state}")
-                dependency_text = ", ".join(dependencies) or "no declared dependencies"
-                options.append(f"`{option_name}` [{plugin_type}; {dependency_text}]")
-            if options:
-                lines.append("- Dependency options: " + "; ".join(options))
+        lines.extend(fomodDependencyOptionGuideLines(layout_plan))
         if entry.get("missing_masters"):
             lines.append(
                 "- Missing masters: "

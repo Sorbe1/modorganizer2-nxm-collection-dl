@@ -2334,6 +2334,31 @@ def _fomodDependencyCandidateDiagnostic(
     }
 
 
+def fomodDependencyOptionGuideLines(layout_plan):
+    lines = []
+    for group in (layout_plan or {}).get("dependency_option_groups") or []:
+        group_name = safeDisplayText(group.get("group"))
+        group_type = safeDisplayText(group.get("type"))
+        lines.append(
+            "- FOMOD dependency group not auto-selected: "
+            f"`{group_name}` ({group_type})"
+        )
+        options = []
+        for option in group.get("options") or []:
+            option_name = safeDisplayText(option.get("option"))
+            plugin_type = safeDisplayText(option.get("plugin_type"))
+            dependencies = []
+            for dependency in option.get("dependencies") or []:
+                dep_file = safeDisplayText(dependency.get("file"))
+                dep_state = safeDisplayText(dependency.get("state"))
+                dependencies.append(f"{dep_file}={dep_state}")
+            dependency_text = ", ".join(dependencies) or "no declared dependencies"
+            options.append(f"`{option_name}` [{plugin_type}; {dependency_text}]")
+        if options:
+            lines.append("- Dependency options: " + "; ".join(options))
+    return lines
+
+
 def headlessFomodDependencyInstallLayout(
     module_config_xml, module_config_path, member_names, evidence_names
 ):

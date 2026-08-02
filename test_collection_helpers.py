@@ -54,6 +54,7 @@ from collection_helpers import (
     downloadedFileKeys,
     extractHeadlessZipArchive,
     fastFinishMetadataRepairKeys,
+    fomodDependencyOptionGuideLines,
     fomodManualChoiceGuide,
     gameRootFileEvidenceForCollectionEntry,
     headlessFomodDependencyInstallLayout,
@@ -2979,6 +2980,39 @@ class ZipArchiveMemberPathsTests(unittest.TestCase):
                 zipArchiveMemberPaths(archive_path),
                 ["fomod/ModuleConfig.xml", "Folder/Nested.esp"],
             )
+
+
+class FomodDependencyOptionGuideLinesTests(unittest.TestCase):
+    def test_formats_skipped_dependency_options(self):
+        lines = fomodDependencyOptionGuideLines(
+            {
+                "dependency_option_groups": [
+                    {
+                        "group": "Optional Patches",
+                        "type": "SelectAny",
+                        "options": [
+                            {
+                                "option": "Bruma Patch",
+                                "plugin_type": "notusable",
+                                "dependencies": [
+                                    {"file": "BSHeartland.esm", "state": "Active"}
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(
+            lines,
+            [
+                "- FOMOD dependency group not auto-selected: "
+                "`Optional Patches` (SelectAny)",
+                "- Dependency options: "
+                "`Bruma Patch` [notusable; BSHeartland.esm=Active]",
+            ],
+        )
 
 
 class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
