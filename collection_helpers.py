@@ -5368,7 +5368,7 @@ def _mo2ModlistEntryName(line):
     stripped = str(line or "").strip()
     if not stripped or stripped.startswith("#"):
         return ""
-    if stripped[0] in "+-":
+    if stripped[0] in "+-*":
         return stripped[1:]
     return stripped
 
