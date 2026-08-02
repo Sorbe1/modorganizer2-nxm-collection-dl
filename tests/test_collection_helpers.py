@@ -3498,6 +3498,10 @@ class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
         self.assertEqual(entries[0]["mod"], "post-install activation")
         self.assertEqual(entries[0]["file"], "Missing.esp")
         self.assertEqual(entries[0]["missing_plugins"], ["Missing.esp"])
+        self.assertEqual(
+            entries[0]["dependency_issues"],
+            [{"type": "missing_plugin", "name": "Missing.esp"}],
+        )
         self.assertIn("install the mod", entries[0]["suggested_action"])
         self.assertIn("Plugin not found: Missing.esp", entries[0]["reason"])
 
@@ -3640,6 +3644,9 @@ class PluginActivationReviewEntriesTests(unittest.TestCase):
                     "file_id": "unknown",
                     "archive": "",
                     "missing_plugins": ["Missing.esp"],
+                    "dependency_issues": [
+                        {"type": "missing_plugin", "name": "Missing.esp"}
+                    ],
                     "suggested_action": (
                         "install the mod or optional patch source that provides "
                         "Missing.esp; disable the dependent patch if that plugin "
@@ -3755,6 +3762,13 @@ class PluginActivationReviewEntriesTests(unittest.TestCase):
         self.assertEqual(entries[0]["file"], "Patch.esp")
         self.assertEqual(entries[0]["missing_masters"], ["Missing.esm"])
         self.assertEqual(entries[0]["inactive_masters"], ["Inactive.esm"])
+        self.assertEqual(
+            entries[0]["dependency_issues"],
+            [
+                {"type": "missing_master", "name": "Missing.esm"},
+                {"type": "inactive_master", "name": "Inactive.esm"},
+            ],
+        )
         self.assertIn("enable Patch.esp", entries[0]["suggested_action"])
         self.assertIn("install the mod", entries[0]["suggested_action"])
         self.assertIn("enable Inactive.esm", entries[0]["suggested_action"])

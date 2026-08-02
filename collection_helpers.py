@@ -2855,6 +2855,10 @@ def suppressedPostInstallErrorReviewEntries(warnings):
                 "file_id": "unknown",
                 "archive": "",
                 "missing_plugins": missing_plugins,
+                "dependency_issues": [
+                    {"type": "missing_plugin", "name": plugin_name}
+                    for plugin_name in missing_plugins
+                ],
                 "suggested_action": suggested_action,
                 "reason": reason,
             }
@@ -2883,6 +2887,9 @@ def pluginActivationReviewEntries(missing_plugins, source="plugin activation"):
                 "file_id": "unknown",
                 "archive": "",
                 "missing_plugins": [plugin_name],
+                "dependency_issues": [
+                    {"type": "missing_plugin", "name": plugin_name}
+                ],
                 "suggested_action": (
                     "install the mod or optional patch source that provides "
                     f"{plugin_name}; disable the dependent patch if that plugin "
@@ -3023,6 +3030,12 @@ def pluginMasterDependencyReviewEntries(
                 "archive": "",
                 "missing_masters": missing,
                 "inactive_masters": inactive,
+                "dependency_issues": [
+                    {"type": "missing_master", "name": name} for name in missing
+                ]
+                + [
+                    {"type": "inactive_master", "name": name} for name in inactive
+                ],
                 "suggested_action": "; ".join(recommendation_parts),
                 "reason": (
                     "plugin has unresolved master dependencies"
