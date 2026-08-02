@@ -114,6 +114,7 @@ from collection_helpers import (
     repairMo2BaseModlistOrder,
     repairPluginEnabledStates,
     repairSingleWrapperPayload,
+    restoreMo2ProfileStateSnapshot,
     recordCollectionLinkLaunch,
     retryAfterSeconds,
     quotaLimitMessage,
@@ -487,6 +488,63 @@ class ProfileSnapshotTests(unittest.TestCase):
                 saved_manifest["files"]["modlist.txt"]["sha256"],
                 manifest["files"]["modlist.txt"]["sha256"],
             )
+
+    def test_restores_profile_snapshot_after_verifying_hashes(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile = base / "profiles" / "Default"
+            profile.mkdir(parents=True)
+            (profile / "modlist.txt").write_text("+A\n-B\n", encoding="utf-8")
+            (profile / "plugins.txt").write_text("*A.esp\n", encoding="utf-8")
+            (profile / "loadorder.txt").write_text("A.esp\n", encoding="utf-8")
+            snapshot_dir, _manifest = snapshotMo2ProfileState(
+                base_path=base,
+                profile_name="Default",
+                label="known good",
+                timestamp="20260802-120000",
+            )
+
+            (profile / "modlist.txt").write_text("-A\n+B\n", encoding="utf-8")
+            (profile / "plugins.txt").write_text("# broken\n", encoding="utf-8")
+
+            result = restoreMo2ProfileStateSnapshot(
+                snapshot_dir,
+                snapshot_root=base / "restore-backups",
+                backup_label="before restore",
+            )
+
+            self.assertEqual(
+                (profile / "modlist.txt").read_text(encoding="utf-8"),
+                "+A\n-B\n",
+            )
+            self.assertEqual(
+                sorted(result["restored"]),
+                ["loadorder.txt", "modlist.txt", "plugins.txt"],
+            )
+            backup_dir = Path(result["backup_dir"])
+            self.assertEqual(
+                (backup_dir / "modlist.txt").read_text(encoding="utf-8"),
+                "-A\n+B\n",
+            )
+
+    def test_restore_rejects_tampered_snapshot_file(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile = base / "profiles" / "Default"
+            profile.mkdir(parents=True)
+            (profile / "modlist.txt").write_text("+A\n", encoding="utf-8")
+            (profile / "plugins.txt").write_text("*A.esp\n", encoding="utf-8")
+            (profile / "loadorder.txt").write_text("A.esp\n", encoding="utf-8")
+            snapshot_dir, _manifest = snapshotMo2ProfileState(
+                base_path=base,
+                profile_name="Default",
+                label="known good",
+                timestamp="20260802-120000",
+            )
+            (snapshot_dir / "modlist.txt").write_text("+tampered\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "hash mismatch"):
+                restoreMo2ProfileStateSnapshot(snapshot_dir)
 
 
 class InstalledCollectionMetadataRepairTests(unittest.TestCase):

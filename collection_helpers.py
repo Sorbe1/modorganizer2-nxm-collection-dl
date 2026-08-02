@@ -256,6 +256,73 @@ def snapshotMo2ProfileState(
     return snapshot_dir, manifest
 
 
+def restoreMo2ProfileStateSnapshot(
+    snapshot_dir,
+    profile_path=None,
+    snapshot_root=None,
+    backup_label="pre-restore",
+):
+    """Restore MO2 profile order files from a verified snapshot manifest."""
+    snapshot_dir = Path(snapshot_dir)
+    manifest_path = snapshot_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Snapshot manifest not found: {manifest_path}")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if profile_path is None:
+        profile_path = manifest.get("profile_path")
+    if not profile_path:
+        raise ValueError("profile_path is required when manifest has none")
+
+    profile_path = Path(profile_path)
+    if not profile_path.exists():
+        raise FileNotFoundError(f"MO2 profile not found: {profile_path}")
+
+    file_manifest = manifest.get("files") or {}
+    verified = []
+    restored = []
+    skipped = []
+    for file_name in MO2_PROFILE_STATE_FILES:
+        stats = file_manifest.get(file_name) or {}
+        if not stats.get("exists"):
+            skipped.append(file_name)
+            continue
+
+        source = snapshot_dir / file_name
+        if not source.exists():
+            raise FileNotFoundError(f"Snapshot file not found: {source}")
+
+        data = source.read_bytes()
+        expected_hash = stats.get("sha256")
+        if expected_hash and hashlib.sha256(data).hexdigest() != expected_hash:
+            raise ValueError(f"Snapshot file hash mismatch: {file_name}")
+        expected_size = stats.get("bytes")
+        if expected_size is not None and len(data) != expected_size:
+            raise ValueError(f"Snapshot file size mismatch: {file_name}")
+        verified.append(file_name)
+
+    backup_dir, backup_manifest = snapshotMo2ProfileState(
+        profile_path=profile_path,
+        profile_name=manifest.get("profile") or profile_path.name,
+        label=backup_label,
+        snapshot_root=snapshot_root,
+    )
+
+    for file_name in verified:
+        shutil.copy2(snapshot_dir / file_name, profile_path / file_name)
+        restored.append(file_name)
+
+    return {
+        "snapshot_dir": str(snapshot_dir),
+        "profile_path": str(profile_path),
+        "backup_dir": str(backup_dir),
+        "backup_manifest": backup_manifest,
+        "restored": restored,
+        "skipped": skipped,
+        "verified": verified,
+    }
+
+
 def backgroundWorkerSubprocessKwargs():
     """Return subprocess options safe for long-lived helper workers from MO2."""
     kwargs = archiveInspectionSubprocessKwargs(
