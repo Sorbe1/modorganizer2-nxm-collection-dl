@@ -1,3 +1,4 @@
+import collections
 import hashlib
 import json
 import math
@@ -5528,6 +5529,105 @@ def mo2ModlistOrderingDiagnostics(modlist_text, max_entries=50, mods_path=None):
                 return diagnostics
 
     return diagnostics
+
+
+def repairMo2ModlistOrderingDiagnostics(
+    modlist_path,
+    mods_path=None,
+    backup_dir=None,
+    max_entries=50,
+):
+    """Move detected patch/variant entries immediately after their targets."""
+    result = {
+        "checked": 0,
+        "moved": 0,
+        "groups": 0,
+        "missing": [],
+        "failed": 0,
+    }
+    modlist_path = Path(modlist_path)
+    try:
+        lines = modlist_path.read_text(encoding="utf-8", errors="replace").splitlines(
+            keepends=True
+        )
+    except OSError:
+        result["failed"] += 1
+        return result
+
+    modlist_text = "".join(lines)
+    diagnostics = mo2ModlistOrderingDiagnostics(
+        modlist_text,
+        max_entries=max_entries,
+        mods_path=mods_path,
+    )
+    result["checked"] = len(diagnostics)
+    if not diagnostics:
+        return result
+
+    groups = collections.OrderedDict()
+    for diagnostic in diagnostics:
+        mod_name = diagnostic.get("mod")
+        target_name = diagnostic.get("target")
+        if not mod_name or not target_name:
+            continue
+        grouped = groups.setdefault(target_name, [])
+        if mod_name not in grouped:
+            grouped.append(mod_name)
+    result["groups"] = len(groups)
+
+    header, body = splitMo2ModlistHeader(lines)
+    move_names = {name for names in groups.values() for name in names}
+    line_by_name = {}
+    kept = []
+    for line in body:
+        name = _mo2ModlistEntryName(line)
+        if name in move_names:
+            line_by_name[name] = line
+            continue
+        kept.append(line)
+
+    moved = []
+    missing = []
+    for target_name, mod_names in groups.items():
+        target_index = None
+        for index, line in enumerate(kept):
+            if _mo2ModlistEntryName(line) == target_name:
+                target_index = index
+                break
+        if target_index is None:
+            missing.append(target_name)
+            continue
+
+        insert = []
+        for mod_name in mod_names:
+            line = line_by_name.get(mod_name)
+            if line is None:
+                missing.append(mod_name)
+                continue
+            insert.append(line)
+            moved.append(mod_name)
+        if insert:
+            kept[target_index + 1 : target_index + 1] = insert
+
+    result["moved"] = len(moved)
+    result["missing"] = sorted(missing)
+    rewritten = header + kept
+    if rewritten == lines:
+        return result
+
+    if backup_dir is not None:
+        try:
+            _backupModlistFile(modlist_path, backup_dir)
+        except OSError:
+            result["failed"] += 1
+            return result
+
+    try:
+        modlist_path.write_text("".join(rewritten), encoding="utf-8")
+    except OSError:
+        result["failed"] += 1
+
+    return result
 
 
 def mo2BaseModlistOrderNeedsRepair(modlist_text):
