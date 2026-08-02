@@ -111,6 +111,7 @@ from .collection_helpers import (
     shouldAutoCloseInstallSummary,
     shouldPassTargetNameToInstallMod,
     shouldUseArchiveDefaultForFomodCompatibility,
+    shouldRetryInvalidInstalledCollectionArchive,
     snapshotMo2ProfileState,
     splitQueuedFomodRecoveryEntries,
     steamGameRootFromMo2BasePath,
@@ -2801,13 +2802,19 @@ class stepInstallMods(QDialog):
                 INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"],
             )
             if invalid_installed_name:
-                fomod_state = True
-            if (
+                fomod_archive_cache = context.setdefault("fomod_archive_cache", {})
+                archive_key = str(install_source_path)
+                if archive_key not in fomod_archive_cache:
+                    fomod_archive_cache[archive_key] = self.archiveHasFomodInstaller(
+                        install_source_path,
+                        organizer=organizer,
+                    )
+                fomod_state = fomod_archive_cache[archive_key]
+            elif (
                 context["separate_file_installs"]
                 and not manual_install_pass
                 and not normal_dialog_retry_pass
                 and auto_advance_fomod_defaults
-                and not invalid_installed_name
             ):
                 fomod_archive_cache = context.setdefault("fomod_archive_cache", {})
                 archive_key = str(install_source_path)
@@ -2950,6 +2957,30 @@ class stepInstallMods(QDialog):
                         counts["missing"] += 1
                         plan.append(entry)
                         continue
+
+            if invalid_installed_name and not shouldRetryInvalidInstalledCollectionArchive(
+                fomod_state,
+                headless_archive_layout,
+            ):
+                entry.update(
+                    {
+                        "status": "failed",
+                        "download_path": download_path,
+                        "install_source_path": install_source_path,
+                        "source_note": source_note,
+                        "reason": (
+                            "installed container has no usable payload; archive "
+                            "needs manual install or content-tree review"
+                        ),
+                        "headless_archive_layout": headless_archive_layout,
+                        "replacing_invalid_installed_name": invalid_installed_name,
+                        "fomod_state": fomod_state,
+                    }
+                )
+                counts["missing"] += 1
+                self.markDownloadedOnlyMetadata(context, install_key)
+                plan.append(entry)
+                continue
 
             entry.update(
                 {

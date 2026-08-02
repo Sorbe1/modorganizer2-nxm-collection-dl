@@ -4582,6 +4582,17 @@ class InstallRuntimeSourceTests(unittest.TestCase):
         self.assertIn("needs manual install", plan_source)
         self.assertNotIn("non-empty invalid kept installed", plan_source)
 
+    def test_empty_invalid_plan_entries_are_not_forced_to_fomod(self):
+        source = self.install_source()
+        plan_source = source.split("def prepareInstallPlan(", 1)[1].split(
+            "\n    def fastFinishInstallPlan(", 1
+        )[0]
+
+        self.assertNotIn("if invalid_installed_name:\n                fomod_state = True", plan_source)
+        self.assertIn("self.archiveHasFomodInstaller(", plan_source)
+        self.assertIn("shouldRetryInvalidInstalledCollectionArchive", plan_source)
+        self.assertIn("needs manual install or content-tree review", plan_source)
+
     def test_invalid_payload_metadata_repairs_are_reported_separately(self):
         source = self.install_source()
 
