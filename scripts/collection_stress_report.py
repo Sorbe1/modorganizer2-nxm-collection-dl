@@ -182,6 +182,10 @@ def summarize_stress_totals(summaries):
     failed_categories = {
         "missing_download": 0,
         "duplicate_container": 0,
+        "native_worker_timeout": 0,
+        "ambiguous_archive_layout": 0,
+        "fomod_choices": 0,
+        "empty_installer_output": 0,
         "manual_or_review": 0,
         "other_failure": 0,
     }

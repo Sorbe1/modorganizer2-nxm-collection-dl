@@ -106,7 +106,11 @@ class CollectionStressReportTests(unittest.TestCase):
                 {
                     "missing_download": 1,
                     "duplicate_container": 0,
-                    "manual_or_review": 1,
+                    "native_worker_timeout": 0,
+                    "ambiguous_archive_layout": 1,
+                    "fomod_choices": 0,
+                    "empty_installer_output": 0,
+                    "manual_or_review": 0,
                     "other_failure": 1,
                 },
             )
@@ -121,7 +125,7 @@ class CollectionStressReportTests(unittest.TestCase):
                     {
                         "mod": "Manual",
                         "reason": "ambiguous archive layout",
-                        "review_category": "manual_or_review",
+                        "review_category": "ambiguous_archive_layout",
                     },
                     {
                         "mod": "Other",
@@ -317,7 +321,11 @@ class CollectionStressReportTests(unittest.TestCase):
                 {
                     "missing_download": 1,
                     "duplicate_container": 0,
-                    "manual_or_review": 1,
+                    "native_worker_timeout": 0,
+                    "ambiguous_archive_layout": 1,
+                    "fomod_choices": 0,
+                    "empty_installer_output": 0,
+                    "manual_or_review": 0,
                     "other_failure": 1,
                 },
             )

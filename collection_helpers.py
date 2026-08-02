@@ -2199,6 +2199,19 @@ def failedInstallReviewCategory(reason):
     text = str(reason or "").casefold()
     if "duplicate mo2 mod container" in text:
         return "duplicate_container"
+    if "native archive worker timed out" in text:
+        return "native_worker_timeout"
+    if "ambiguous archive layout" in text:
+        return "ambiguous_archive_layout"
+    if (
+        "fomod choices required" in text
+        or "no fomod options matched" in text
+        or "fomod contains unresolved required choices" in text
+        or "ambiguous fomod dependency choices" in text
+    ):
+        return "fomod_choices"
+    if "empty mod container" in text or "installer output was empty" in text:
+        return "empty_installer_output"
     if (
         "not found in downloads" in text
         or "archive is missing" in text
@@ -2209,10 +2222,8 @@ def failedInstallReviewCategory(reason):
         "manual " in text
         or "needs manual install" in text
         or "content-tree review" in text
-        or "fomod xml parse error" in text
-        or "fomod choices required" in text
-        or "ambiguous archive layout" in text
         or "invalid mo2 game data" in text
+        or "fomod xml parse error" in text
     ):
         return "manual_or_review"
     return "other_failure"
@@ -2223,6 +2234,10 @@ def failedInstallReviewCategoryCounts(entries):
     counts = {
         "missing_download": 0,
         "duplicate_container": 0,
+        "native_worker_timeout": 0,
+        "ambiguous_archive_layout": 0,
+        "fomod_choices": 0,
+        "empty_installer_output": 0,
         "manual_or_review": 0,
         "other_failure": 0,
     }
@@ -2237,6 +2252,10 @@ def failedInstallReviewCategoryLabel(category):
     labels = {
         "missing_download": "Missing downloads",
         "duplicate_container": "Duplicate MO2 mod containers",
+        "native_worker_timeout": "Native worker timeouts",
+        "ambiguous_archive_layout": "Ambiguous archive layouts",
+        "fomod_choices": "FOMOD choices required",
+        "empty_installer_output": "Empty installer output",
         "manual_or_review": "Manual install/review required",
         "other_failure": "Other failures",
     }

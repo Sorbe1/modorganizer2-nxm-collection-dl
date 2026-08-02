@@ -7,9 +7,13 @@
       "collection": "8vdyr1",
       "download_metadata_review": false,
       "failed_categories": {
+        "ambiguous_archive_layout": 0,
         "duplicate_container": 2,
+        "empty_installer_output": 0,
+        "fomod_choices": 0,
         "manual_or_review": 0,
         "missing_download": 0,
+        "native_worker_timeout": 0,
         "other_failure": 0
       },
       "failed_count": 2,
@@ -48,9 +52,13 @@
       "collection": "xxsqm4",
       "download_metadata_review": false,
       "failed_categories": {
+        "ambiguous_archive_layout": 0,
         "duplicate_container": 0,
-        "manual_or_review": 1,
+        "empty_installer_output": 0,
+        "fomod_choices": 0,
+        "manual_or_review": 0,
         "missing_download": 0,
+        "native_worker_timeout": 1,
         "other_failure": 0
       },
       "failed_count": 1,
@@ -59,7 +67,7 @@
           "file": "Quest Journal Fixes - FOMOD",
           "mod": "Quest Journal Fix for SkyUI",
           "reason": "manual archive layout: Native archive worker timed out; start scripts/native_archive_worker.py for headless archive installs.",
-          "review_category": "manual_or_review"
+          "review_category": "native_worker_timeout"
         }
       ],
       "generated": "2026-07-30T00:58:44",
@@ -81,9 +89,13 @@
       "collection": "egtcmf",
       "download_metadata_review": false,
       "failed_categories": {
+        "ambiguous_archive_layout": 1,
         "duplicate_container": 0,
-        "manual_or_review": 1,
+        "empty_installer_output": 0,
+        "fomod_choices": 0,
+        "manual_or_review": 0,
         "missing_download": 0,
+        "native_worker_timeout": 0,
         "other_failure": 0
       },
       "failed_count": 1,
@@ -92,7 +104,7 @@
           "file": "Loadscreenart Giant",
           "mod": "New Female Giant",
           "reason": "manual archive layout: ambiguous archive layout",
-          "review_category": "manual_or_review"
+          "review_category": "ambiguous_archive_layout"
         }
       ],
       "generated": "2026-07-30T06:35:50",
@@ -114,9 +126,13 @@
       "collection": "4vz5sn",
       "download_metadata_review": false,
       "failed_categories": {
+        "ambiguous_archive_layout": 0,
         "duplicate_container": 0,
-        "manual_or_review": 1,
+        "empty_installer_output": 0,
+        "fomod_choices": 1,
+        "manual_or_review": 0,
         "missing_download": 0,
+        "native_worker_timeout": 0,
         "other_failure": 0
       },
       "failed_count": 1,
@@ -125,7 +141,7 @@
           "file": "NAT - TrueStorms Merged Compatibility",
           "mod": "NAT - TrueStorms Merged Compatibility SSE",
           "reason": "manual FOMOD choices required: no FOMOD options matched installed profile evidence",
-          "review_category": "manual_or_review"
+          "review_category": "fomod_choices"
         }
       ],
       "generated": "2026-07-30T16:07:52",
@@ -147,9 +163,13 @@
       "collection": "sklk3h",
       "download_metadata_review": false,
       "failed_categories": {
+        "ambiguous_archive_layout": 0,
         "duplicate_container": 0,
+        "empty_installer_output": 0,
+        "fomod_choices": 0,
         "manual_or_review": 0,
         "missing_download": 0,
+        "native_worker_timeout": 0,
         "other_failure": 0
       },
       "failed_count": 0,
@@ -173,9 +193,13 @@
       "collection": "otpzzr",
       "download_metadata_review": false,
       "failed_categories": {
+        "ambiguous_archive_layout": 1,
         "duplicate_container": 0,
-        "manual_or_review": 2,
+        "empty_installer_output": 1,
+        "fomod_choices": 0,
+        "manual_or_review": 0,
         "missing_download": 0,
+        "native_worker_timeout": 0,
         "other_failure": 0
       },
       "failed_count": 2,
@@ -184,14 +208,14 @@
           "file": "1_Vilja in Skyrim version 4.3",
           "mod": "Vilja in Skyrim",
           "reason": "manual archive layout: ambiguous archive layout",
-          "review_category": "manual_or_review"
+          "review_category": "ambiguous_archive_layout"
         },
         {
           "archive": "C:\\users\\steamuser\\AppData\\Local\\ModOrganizer\\Skyrim Special Edition - Derp\\downloads\\Northgirl Armor 3BA-53857-2-0a-1669574939.7z",
           "file": "Northgirl Armor 3BA",
           "mod": "Northgirl Armor Neko Edition - 3BA - BHUNP - CBBE",
           "reason": "installer completed but produced an empty mod container; review FOMOD/manual choices",
-          "review_category": "manual_or_review"
+          "review_category": "empty_installer_output"
         }
       ],
       "generated": "2026-07-31T02:04:56",
@@ -320,9 +344,13 @@
     "add_collection_recovery_count": 10,
     "download_metadata_review_count": 0,
     "failed_categories": {
+      "ambiguous_archive_layout": 2,
       "duplicate_container": 2,
-      "manual_or_review": 5,
+      "empty_installer_output": 1,
+      "fomod_choices": 1,
+      "manual_or_review": 0,
       "missing_download": 0,
+      "native_worker_timeout": 1,
       "other_failure": 0
     },
     "failed_count": 7,

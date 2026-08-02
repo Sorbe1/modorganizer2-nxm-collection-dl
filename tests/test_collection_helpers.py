@@ -6460,8 +6460,6 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
 
     def test_classifies_manual_and_review_reasons(self):
         reasons = [
-            "manual archive layout: ambiguous archive layout",
-            "manual FOMOD choices required: pick one",
             "FOMOD XML parse error: not well-formed (invalid token)",
             "installed container has no usable payload; archive needs manual install or content-tree review",
             "installed container has no valid game data; source archive needs manual install",
@@ -6472,6 +6470,34 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
             {"manual_or_review"},
         )
 
+    def test_classifies_specific_manual_review_reasons(self):
+        self.assertEqual(
+            failedInstallReviewCategory("manual archive layout: ambiguous archive layout"),
+            "ambiguous_archive_layout",
+        )
+        self.assertEqual(
+            failedInstallReviewCategory(
+                "manual archive layout: Native archive worker timed out; start scripts/native_archive_worker.py"
+            ),
+            "native_worker_timeout",
+        )
+        self.assertEqual(
+            failedInstallReviewCategory("manual FOMOD choices required: pick one"),
+            "fomod_choices",
+        )
+        self.assertEqual(
+            failedInstallReviewCategory(
+                "manual FOMOD choices required: no FOMOD options matched installed profile evidence"
+            ),
+            "fomod_choices",
+        )
+        self.assertEqual(
+            failedInstallReviewCategory(
+                "installer completed but produced an empty mod container; review FOMOD/manual choices"
+            ),
+            "empty_installer_output",
+        )
+
     def test_counts_review_categories(self):
         counts = failedInstallReviewCategoryCounts(
             [
@@ -6480,6 +6506,9 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
                     "reason": "duplicate MO2 mod container for archive-default FOMOD install"
                 },
                 {"reason": "manual archive layout: ambiguous archive layout"},
+                {"reason": "manual archive layout: Native archive worker timed out"},
+                {"reason": "manual FOMOD choices required: pick one"},
+                {"reason": "installer completed but produced an empty mod container"},
                 {"reason": "unexpected preflight failure"},
             ]
         )
@@ -6489,7 +6518,11 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
             {
                 "missing_download": 1,
                 "duplicate_container": 1,
-                "manual_or_review": 1,
+                "native_worker_timeout": 1,
+                "ambiguous_archive_layout": 1,
+                "fomod_choices": 1,
+                "empty_installer_output": 1,
+                "manual_or_review": 0,
                 "other_failure": 1,
             },
         )
@@ -6510,6 +6543,22 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
         self.assertEqual(
             failedInstallReviewCategoryLabel("duplicate_container"),
             "Duplicate MO2 mod containers",
+        )
+        self.assertEqual(
+            failedInstallReviewCategoryLabel("native_worker_timeout"),
+            "Native worker timeouts",
+        )
+        self.assertEqual(
+            failedInstallReviewCategoryLabel("ambiguous_archive_layout"),
+            "Ambiguous archive layouts",
+        )
+        self.assertEqual(
+            failedInstallReviewCategoryLabel("fomod_choices"),
+            "FOMOD choices required",
+        )
+        self.assertEqual(
+            failedInstallReviewCategoryLabel("empty_installer_output"),
+            "Empty installer output",
         )
         self.assertEqual(
             failedInstallReviewCategoryLabel("manual_or_review"),
