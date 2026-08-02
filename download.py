@@ -1473,6 +1473,20 @@ class stepDownloadProgress(QDialog):
         keys.update(key for key in self.already_started_keys if key in pending_keys)
         return keys
 
+    def stalled_queue_key_progress(self, keys):
+        """Return the best observed unfinished archive byte count for each key."""
+        entries_by_key = unfinishedDownloadEntries(downloadDirectory())
+        progress = {}
+        for key in set(keys or []):
+            max_size = 0
+            for entry in entries_by_key.get(key, []) or []:
+                try:
+                    max_size = max(max_size, int(entry.get("archive_size", 0) or 0))
+                except (TypeError, ValueError, AttributeError):
+                    continue
+            progress[key] = max_size
+        return progress
+
     def apply_download_tail_boundary(
         self, unresolved, now, unresolved_limit=None, boundary_context="active queue"
     ):
@@ -1537,13 +1551,17 @@ class stepDownloadProgress(QDialog):
             self.tail_boundary_started_at = None
             return False
 
+        retry_batch_limit = max(1, min(len(tail_keys), effective_unresolved_limit))
         plan = downloadTailLaggardPlan(
             tail_keys,
             self.retry_attempts,
             self.tail_boundary_retry_budget,
+            key_progress=self.stalled_queue_key_progress(tail_keys),
+            max_retry_keys=retry_batch_limit,
         )
         retry_keys = plan["retry"]
         restart_required_keys = plan["restart_required"]
+        deferred_keys = plan.get("deferred", set())
         for key in sorted(retry_keys):
             attempts = self.retry_attempts.get(key, 0)
             self.retry_attempts[key] = attempts + 1
@@ -1556,12 +1574,14 @@ class stepDownloadProgress(QDialog):
         if retry_keys:
             qDebug(
                 "[NXMColDL Progress] Download tail boundary retrying laggards: "
-                f"{len(retry_keys)} key(s), "
+                f"{len(retry_keys)}/{len(tail_keys)} key(s), "
+                f"deferred={len(deferred_keys)}, "
+                f"batch_limit={retry_batch_limit}, "
                 f"budget={self.tail_boundary_retry_budget}, "
                 f"context={boundary_context}"
             )
             self.detail_label.setText(
-                f"Retrying {len(retry_keys)} lagging download(s); "
+                f"Retrying {len(retry_keys)}/{len(tail_keys)} lagging download(s); "
                 "completed files remain eligible for install."
             )
             self.detail_label.setStyleSheet("color: orange;")

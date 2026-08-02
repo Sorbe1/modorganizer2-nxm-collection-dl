@@ -2678,6 +2678,44 @@ class DownloadTailLaggardPlanTests(unittest.TestCase):
         self.assertEqual(plan["retry"], {(1, 10), (3, 30)})
         self.assertEqual(plan["restart_required"], {(2, 20)})
 
+    def test_limits_retry_batch_to_lowest_progress_laggards(self):
+        plan = downloadTailLaggardPlan(
+            {(1, 10), (2, 20), (3, 30)},
+            {(1, 10): 0, (2, 20): 0, (3, 30): 0},
+            retry_budget=2,
+            key_progress={(1, 10): 1000, (2, 20): 0, (3, 30): 20},
+            max_retry_keys=2,
+        )
+
+        self.assertEqual(plan["retry"], {(2, 20), (3, 30)})
+        self.assertEqual(plan["deferred"], {(1, 10)})
+        self.assertEqual(plan["restart_required"], set())
+
+    def test_batch_limit_does_not_defer_exhausted_laggards(self):
+        plan = downloadTailLaggardPlan(
+            {(1, 10), (2, 20), (3, 30)},
+            {(1, 10): 2, (2, 20): 0, (3, 30): 0},
+            retry_budget=2,
+            key_progress={(1, 10): 0, (2, 20): 10, (3, 30): 20},
+            max_retry_keys=1,
+        )
+
+        self.assertEqual(plan["retry"], {(2, 20)})
+        self.assertEqual(plan["deferred"], {(3, 30)})
+        self.assertEqual(plan["restart_required"], {(1, 10)})
+
+    def test_invalid_retry_batch_limit_defers_retryable_laggards(self):
+        plan = downloadTailLaggardPlan(
+            {(1, 10), (2, 20)},
+            {(1, 10): 0, (2, 20): 0},
+            retry_budget=2,
+            max_retry_keys="bad",
+        )
+
+        self.assertEqual(plan["retry"], set())
+        self.assertEqual(plan["deferred"], {(1, 10), (2, 20)})
+        self.assertEqual(plan["restart_required"], set())
+
 
 class CoerceDownloadIdTests(unittest.TestCase):
     def test_accepts_non_negative_integer_values(self):

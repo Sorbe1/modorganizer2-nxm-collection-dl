@@ -5369,28 +5369,60 @@ def downloadProgressIsStalled(last_progress_at, now, stall_seconds):
     return now - last_progress_at >= stall_seconds
 
 
-def downloadTailLaggardPlan(stalled_keys, retry_attempts, retry_budget):
-    """Partition stalled tail keys into retryable and exhausted work."""
+def downloadTailLaggardPlan(
+    stalled_keys,
+    retry_attempts,
+    retry_budget,
+    key_progress=None,
+    max_retry_keys=None,
+):
+    """Partition stalled tail keys into retryable, deferred, and exhausted work."""
     try:
         retry_budget = max(0, int(retry_budget or 0))
     except (TypeError, ValueError):
         retry_budget = 0
 
-    retry_keys = set()
+    retry_candidates = []
     restart_required_keys = set()
-    for key in set(stalled_keys or []):
+
+    def attempts_for(key):
         try:
-            attempts = int((retry_attempts or {}).get(key, 0) or 0)
+            return int((retry_attempts or {}).get(key, 0) or 0)
         except (TypeError, ValueError, AttributeError):
-            attempts = 0
+            return 0
+
+    def progress_for(key):
+        try:
+            return max(0, int((key_progress or {}).get(key, 0) or 0))
+        except (TypeError, ValueError, AttributeError):
+            return 0
+
+    for key in set(stalled_keys or []):
+        attempts = attempts_for(key)
         if attempts < retry_budget:
-            retry_keys.add(key)
+            retry_candidates.append(key)
         else:
             restart_required_keys.add(key)
+
+    deferred_keys = set()
+    if max_retry_keys is None:
+        retry_keys = set(retry_candidates)
+    else:
+        try:
+            max_retry_keys = max(0, int(max_retry_keys or 0))
+        except (TypeError, ValueError):
+            max_retry_keys = 0
+        ordered_retry_candidates = sorted(
+            retry_candidates,
+            key=lambda key: (progress_for(key), -attempts_for(key), key),
+        )
+        retry_keys = set(ordered_retry_candidates[:max_retry_keys])
+        deferred_keys = set(ordered_retry_candidates[max_retry_keys:])
 
     return {
         "retry": retry_keys,
         "restart_required": restart_required_keys,
+        "deferred": deferred_keys,
     }
 
 
