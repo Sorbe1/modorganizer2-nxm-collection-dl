@@ -241,6 +241,13 @@
       "warning_count": 1
     }
   ],
+  "current_profile_gate": {
+    "clean": true,
+    "historical_needs_review_count": 6,
+    "historical_review_only": true,
+    "issue_count": 0,
+    "warning_count": 0
+  },
   "filters": {
     "collections": [],
     "failed_categories": [],
