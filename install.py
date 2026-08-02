@@ -2076,12 +2076,31 @@ class stepInstallMods(QDialog):
                 errors.append(f"{command[0]}: {e}")
                 continue
 
-            self.log(
-                "Started native archive worker for headless archive installs: "
-                + " ".join(str(part) for part in command),
-                "debug",
+            command_text = " ".join(str(part) for part in command)
+            if self.nativeArchiveWorkerAvailable(
+                organizer, attempts=20, retry_delay_seconds=0.1
+            ):
+                self.log(
+                    "Started native archive worker for headless archive installs: "
+                    + command_text,
+                    "debug",
+                )
+                return True
+
+            process = getattr(self, "_native_archive_worker_process", None)
+            exit_code = None
+            if process is not None:
+                try:
+                    exit_code = process.poll()
+                except Exception:
+                    exit_code = None
+            reason = (
+                f"{command[0]} exited before heartbeat: {exit_code}"
+                if exit_code is not None
+                else f"{command[0]} did not write a heartbeat"
             )
-            return True
+            errors.append(reason)
+            self.resetNativeArchiveWorkerProcess(reason)
 
         self.log(
             "Native archive worker launch failed for all candidates: "
