@@ -87,6 +87,7 @@ from collection_helpers import (
     moveHeadlessFomodSelectionPayload,
     nativeGameRootPathCandidate,
     nativeArchiveWorkerHeartbeatStatus,
+    resetNativeArchiveWorkerTrackedProcess,
     nativePathForArchiveInspection,
     nexusQuotaRemainingFromText,
     nexusQuotaStateFromHeaders,
@@ -2963,6 +2964,79 @@ class NativeArchiveWorkerHeartbeatStatusTests(unittest.TestCase):
         )
 
         self.assertTrue(status["ok"])
+
+
+class NativeArchiveWorkerTrackedProcessResetTests(unittest.TestCase):
+    class FakeProcess:
+        def __init__(self, poll_values, wait_raises_timeout=False):
+            self.poll_values = list(poll_values)
+            self.wait_raises_timeout = wait_raises_timeout
+            self.terminated = False
+            self.killed = False
+            self.wait_calls = []
+
+        def poll(self):
+            if self.poll_values:
+                return self.poll_values.pop(0)
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+        def kill(self):
+            self.killed = True
+            self.wait_raises_timeout = False
+
+        def wait(self, timeout=None):
+            self.wait_calls.append(timeout)
+            if self.wait_raises_timeout:
+                raise subprocess.TimeoutExpired("worker", timeout)
+            return 0
+
+    def test_returns_clean_noop_for_missing_process(self):
+        self.assertEqual(
+            resetNativeArchiveWorkerTrackedProcess(None),
+            {"terminated": False, "killed": False, "error": ""},
+        )
+
+    def test_leaves_already_exited_process_alone(self):
+        process = self.FakeProcess([7])
+
+        result = resetNativeArchiveWorkerTrackedProcess(process)
+
+        self.assertFalse(result["terminated"])
+        self.assertFalse(result["killed"])
+        self.assertFalse(process.terminated)
+        self.assertFalse(process.killed)
+
+    def test_terminates_running_process(self):
+        process = self.FakeProcess([None])
+
+        result = resetNativeArchiveWorkerTrackedProcess(process, timeout=0.1)
+
+        self.assertTrue(result["terminated"])
+        self.assertFalse(result["killed"])
+        self.assertTrue(process.terminated)
+        self.assertEqual(process.wait_calls, [0.1])
+
+    def test_kills_process_when_terminate_wait_times_out(self):
+        process = self.FakeProcess([None], wait_raises_timeout=True)
+
+        result = resetNativeArchiveWorkerTrackedProcess(process, timeout=0.1)
+
+        self.assertTrue(result["terminated"])
+        self.assertTrue(result["killed"])
+        self.assertTrue(process.terminated)
+        self.assertTrue(process.killed)
+        self.assertEqual(process.wait_calls, [0.1, 0.1])
+
+    def test_reports_reset_errors(self):
+        process = mock.Mock()
+        process.poll.side_effect = RuntimeError("bad handle")
+
+        result = resetNativeArchiveWorkerTrackedProcess(process)
+
+        self.assertIn("bad handle", result["error"])
 
 
 class NativePathForArchiveInspectionTests(unittest.TestCase):

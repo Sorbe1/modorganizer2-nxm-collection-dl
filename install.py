@@ -98,6 +98,7 @@ from .collection_helpers import (
     repairInstalledCollectionModMetadata,
     repairMo2BaseModlistOrder,
     repairSingleWrapperPayload,
+    resetNativeArchiveWorkerTrackedProcess,
     repairPluginEnabledStates,
     safeDisplayText,
     sevenZipArchiveMemberPaths,
@@ -972,7 +973,6 @@ class stepInstallMods(QDialog):
         self.warning_report_path = None
         self.fomod_guide_path = None
         self._native_archive_worker_process = None
-        self._native_archive_worker_launch_failed = False
         self._native_archive_worker_cleanup_done = False
 
         # Start installation after dialog is shown
@@ -2003,8 +2003,6 @@ class stepInstallMods(QDialog):
         process = getattr(self, "_native_archive_worker_process", None)
         if process is not None and process.poll() is None:
             return True
-        if getattr(self, "_native_archive_worker_launch_failed", False):
-            return False
 
         errors = []
         for command in self.nativeArchiveWorkerLaunchCommands(worker_path, request_dir):
@@ -2024,13 +2022,24 @@ class stepInstallMods(QDialog):
             )
             return True
 
-        self._native_archive_worker_launch_failed = True
         self.log(
             "Native archive worker launch failed for all candidates: "
             + "; ".join(errors),
             "debug",
         )
         return False
+
+    def resetNativeArchiveWorkerProcess(self, reason):
+        """Discard a wedged tracked worker so later archive requests can relaunch."""
+        process = getattr(self, "_native_archive_worker_process", None)
+        result = resetNativeArchiveWorkerTrackedProcess(process)
+        if result.get("error"):
+            qDebug(
+                "[NXMColDL Install] Native archive worker reset failed: "
+                f"{result['error']}"
+            )
+        self._native_archive_worker_process = None
+        qDebug(f"[NXMColDL Install] Native archive worker reset: {reason}")
 
     def stopNativeArchiveWorker(self):
         """Ask the native archive worker to exit and reap the tracked process."""
@@ -2213,6 +2222,9 @@ class stepInstallMods(QDialog):
                 except Exception:
                     exit_code = None
             if exit_code is not None:
+                self.resetNativeArchiveWorkerProcess(
+                    f"worker exited before heartbeat: {exit_code}"
+                )
                 return {
                     "ok": False,
                     "worker_unavailable": True,
@@ -2246,6 +2258,9 @@ class stepInstallMods(QDialog):
                 try:
                     result = json.loads(result_path.read_text(encoding="utf-8"))
                 except Exception as e:
+                    self.resetNativeArchiveWorkerProcess(
+                        "worker returned unreadable result"
+                    )
                     return {
                         "ok": False,
                         "error": f"Native archive worker result unreadable: {e}",
@@ -2262,6 +2277,7 @@ class stepInstallMods(QDialog):
                 stale_path.unlink()
             except OSError:
                 pass
+        self.resetNativeArchiveWorkerProcess("worker request timed out")
         return {
             "ok": False,
             "error": (

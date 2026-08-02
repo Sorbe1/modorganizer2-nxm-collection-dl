@@ -2410,6 +2410,26 @@ def nativeArchiveWorkerHeartbeatStatus(
     return {"ok": True, "reason": ""}
 
 
+def resetNativeArchiveWorkerTrackedProcess(process, timeout=2.0):
+    """Terminate a tracked native archive worker process and report the outcome."""
+    result = {"terminated": False, "killed": False, "error": ""}
+    if process is None:
+        return result
+    try:
+        if process.poll() is None:
+            process.terminate()
+            result["terminated"] = True
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                result["killed"] = True
+                process.wait(timeout=timeout)
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
 def warningsAfterCleanInstallDiscard(warnings, warning_start):
     """Drop ordinary transient warnings while preserving actionable MO2 errors."""
     blocking_categories = {
