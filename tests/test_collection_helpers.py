@@ -2339,6 +2339,22 @@ class CollectionDownloadExpectedSizesTests(unittest.TestCase):
             self.assertEqual(result["missing_keys"], set())
             self.assertEqual(result["mod_names"], ["Valid Patch"])
 
+    def test_collection_recovery_targets_accept_game_root_evidence(self):
+        with TemporaryDirectory() as tmp:
+            game_root = Path(tmp) / "game"
+            game_root.mkdir()
+            (game_root / "d3dx9_42.dll").write_bytes(b"preloader")
+
+            result = collectionRecoveryTargets(
+                {},
+                expected_keys={(17230, 658442), (999, 111)},
+                game_root=game_root,
+            )
+
+            self.assertEqual(result["installed_keys"], {(17230, 658442)})
+            self.assertEqual(result["missing_keys"], {(999, 111)})
+            self.assertEqual(result["mod_names"], [])
+
     def test_record_collection_link_launch_marks_first_launch_primary(self):
         with TemporaryDirectory() as tmp:
             metadata_file = Path(tmp) / "example_1.json"

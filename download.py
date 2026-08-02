@@ -76,6 +76,7 @@ from .collection_helpers import (
     staleDownloadStartAction,
     staleOrphanUnfinishedDownloadEntries,
     staleUnfinishedEntries,
+    steamGameRootFromMo2BasePath,
     unfinishedDownloadEntries,
     zeroByteDownloadStartIsStalled,
     zeroByteUnfinishedEntries,
@@ -3923,7 +3924,10 @@ class stepCollectionLinkFlow(QDialog):
             expected_file_names=expected_file_names,
         )
         recovery = collectionRecoveryTargets(
-            installed_records, expected_keys, mods_dir=mods_path
+            installed_records,
+            expected_keys,
+            mods_dir=mods_path,
+            game_root=steamGameRootFromMo2BasePath(Path(organizer.basePath())),
         )
         installed_keys = recovery["installed_keys"]
         mod_names = recovery["mod_names"]
