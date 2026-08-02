@@ -407,6 +407,13 @@ def profileStateSnapshotAuditSummary(
 def manualInstallGuidanceForReason(reason):
     """Return manual recovery guidance for common installer review reasons."""
     reason_text = str(reason or "").casefold()
+    if "fomod xml parse error" in reason_text:
+        return (
+            "retry through the normal MO2 installer so its FOMOD handler can "
+            "interpret the archive; if MO2 also rejects it, inspect the archive "
+            "or choose a replacement instead of marking a metadata-only install "
+            "as complete"
+        )
     if (
         "manual archive layout" in reason_text
         or "ambiguous archive layout" in reason_text
@@ -1775,6 +1782,7 @@ def failedInstallReviewCategory(reason):
         "manual " in text
         or "needs manual install" in text
         or "content-tree review" in text
+        or "fomod xml parse error" in text
         or "fomod choices required" in text
         or "ambiguous archive layout" in text
         or "invalid mo2 game data" in text

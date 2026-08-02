@@ -575,6 +575,14 @@ class ManualInstallGuidanceForReasonTests(unittest.TestCase):
         self.assertIn("relaunch", guidance)
         self.assertNotIn("starting the native archive worker", guidance)
 
+    def test_explains_fomod_xml_parse_error(self):
+        guidance = manualInstallGuidanceForReason(
+            "FOMOD XML parse error: not well-formed (invalid token)"
+        )
+
+        self.assertIn("normal MO2 installer", guidance)
+        self.assertIn("metadata-only install", guidance)
+
     def test_ignores_unrelated_reason(self):
         self.assertIsNone(manualInstallGuidanceForReason("other"))
 
@@ -5570,6 +5578,7 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
         reasons = [
             "manual archive layout: ambiguous archive layout",
             "manual FOMOD choices required: pick one",
+            "FOMOD XML parse error: not well-formed (invalid token)",
             "installed container has no usable payload; archive needs manual install or content-tree review",
             "installed container has no valid game data; source archive needs manual install",
         ]
