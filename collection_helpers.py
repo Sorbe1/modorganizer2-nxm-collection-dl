@@ -2288,6 +2288,30 @@ def _fomodDependencyPluginType(plugin, evidence_files):
     return _fomodPluginType(plugin).casefold()
 
 
+def _fomodPluginDependencyDiagnostics(plugin):
+    diagnostics = []
+    for descriptor in _directChildren(plugin, "typeDescriptor"):
+        for dependency_type in _directChildren(descriptor, "dependencyType"):
+            for patterns_node in _directChildren(dependency_type, "patterns"):
+                for pattern in _directChildren(patterns_node, "pattern"):
+                    for dependencies in _directChildren(pattern, "dependencies"):
+                        for dependency in list(dependencies):
+                            if _xmlLocalName(dependency.tag) != "fileDependency":
+                                continue
+                            dependency_file = Path(
+                                dependency.attrib.get("file", "").replace("\\", "/")
+                            ).name
+                            if not dependency_file:
+                                continue
+                            diagnostics.append(
+                                {
+                                    "file": dependency_file,
+                                    "state": dependency.attrib.get("state", ""),
+                                }
+                            )
+    return diagnostics
+
+
 def _fomodPluginTypeScore(plugin_type):
     return {
         "required": 80,
@@ -2343,6 +2367,7 @@ def headlessFomodDependencyInstallLayout(
     evidence_files = _fomodEvidenceFileNames(evidence_names)
     selected_records = []
     ambiguous_groups = []
+    dependency_option_groups = []
 
     for group in root.iter():
         if _xmlLocalName(group.tag) != "group":
@@ -2361,12 +2386,11 @@ def headlessFomodDependencyInstallLayout(
             plugins.extend(_directChildren(plugins_node, "plugin"))
 
         candidates = []
+        dependency_options = []
         for plugin in plugins:
             option_name = plugin.attrib.get("name", "")
             plugin_type = _fomodDependencyPluginType(plugin, evidence_files)
             if normalizedButtonLabel(option_name) in {"skip", "none", "reminder"}:
-                continue
-            if plugin_type in {"notusable", "not usable"}:
                 continue
             mappings = _fomodPluginFileMappings(plugin, module_base_prefix)
             if not mappings:
@@ -2379,6 +2403,19 @@ def headlessFomodDependencyInstallLayout(
                 )
                 for mapping in mappings
             ):
+                continue
+            dependency_options.append(
+                {
+                    "option": option_name,
+                    "plugin_type": plugin_type,
+                    "dependencies": _fomodPluginDependencyDiagnostics(plugin),
+                    "payload_items": len(mappings),
+                    "matched_profile_evidence": _fomodOptionMatchesEvidence(
+                        option_name, evidence_labels
+                    ),
+                }
+            )
+            if plugin_type in {"notusable", "not usable"}:
                 continue
             matched_profile_evidence = _fomodOptionMatchesEvidence(
                 option_name, evidence_labels
@@ -2409,15 +2446,13 @@ def headlessFomodDependencyInstallLayout(
                     )
                 )
 
+        selected_candidate = None
         if group_type == "SelectAny":
             for option_name, mappings, score, plugin_type, evidence_match in candidates:
                 selected_records.append(
                     (option_name, mappings, score, plugin_type, evidence_match)
                 )
-            continue
-
-        selected_candidate = None
-        if len(candidates) == 1:
+        elif len(candidates) == 1:
             selected_candidate = candidates[0]
         elif candidates:
             ranked_candidates = sorted(
@@ -2433,7 +2468,7 @@ def headlessFomodDependencyInstallLayout(
             selected_records.append(
                 (option_name, mappings, score, plugin_type, evidence_match)
             )
-        elif candidates:
+        elif group_type != "SelectAny" and candidates:
             ranked_candidates = sorted(
                 candidates,
                 key=lambda candidate: (candidate[2], candidate[0].casefold()),
@@ -2459,6 +2494,15 @@ def headlessFomodDependencyInstallLayout(
                             evidence_match,
                         ) in ranked_candidates
                     ],
+                }
+            )
+
+        if dependency_options:
+            dependency_option_groups.append(
+                {
+                    "group": group.attrib.get("name", ""),
+                    "type": group_type,
+                    "options": dependency_options,
                 }
             )
 
@@ -2514,6 +2558,7 @@ def headlessFomodDependencyInstallLayout(
             "reason": "no FOMOD options matched installed profile evidence",
             "mappings": [],
             "fomod_selection": True,
+            "dependency_option_groups": dependency_option_groups,
         }
     return {
         "installable": True,

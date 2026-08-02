@@ -2982,6 +2982,75 @@ class ZipArchiveMemberPathsTests(unittest.TestCase):
 
 
 class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
+    def test_reports_dependency_options_when_no_profile_evidence_matches(self):
+        module_config = """\
+<config>
+  <installSteps>
+    <installStep name="Patch">
+      <optionalFileGroups>
+        <group name="Optional Patches" type="SelectAny">
+          <plugins>
+            <plugin name="Missing Worldspace Patch">
+              <files>
+                <folder source="Missing Worldspace" destination="" />
+              </files>
+              <typeDescriptor>
+                <dependencyType>
+                  <defaultType name="NotUsable" />
+                  <patterns>
+                    <pattern>
+                      <dependencies operator="And">
+                        <fileDependency file="MissingWorldspace.esm" state="Active" />
+                      </dependencies>
+                      <type name="Optional" />
+                    </pattern>
+                  </patterns>
+                </dependencyType>
+              </typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+  </installSteps>
+</config>
+"""
+
+        plan = headlessFomodDependencyInstallLayout(
+            module_config,
+            "fomod/ModuleConfig.xml",
+            ["Missing Worldspace/Missing Worldspace Patch.esp"],
+            ["InstalledFollower.esp"],
+        )
+
+        self.assertFalse(plan["installable"])
+        self.assertEqual(
+            plan["reason"], "no FOMOD options matched installed profile evidence"
+        )
+        self.assertEqual(
+            plan["dependency_option_groups"],
+            [
+                {
+                    "group": "Optional Patches",
+                    "type": "SelectAny",
+                    "options": [
+                        {
+                            "option": "Missing Worldspace Patch",
+                            "plugin_type": "notusable",
+                            "dependencies": [
+                                {
+                                    "file": "MissingWorldspace.esm",
+                                    "state": "Active",
+                                }
+                            ],
+                            "payload_items": 1,
+                            "matched_profile_evidence": False,
+                        }
+                    ],
+                }
+            ],
+        )
+
     def test_selects_matching_select_any_patch_option(self):
         module_config = """\
 <config>
