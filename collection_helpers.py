@@ -3424,6 +3424,42 @@ def downloadMetaInstalledValue(metadata_file):
     return None
 
 
+def topLevelDownloadMetadataAudit(downloads_dir):
+    """Audit MO2-visible top-level download metadata install flags.
+
+    MO2's Downloads pane is backed by archive sidecars directly under the
+    downloads directory. Nested quarantine or stale-backup directories can hold
+    old ``*.meta`` files, but those should not make the visible queue look dirty.
+    """
+    result = {
+        "checked": 0,
+        "installed": [],
+        "downloaded_only": [],
+        "missing_archive": [],
+        "unknown_installed_state": [],
+    }
+    downloads_dir = Path(downloads_dir)
+    if not downloads_dir.exists():
+        return result
+
+    for metadata_file in sorted(downloads_dir.glob("*.meta")):
+        if metadata_file.name.endswith(".unfinished.meta"):
+            continue
+        archive_file = metadata_file.with_suffix("")
+        result["checked"] += 1
+        metadata_path = str(metadata_file)
+        installed_value = downloadMetaInstalledValue(metadata_file)
+        if not archive_file.is_file():
+            result["missing_archive"].append(metadata_path)
+        if installed_value == "true":
+            result["installed"].append(metadata_path)
+        elif installed_value == "false":
+            result["downloaded_only"].append(metadata_path)
+        else:
+            result["unknown_installed_state"].append(metadata_path)
+    return result
+
+
 def setDownloadMetaGeneralValues(metadata_file, values):
     """Set selected [General] values in an MO2 download metadata sidecar."""
     try:

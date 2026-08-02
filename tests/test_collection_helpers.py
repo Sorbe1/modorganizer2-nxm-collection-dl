@@ -144,6 +144,7 @@ from collection_helpers import (
     steamMo2GuardAudit,
     steamShaderCacheDisabled,
     steamShaderProcessingQueue,
+    topLevelDownloadMetadataAudit,
     unfinishedDownloadEntries,
     zeroByteDownloadStartIsStalled,
     zeroByteUnfinishedEntries,
@@ -462,6 +463,46 @@ class RepairDownloadMetadataInstalledFlagsTests(unittest.TestCase):
             self.assertIn("fileID=550156", repaired_metadata)
             self.assertIn("repository=Nexus", repaired_metadata)
             self.assertIn("installed=true", repaired_metadata)
+
+
+class TopLevelDownloadMetadataAuditTests(unittest.TestCase):
+    def test_ignores_nested_stale_metadata(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Installed-123-456.7z"
+            archive.write_bytes(b"archive")
+            (downloads / "Installed-123-456.7z.meta").write_text(
+                "[General]\ninstalled=true\nuninstalled=false\n",
+                encoding="utf-8",
+            )
+            stale = downloads / "_codex-stale"
+            stale.mkdir()
+            (stale / "Old-123-456.7z").write_bytes(b"archive")
+            (stale / "Old-123-456.7z.meta").write_text(
+                "[General]\ninstalled=false\n",
+                encoding="utf-8",
+            )
+
+            audit = topLevelDownloadMetadataAudit(downloads)
+
+            self.assertEqual(audit["checked"], 1)
+            self.assertEqual(len(audit["installed"]), 1)
+            self.assertEqual(audit["downloaded_only"], [])
+
+    def test_reports_visible_downloaded_only_metadata_exactly(self):
+        with TemporaryDirectory() as tmp:
+            downloads = Path(tmp)
+            archive = downloads / "Downloaded-123-456.7z"
+            archive.write_bytes(b"archive")
+            metadata = downloads / "Downloaded-123-456.7z.meta"
+            metadata.write_text(
+                "[General]\ninstalled=false\nuninstalled=false\n",
+                encoding="utf-8",
+            )
+
+            audit = topLevelDownloadMetadataAudit(downloads)
+
+            self.assertEqual(audit["downloaded_only"], [str(metadata)])
 
 
 class ProfileSnapshotTests(unittest.TestCase):
