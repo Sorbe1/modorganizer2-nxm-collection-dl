@@ -4023,6 +4023,19 @@ def nativeArchiveWorkerHeartbeatStatus(
     return {"ok": True, "reason": ""}
 
 
+def _isBenignNativeArchiveWorkerResetError(error):
+    """Return whether a worker cleanup error only means the process is gone."""
+    if isinstance(error, (BrokenPipeError, ProcessLookupError)):
+        return True
+    if not isinstance(error, OSError):
+        return False
+    if getattr(error, "winerror", None) == 6:
+        return True
+    if getattr(error, "errno", None) == 9:
+        return True
+    return "[winerror 6]" in str(error).lower()
+
+
 def resetNativeArchiveWorkerTrackedProcess(process, timeout=2.0):
     """Terminate a tracked native archive worker process and report the outcome."""
     result = {"terminated": False, "killed": False, "error": ""}
@@ -4039,7 +4052,8 @@ def resetNativeArchiveWorkerTrackedProcess(process, timeout=2.0):
                 result["killed"] = True
                 process.wait(timeout=timeout)
     except Exception as e:
-        result["error"] = str(e)
+        if not _isBenignNativeArchiveWorkerResetError(e):
+            result["error"] = str(e)
     return result
 
 

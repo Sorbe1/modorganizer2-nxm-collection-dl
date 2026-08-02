@@ -4709,6 +4709,22 @@ class NativeArchiveWorkerTrackedProcessResetTests(unittest.TestCase):
 
         self.assertIn("bad handle", result["error"])
 
+    def test_ignores_invalid_handle_reset_errors(self):
+        process = mock.Mock()
+        process.poll.side_effect = OSError("[WinError 6] Invalid handle")
+
+        result = resetNativeArchiveWorkerTrackedProcess(process)
+
+        self.assertEqual(result["error"], "")
+
+    def test_ignores_bad_file_descriptor_reset_errors(self):
+        process = mock.Mock()
+        process.poll.side_effect = OSError(9, "Bad file descriptor")
+
+        result = resetNativeArchiveWorkerTrackedProcess(process)
+
+        self.assertEqual(result["error"], "")
+
 
 class NativePathForArchiveInspectionTests(unittest.TestCase):
     def test_leaves_native_paths_unchanged(self):
