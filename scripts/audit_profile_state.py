@@ -95,7 +95,46 @@ def main():
         if result.get("warnings"):
             print("Warnings:")
             for warning in result["warnings"]:
-                print(f"- {warning['type']}: {warning}")
+                warning_type = warning["type"]
+                if warning_type == "modlist_ordering_diagnostics":
+                    print(
+                        "- modlist_ordering_diagnostics: "
+                        f"{warning.get('count', 0)} likely ordering candidate(s)"
+                    )
+                    message = warning.get("message")
+                    if message:
+                        print(f"  {message}")
+                    for example in warning.get("examples", [])[:10]:
+                        if example.get("type") == "variant_before_base":
+                            print(
+                                "  - variant before base: "
+                                f"{example.get('mod')} "
+                                f"({example.get('priority')}) before "
+                                f"{example.get('target')} "
+                                f"({example.get('target_priority')})"
+                            )
+                        elif example.get("type") == "patch_before_target":
+                            print(
+                                "  - patch before target: "
+                                f"{example.get('mod')} "
+                                f"({example.get('priority')}) before "
+                                f"{example.get('target')} "
+                                f"({example.get('target_priority')})"
+                            )
+                        else:
+                            print(f"  - {example}")
+                elif warning_type == "plugin_capacity_by_extension":
+                    print(
+                        "- plugin_capacity_by_extension: "
+                        f"{warning.get('regular_by_extension_count', 0)} "
+                        ".esm/.esp by extension; "
+                        f"overage {warning.get('regular_overage_by_extension', 0)}"
+                    )
+                    message = warning.get("message")
+                    if message:
+                        print(f"  {message}")
+                else:
+                    print(f"- {warning_type}: {warning}")
         else:
             print("Warnings: none")
 
