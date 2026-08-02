@@ -1324,6 +1324,7 @@ def isTransientManualFomodPlanFailure(reason):
     reason_text = str(reason or "").casefold()
     return (
         "native archive worker is not running" in reason_text
+        or "native archive worker unavailable" in reason_text
         or "native archive worker timed out" in reason_text
         or "native archive worker result unreadable" in reason_text
         or "could not list archive with subprocess 7z" in reason_text

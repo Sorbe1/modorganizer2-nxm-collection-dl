@@ -2247,8 +2247,8 @@ class stepInstallMods(QDialog):
                 "ok": False,
                 "worker_unavailable": True,
                 "error": (
-                    "Native archive worker is not running; start "
-                    "scripts/native_archive_worker.py for headless archive installs."
+                    "Native archive worker unavailable after automatic launch; "
+                    "retry with the normal MO2 installer or review worker logs."
                 ),
             }
         request_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex}"
@@ -2291,8 +2291,8 @@ class stepInstallMods(QDialog):
         return {
             "ok": False,
             "error": (
-                "Native archive worker timed out; start "
-                "scripts/native_archive_worker.py for headless archive installs."
+                "Native archive worker timed out after automatic launch; "
+                "retry with the normal MO2 installer or review worker logs."
             ),
         }
 

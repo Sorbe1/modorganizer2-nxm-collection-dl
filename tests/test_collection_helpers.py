@@ -1116,7 +1116,8 @@ class ManualFomodPlanFailureCacheTests(unittest.TestCase):
     def test_treats_native_worker_failures_as_transient(self):
         self.assertTrue(
             isTransientManualFomodPlanFailure(
-                "Native archive worker is not running; start scripts/native_archive_worker.py"
+                "Native archive worker unavailable after automatic launch; "
+                "retry with the normal MO2 installer or review worker logs."
             )
         )
         self.assertTrue(
@@ -4277,8 +4278,8 @@ class HeadlessArchivePreflightFallbackTests(unittest.TestCase):
                 {
                     "installable": False,
                     "reason": (
-                        "Native archive worker timed out; start "
-                        "scripts/native_archive_worker.py"
+                        "Native archive worker timed out after automatic launch; "
+                        "retry with the normal MO2 installer or review worker logs."
                     ),
                 }
             ),
