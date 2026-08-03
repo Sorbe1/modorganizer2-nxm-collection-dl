@@ -3429,12 +3429,18 @@ def headlessFomodDependencyInstallLayout(
     ]
 
     if not selected_mappings:
+        no_applicable = bool(dependency_option_groups)
         return {
             "installable": False,
-            "reason": "no FOMOD options matched installed profile evidence",
+            "reason": (
+                EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON
+                if no_applicable
+                else "no FOMOD options matched installed profile evidence"
+            ),
             "mappings": [],
             "fomod_selection": True,
             "dependency_option_groups": dependency_option_groups,
+            "no_applicable": no_applicable,
         }
     return {
         "installable": True,

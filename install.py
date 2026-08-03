@@ -2994,6 +2994,25 @@ class stepInstallMods(QDialog):
                     else:
                         counts["headless_fomod"] += 1
                 else:
+                    if headless_archive_layout.get("no_applicable"):
+                        entry.update(
+                            {
+                                "status": "no_applicable",
+                                "download_path": download_path,
+                                "install_source_path": install_source_path,
+                                "source_note": source_note,
+                                "reason": headless_archive_layout.get(
+                                    "reason", EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON
+                                ),
+                                "headless_archive_layout": headless_archive_layout,
+                                "replacing_invalid_installed_name": invalid_installed_name,
+                                "fomod_state": "true",
+                            }
+                        )
+                        counts["no_applicable"] += 1
+                        self.markDownloadedOnlyMetadata(context, install_key)
+                        plan.append(entry)
+                        continue
                     if invalid_installed_name:
                         self.rememberManualFomodPlanFailure(
                             context["organizer"],
@@ -3135,6 +3154,7 @@ class stepInstallMods(QDialog):
             f"{counts['root']} root-handled, "
             f"{counts['install']} to install, "
             f"{specific_failed_summary}, "
+            f"{counts['no_applicable']} no-applicable FOMOD, "
             f"{counts['fomod']} FOMOD, "
             f"{counts['fomod_unknown']} unknown FOMOD state, "
             f"{counts['headless_archive']} headless archive, "
@@ -3161,6 +3181,7 @@ class stepInstallMods(QDialog):
         installed_count = 0
         root_count = 0
         failed_count = 0
+        no_applicable_count = 0
         metadata_repair_keys = fastFinishMetadataRepairKeys(context.get("install_plan"))
         for entry in context.get("install_plan", []):
             status = entry.get("status")
@@ -3198,6 +3219,20 @@ class stepInstallMods(QDialog):
                     }
                 )
                 failed_count += 1
+            elif status == "no_applicable":
+                context.setdefault("no_applicable_entries", []).append(
+                    {
+                        "mod": entry["mod_name"],
+                        "file": entry["file_name"],
+                        "mod_id": int(entry["mod_id"]),
+                        "file_id": int(entry["file_id"]),
+                        "archive": str(entry.get("install_source_path") or ""),
+                        "reason": entry.get(
+                            "reason", EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON
+                        ),
+                    }
+                )
+                no_applicable_count += 1
 
         if metadata_repair_keys:
             context["fast_finish_metadata_repair"] = self.markInstalledDownloadMetadataKeys(
@@ -3207,7 +3242,8 @@ class stepInstallMods(QDialog):
         context["install_plan_fast_finished"] = True
         self.log(
             "No install work remains; preparing fast summary "
-            f"for {installed_count} installed and {root_count} root-handled entries.",
+            f"for {installed_count} installed, {root_count} root-handled, "
+            f"and {no_applicable_count} no-applicable entries.",
             "note",
         )
         if failed_count:
@@ -3243,6 +3279,19 @@ class stepInstallMods(QDialog):
                         "file_id": int(entry["file_id"]),
                         "archive": "",
                         "reason": entry.get("reason", "game-root file already present"),
+                    }
+                )
+            elif status == "no_applicable":
+                context.setdefault("no_applicable_entries", []).append(
+                    {
+                        "mod": entry["mod_name"],
+                        "file": entry["file_name"],
+                        "mod_id": int(entry["mod_id"]),
+                        "file_id": int(entry["file_id"]),
+                        "archive": str(entry.get("install_source_path") or ""),
+                        "reason": entry.get(
+                            "reason", EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON
+                        ),
                     }
                 )
 

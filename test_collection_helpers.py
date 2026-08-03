@@ -58,6 +58,7 @@ from collection_helpers import (
     downloadProgressFormat,
     downloadProgressState,
     downloadedFileKeys,
+    EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON,
     extractHeadlessZipArchive,
     failedInstallReviewCategory,
     failedInstallReviewCategoryCounts,
@@ -4105,9 +4106,8 @@ class HeadlessFomodDependencyInstallLayoutTests(unittest.TestCase):
         )
 
         self.assertFalse(plan["installable"])
-        self.assertEqual(
-            plan["reason"], "no FOMOD options matched installed profile evidence"
-        )
+        self.assertEqual(plan["reason"], EMPTY_OPTIONAL_FOMOD_OUTPUT_REASON)
+        self.assertTrue(plan["no_applicable"])
         self.assertEqual(
             plan["dependency_option_groups"],
             [
