@@ -1112,7 +1112,11 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         active_plugins = mergePluginNameLists(
             loadorder_plugins, parsed_plugins["active"]
         )
+        explicitly_active_plugin_names = {
+            plugin_name.casefold() for plugin_name in parsed_plugins["active"]
+        }
         game_data_path = inferredSteamGameDataPathFromMo2Base(base_path)
+        plugin_inventory_supported = mods_path.exists() or bool(game_data_path)
         active_plugin_paths = (
             pluginPathsFromDirectory(game_data_path) if game_data_path else {}
         )
@@ -1153,7 +1157,12 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         for plugin_name in active_plugins:
             plugin_path = active_plugin_paths.get(plugin_name.casefold())
             if plugin_path is None:
-                if Path(plugin_name).suffix.casefold() in DIRECT_INSTALL_PLUGIN_EXTENSIONS:
+                if (
+                    plugin_inventory_supported
+                    and plugin_name.casefold() in explicitly_active_plugin_names
+                    and Path(plugin_name).suffix.casefold()
+                    in DIRECT_INSTALL_PLUGIN_EXTENSIONS
+                ):
                     unresolved_active_plugins.append(plugin_name)
                 continue
             masters_by_plugin[plugin_name] = bethesdaPluginMastersFromPath(plugin_path)
@@ -1180,6 +1189,19 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
                 "standalone dependency parsing."
             ),
         }
+        if unresolved_active_plugins:
+            result["issues"].append(
+                {
+                    "type": "plugin_files_unresolved",
+                    "count": len(unresolved_active_plugins),
+                    "examples": unresolved_active_plugins[:10],
+                    "message": (
+                        "Active plugin entries are present in the profile, but "
+                        "their plugin files were not found in active MO2 mods or "
+                        "the inferred game Data path"
+                    ),
+                }
+            )
         if dependency_problems:
             result["issues"].append(
                 {

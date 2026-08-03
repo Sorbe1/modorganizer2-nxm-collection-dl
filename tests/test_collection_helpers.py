@@ -1187,6 +1187,28 @@ class ProfileStateAuditTests(unittest.TestCase):
             self.assertFalse(result["plugin_dependency_audit"]["supported"])
             self.assertEqual(result["plugin_dependency_audit"]["checked"], 0)
 
+    def test_reports_active_plugin_without_readable_file(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile = base / "profiles" / "Default"
+            profile.mkdir(parents=True)
+            (base / "mods").mkdir()
+            (profile / "modlist.txt").write_text("", encoding="utf-8")
+            (profile / "plugins.txt").write_text("*Missing.esp\n", encoding="utf-8")
+            (profile / "loadorder.txt").write_text("Missing.esp\n", encoding="utf-8")
+
+            result = auditMo2ProfileState(base_path=base)
+
+            self.assertFalse(result["clean"])
+            self.assertEqual(
+                result["plugin_dependency_audit"]["unresolved_active_plugins"],
+                ["Missing.esp"],
+            )
+            self.assertIn(
+                "plugin_files_unresolved",
+                [issue["type"] for issue in result["issues"]],
+            )
+
     def test_reports_missing_master_from_managed_plugin_header(self):
         with TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -1381,6 +1403,7 @@ class ProfileStateAuditTests(unittest.TestCase):
             (valid / "meta.ini").write_text("[General]\n", encoding="utf-8")
             (valid / "meshes").mkdir()
             (valid / "meshes" / "valid.nif").write_text("nif", encoding="utf-8")
+            (valid / "Valid.esp").write_bytes(fakeBethesdaPluginBytes([]))
             empty = mods / "Empty Mod"
             empty.mkdir()
             (empty / "meta.ini").write_text("[General]\n", encoding="utf-8")
