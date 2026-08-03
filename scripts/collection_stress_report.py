@@ -242,6 +242,20 @@ def _archive_members_from_7z(archive_path):
     return sevenZipArchiveMemberPaths(result.stdout)
 
 
+def _cached_archive_layout_plan(entry, cached_archives):
+    entry_key = _entry_nexus_key(entry)
+    if entry_key is None:
+        return None
+    archive_path = (cached_archives or {}).get(entry_key)
+    if archive_path is None:
+        return None
+
+    members = _archive_members_from_7z(archive_path)
+    if not members:
+        return None
+    return headlessArchiveInstallLayout(members)
+
+
 def failedEntryResolvedByCurrentArchiveLayout(entry, cached_archives):
     """Return True when current archive layout rules can now install the entry."""
     if str(entry.get("review_category") or "") != "ambiguous_archive_layout":
@@ -249,18 +263,30 @@ def failedEntryResolvedByCurrentArchiveLayout(entry, cached_archives):
     if "ambiguous archive layout" not in str(entry.get("reason") or "").casefold():
         return False
 
-    entry_key = _entry_nexus_key(entry)
-    if entry_key is None:
+    plan = _cached_archive_layout_plan(entry, cached_archives)
+    if not plan:
         return False
-    archive_path = (cached_archives or {}).get(entry_key)
-    if archive_path is None:
-        return False
-
-    members = _archive_members_from_7z(archive_path)
-    if not members:
-        return False
-    plan = headlessArchiveInstallLayout(members)
     return bool(plan.get("installable"))
+
+
+def reclassifyFailedEntryByCurrentArchiveLayout(entry, cached_archives):
+    """Use current cache inspection to improve stale historical failure buckets."""
+    reason = str(entry.get("reason") or "")
+    if str(entry.get("review_category") or "") != "native_worker_timeout":
+        return entry
+    if "native archive worker timed out" not in reason.casefold():
+        return entry
+
+    plan = _cached_archive_layout_plan(entry, cached_archives)
+    if not plan or plan.get("reason") != "FOMOD installer present":
+        return entry
+
+    updated = dict(entry)
+    updated["reason"] = (
+        "manual FOMOD choices required: FOMOD installer present in cached archive "
+        "after native worker timeout"
+    )
+    return failedInstallReviewEntriesWithCategories([updated])[0]
 
 
 def _mark_resolved_failed_entry(
@@ -287,6 +313,7 @@ def resolve_failed_entries_against_profile(
 
     unresolved = []
     resolved = []
+    reclassified = False
     for entry in failed_entries:
         if failedEntryResolvedByCurrentProfile(entry, valid_installed_keys, base_path):
             resolved.append(_mark_resolved_failed_entry(entry))
@@ -307,9 +334,11 @@ def resolve_failed_entries_against_profile(
                 )
             )
         else:
-            unresolved.append(entry)
+            updated = reclassifyFailedEntryByCurrentArchiveLayout(entry, cached_archives)
+            reclassified = reclassified or updated != entry
+            unresolved.append(updated)
 
-    if not resolved:
+    if not resolved and not reclassified:
         return summary
 
     summary = dict(summary)

@@ -684,6 +684,75 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertEqual(result["totals"]["failed_count"], 1)
             self.assertEqual(summary["resolved_failed_count"], 0)
 
+    def test_reclassifies_native_timeout_when_cached_archive_is_fomod(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            cache = root / "nxm-collection-dl-install-cache"
+            logs.mkdir()
+            cache.mkdir()
+            (cache / "70-80-Manual Choices.7z").write_text(
+                "placeholder",
+                encoding="utf-8",
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-fomod-1-20260802-010000.json",
+                {
+                    "collection": "fomod",
+                    "revision": 1,
+                    "name": "FOMOD",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {
+                            "mod": "Manual Choices",
+                            "file": "Manual Choices",
+                            "mod_id": 70,
+                            "file_id": 80,
+                            "reason": "manual archive layout: Native archive worker timed out",
+                        }
+                    ],
+                },
+            )
+
+            with mock.patch.object(
+                collection_stress_report,
+                "validInstalledDownloadKeysForProfile",
+                return_value=set(),
+            ), mock.patch.object(
+                collection_stress_report,
+                "auditMo2ProfileState",
+                return_value={"clean": True, "issues": [], "warnings": []},
+            ), mock.patch.object(
+                collection_stress_report,
+                "_archive_members_from_7z",
+                return_value=[
+                    "fomod/ModuleConfig.xml",
+                    "Options/Default/Interface/example.swf",
+                ],
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 1)
+            self.assertEqual(result["totals"]["failed_count"], 1)
+            self.assertEqual(
+                summary["failed_categories"]["native_worker_timeout"],
+                0,
+            )
+            self.assertEqual(summary["failed_categories"]["fomod_choices"], 1)
+            self.assertEqual(
+                summary["failed_entries"][0]["review_category"],
+                "fomod_choices",
+            )
+            self.assertIn("FOMOD installer present", summary["failed_entries"][0]["reason"])
+
     def test_can_include_profile_audit(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
