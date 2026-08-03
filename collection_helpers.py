@@ -5684,10 +5684,10 @@ MO2_BASE_UNMANAGED_RANK = MO2_BASE_CREATION_CLUB_RANK + 1
 def splitMo2ModlistHeader(lines):
     """Return (header, body) while keeping MO2's generated comment first.
 
-    MO2 stores ``modlist.txt`` in visible priority order after the generated
-    header. Raw file edits should therefore keep unmanaged DLC/Creation Club
-    and unmanaged entries at the top and append new high-priority collection
-    entries at the bottom.
+    MO2 stores ``modlist.txt`` in reverse visible priority order after the
+    generated header. Raw file edits should therefore keep unmanaged
+    DLC/Creation Club and unmanaged entries at the end and place new
+    high-priority collection entries near the beginning.
     """
     header = []
     body = []
@@ -5720,11 +5720,11 @@ def _mo2ModlistEntryName(line):
 
 
 def mo2ModlistEntries(modlist_text):
-    """Return parsed MO2 modlist entries in visible priority order."""
+    """Return parsed MO2 modlist entries in MO2 visible priority order."""
     entries = []
     lines = str(modlist_text or "").splitlines(keepends=True)
     _header, body = splitMo2ModlistHeader(lines)
-    for raw_line in body:
+    for raw_line in reversed(body):
         stripped = raw_line.strip()
         name = _mo2ModlistEntryName(raw_line)
         if not name:
@@ -5962,7 +5962,7 @@ def repairMo2ModlistOrderingDiagnostics(
             insert.append(line)
             moved.append(mod_name)
         if insert:
-            kept[target_index + 1 : target_index + 1] = insert
+            kept[target_index:target_index] = insert
 
     result["moved"] = len(moved)
     result["missing"] = sorted(missing)
@@ -6059,9 +6059,9 @@ def repairMo2BaseModlistOrder(modlist_path, backup_dir=None):
         else:
             indexed_base.append((rank, index, line))
 
-    indexed_base.sort(key=lambda item: (item[0], item[1]))
+    indexed_base.sort(key=lambda item: (-item[0], -item[1]))
     base_entries = [line for _, _, line in indexed_base]
-    rewritten = header + base_entries + managed_entries
+    rewritten = header + managed_entries + base_entries
     if rewritten == lines:
         return result
 
@@ -6084,8 +6084,9 @@ def repairMo2BaseModlistOrder(modlist_path, backup_dir=None):
 def moveModlistEntriesToUiBottom(modlist_path, mod_names, backup_dir=None):
     """Move matching entries to MO2's left-pane bottom/highest priority.
 
-    This writes entries at the end of ``modlist.txt`` because MO2's on-disk
-    order matches the visible left-pane order after the generated header.
+    This writes entries near the beginning of ``modlist.txt`` because MO2's
+    on-disk order is reverse of the visible left-pane order after the generated
+    header.
     """
     result = {"moved": 0, "missing": [], "failed": 0}
     requested = [name for name in dict.fromkeys(mod_names or []) if name]
@@ -6107,7 +6108,7 @@ def moveModlistEntriesToUiBottom(modlist_path, mod_names, backup_dir=None):
     kept = []
     for line in body:
         stripped = line.strip()
-        if stripped and stripped[0] in "+-":
+        if stripped and stripped[0] in "+-*":
             by_name[stripped[1:]] = line
             if stripped[1:] in requested:
                 continue
@@ -6122,12 +6123,12 @@ def moveModlistEntriesToUiBottom(modlist_path, mod_names, backup_dir=None):
             continue
         newline = "\r\n" if line.endswith("\r\n") else "\n"
         stripped = line.strip()
-        prefix = stripped[0] if stripped and stripped[0] in "+-" else "+"
+        prefix = stripped[0] if stripped and stripped[0] in "+-*" else "+"
         moved.append(f"{prefix}{name}{newline}")
 
     result["moved"] = len(moved)
     result["missing"] = missing
-    rewritten = header + kept + moved
+    rewritten = header + moved + kept
     if rewritten == lines:
         return result
 
