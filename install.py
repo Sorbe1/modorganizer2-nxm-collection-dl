@@ -2299,83 +2299,106 @@ class stepInstallMods(QDialog):
     def runNativeArchiveWorkerRequest(self, organizer, payload, timeout_seconds=60):
         request_dir = self.nativeArchiveWorkerDirectory(organizer)
         request_dir.mkdir(parents=True, exist_ok=True)
-        if not self.nativeArchiveWorkerAvailable(organizer):
-            self.startNativeArchiveWorker(organizer)
-        if not self.nativeArchiveWorkerAvailable(
-            organizer, attempts=20, retry_delay_seconds=0.1
-        ):
-            process = getattr(self, "_native_archive_worker_process", None)
-            exit_code = None
-            if process is not None:
-                try:
-                    exit_code = process.poll()
-                except Exception:
-                    exit_code = None
-            if exit_code is not None:
-                self.resetNativeArchiveWorkerProcess(
+        max_attempts = 2
+        for attempt in range(max_attempts):
+            if not self.nativeArchiveWorkerAvailable(organizer):
+                self.startNativeArchiveWorker(organizer)
+            if not self.nativeArchiveWorkerAvailable(
+                organizer, attempts=20, retry_delay_seconds=0.1
+            ):
+                process = getattr(self, "_native_archive_worker_process", None)
+                exit_code = None
+                if process is not None:
+                    try:
+                        exit_code = process.poll()
+                    except Exception:
+                        exit_code = None
+                reason = (
                     f"worker exited before heartbeat: {exit_code}"
+                    if exit_code is not None
+                    else "worker unavailable after automatic launch"
                 )
+                self.resetNativeArchiveWorkerProcess(reason)
+                if attempt + 1 < max_attempts:
+                    qDebug(
+                        "[NXMColDL Install] Native archive worker unavailable; "
+                        "retrying with a fresh worker"
+                    )
+                    continue
                 log_path = self.nativeArchiveWorkerLogPath(organizer)
+                if exit_code is not None:
+                    return {
+                        "ok": False,
+                        "worker_unavailable": True,
+                        "error": (
+                            "Native archive worker exited before writing a "
+                            f"heartbeat after retry (exit {exit_code}); "
+                            f"worker log: {log_path}"
+                        ),
+                    }
                 return {
                     "ok": False,
                     "worker_unavailable": True,
                     "error": (
-                        "Native archive worker exited before writing a heartbeat "
-                        f"(exit {exit_code}); worker log: {log_path}"
+                        "Native archive worker unavailable after automatic "
+                        "launch retry; retry with the normal MO2 installer; "
+                        f"worker log: {log_path}"
                     ),
                 }
-            log_path = self.nativeArchiveWorkerLogPath(organizer)
-            return {
-                "ok": False,
-                "worker_unavailable": True,
-                "error": (
-                    "Native archive worker unavailable after automatic launch; "
-                    "retry with the normal MO2 installer; "
-                    f"worker log: {log_path}"
-                ),
-            }
-        request_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex}"
-        request_path = request_dir / f"{request_id}.request.json"
-        result_path = request_dir / f"{request_id}.result.json"
-        tmp_path = request_dir / f"{request_id}.request.json.tmp"
-        request_payload = dict(payload)
-        request_payload["id"] = request_id
-        request_payload["result_path"] = nativePathForArchiveInspection(result_path)
-        tmp_path.write_text(json.dumps(request_payload, indent=2), encoding="utf-8")
-        tmp_path.rename(request_path)
 
-        deadline = time.monotonic() + timeout_seconds
-        while time.monotonic() < deadline:
-            QApplication.processEvents()
-            if result_path.exists():
+            request_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex}"
+            request_path = request_dir / f"{request_id}.request.json"
+            result_path = request_dir / f"{request_id}.result.json"
+            tmp_path = request_dir / f"{request_id}.request.json.tmp"
+            request_payload = dict(payload)
+            request_payload["id"] = request_id
+            request_payload["result_path"] = nativePathForArchiveInspection(
+                result_path
+            )
+            tmp_path.write_text(
+                json.dumps(request_payload, indent=2), encoding="utf-8"
+            )
+            tmp_path.rename(request_path)
+
+            deadline = time.monotonic() + timeout_seconds
+            while time.monotonic() < deadline:
+                QApplication.processEvents()
+                if result_path.exists():
+                    try:
+                        result = json.loads(result_path.read_text(encoding="utf-8"))
+                    except Exception as e:
+                        self.resetNativeArchiveWorkerProcess(
+                            "worker returned unreadable result"
+                        )
+                        return {
+                            "ok": False,
+                            "error": f"Native archive worker result unreadable: {e}",
+                        }
+                    try:
+                        result_path.unlink()
+                    except OSError:
+                        pass
+                    return result
+                time.sleep(0.05)
+
+            for stale_path in (request_path, result_path, tmp_path):
                 try:
-                    result = json.loads(result_path.read_text(encoding="utf-8"))
-                except Exception as e:
-                    self.resetNativeArchiveWorkerProcess(
-                        "worker returned unreadable result"
-                    )
-                    return {
-                        "ok": False,
-                        "error": f"Native archive worker result unreadable: {e}",
-                    }
-                try:
-                    result_path.unlink()
+                    stale_path.unlink()
                 except OSError:
                     pass
-                return result
-            time.sleep(0.05)
+            self.resetNativeArchiveWorkerProcess("worker request timed out")
+            if attempt + 1 < max_attempts:
+                qDebug(
+                    "[NXMColDL Install] Native archive worker request timed out; "
+                    "retrying with a fresh worker"
+                )
+                continue
 
-        for stale_path in (request_path, result_path, tmp_path):
-            try:
-                stale_path.unlink()
-            except OSError:
-                pass
-        self.resetNativeArchiveWorkerProcess("worker request timed out")
         log_path = self.nativeArchiveWorkerLogPath(organizer)
         return {
             "ok": False,
             "error": (
-                "Native archive worker timed out after automatic launch; "
+                "Native archive worker timed out after automatic launch retry; "
                 f"retry with the normal MO2 installer; worker log: {log_path}"
             ),
         }

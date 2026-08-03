@@ -6280,6 +6280,17 @@ class InstallRuntimeSourceTests(unittest.TestCase):
             source,
         )
 
+    def test_native_archive_worker_request_retries_fresh_worker_once(self):
+        source = self.install_source()
+        method_source = source.split(
+            "def runNativeArchiveWorkerRequest(", 1
+        )[1].split("\n    def readSevenZipFomodModuleConfig(", 1)[0]
+
+        self.assertIn("max_attempts = 2", method_source)
+        self.assertIn("for attempt in range(max_attempts):", method_source)
+        self.assertIn("retrying with a fresh worker", method_source)
+        self.assertIn("after automatic launch retry", method_source)
+
 
 class CoerceIntSettingTests(unittest.TestCase):
     def test_accepts_native_and_string_integer_values(self):
