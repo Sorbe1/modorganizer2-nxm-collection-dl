@@ -5040,6 +5040,20 @@ class KnownPostInstallErrorDialogMessageTests(unittest.TestCase):
             "failed to receive data from secondary process: Unknown error",
         )
 
+    def test_captures_known_dialog_text_case_insensitively(self):
+        self.assertEqual(
+            knownPostInstallErrorDialogMessage(
+                [
+                    "PLUGIN NOT FOUND: MissingPatch.esp",
+                    "FAILED TO RECEIVE DATA FROM SECONDARY PROCESS: Unknown error",
+                ]
+            ),
+            (
+                "PLUGIN NOT FOUND: MissingPatch.esp\n"
+                "FAILED TO RECEIVE DATA FROM SECONDARY PROCESS: Unknown error"
+            ),
+        )
+
     def test_ignores_unrelated_error_dialog_text(self):
         self.assertIsNone(
             knownPostInstallErrorDialogMessage(["unrelated transient warning"])

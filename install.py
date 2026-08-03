@@ -144,6 +144,13 @@ EXPECTED_INSTALL_EXCEPTION_PATTERNS = (
     "Plugin not found:",
 )
 
+MO2_WARNING_PATTERNS_CASEFOLD = tuple(
+    pattern.casefold() for pattern in MO2_WARNING_PATTERNS
+)
+EXPECTED_INSTALL_EXCEPTION_PATTERNS_CASEFOLD = tuple(
+    pattern.casefold() for pattern in EXPECTED_INSTALL_EXCEPTION_PATTERNS
+)
+
 
 def resilientRmtree(path, attempts=5, delay_seconds=0.05):
     """Remove a tree across transient Windows/Proton directory-handle races."""
@@ -1161,9 +1168,10 @@ class stepInstallMods(QDialog):
         self.markDownloadedOnlyMetadata(context, install_key)
 
     def isExpectedInstallException(self, error):
-        message = str(error)
+        message = str(error).casefold()
         return any(
-            pattern in message for pattern in EXPECTED_INSTALL_EXCEPTION_PATTERNS
+            pattern in message
+            for pattern in EXPECTED_INSTALL_EXCEPTION_PATTERNS_CASEFOLD
         )
 
     def cancelInstallation(self):
@@ -1220,7 +1228,11 @@ class stepInstallMods(QDialog):
                 log_file.seek(offset)
                 for line in log_file:
                     line = line.rstrip()
-                    if not any(pattern in line for pattern in MO2_WARNING_PATTERNS):
+                    normalized_line = line.casefold()
+                    if not any(
+                        pattern in normalized_line
+                        for pattern in MO2_WARNING_PATTERNS_CASEFOLD
+                    ):
                         continue
                     normalized = self.normalizedInterfaceWarning(line)
                     category = self.interfaceWarningCategory(line)
@@ -1275,8 +1287,8 @@ class stepInstallMods(QDialog):
         return re.sub(r"^\[[^\]]+\]\s+[A-Z]\]\s+", "", str(message)).strip()
 
     def interfaceWarningCategory(self, message):
-        text = str(message)
-        if "Plugin not found:" in text:
+        text = str(message).casefold()
+        if "plugin not found:" in text:
             return "plugin_state_missing"
         if "invalid origin name:" in text:
             return "invalid_origin_name"

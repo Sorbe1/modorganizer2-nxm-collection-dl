@@ -3593,10 +3593,11 @@ def knownPostInstallErrorDialogMessage(labels):
     if not parts:
         return None
     message = "\n".join(parts)
+    normalized_message = message.casefold()
     if (
-        "invalid origin name:" in message
-        or "Plugin not found:" in message
-        or "failed to receive data from secondary process" in message
+        "invalid origin name:" in normalized_message
+        or "plugin not found:" in normalized_message
+        or "failed to receive data from secondary process" in normalized_message
     ):
         return message
     return None
