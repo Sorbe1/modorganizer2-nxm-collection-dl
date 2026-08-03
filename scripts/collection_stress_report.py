@@ -12,13 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from collection_helpers import (
+from collection_helpers import (  # noqa: E402
     auditMo2ProfileState,
     detachedInstallCacheKeyFromPath,
     downloadMetaInstalledValue,
     failedInstallReviewEntriesWithCategories,
     failedInstallReviewCategoryCounts,
     headlessArchiveInstallLayout,
+    inferredSteamGameDataPathFromMo2Base,
+    mo2PluginPathsFromActiveMods,
+    pluginNotFoundNamesFromMessage,
+    pluginPathsFromDirectory,
     readDownloadMetaKey,
     sevenZipArchiveMemberPaths,
     validInstalledDownloadKeysForProfile,
@@ -72,6 +76,84 @@ def _trim_failed_entry(entry):
         if value is not None:
             kept[key] = value
     return kept
+
+
+def _trim_warning_entry(entry):
+    kept = {}
+    for key in (
+        "mod",
+        "file",
+        "message",
+        "normalized_message",
+        "category",
+        "occurrences",
+        "source",
+    ):
+        value = entry.get(key)
+        if value is not None:
+            kept[key] = value
+    return kept
+
+
+def _warning_category_counts(entries):
+    counts = {}
+    for entry in entries or []:
+        category = entry.get("category")
+        if not category:
+            continue
+        counts[str(category)] = counts.get(str(category), 0) + int(
+            entry.get("occurrences") or 0
+        )
+    return counts
+
+
+def _active_profile_plugins(base_path, profile_name):
+    plugins_path = Path(base_path) / "profiles" / profile_name / "plugins.txt"
+    plugins = set()
+    try:
+        lines = plugins_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return plugins
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped[0] in ("*", "+", "-"):
+            stripped = stripped[1:].strip()
+        if stripped:
+            plugins.add(stripped.casefold())
+    return plugins
+
+
+def _active_mod_names(base_path, profile_name):
+    modlist_path = Path(base_path) / "profiles" / profile_name / "modlist.txt"
+    try:
+        lines = modlist_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+    active_mods = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("+") and len(stripped) > 1:
+            active_mods.append(stripped[1:])
+    return active_mods
+
+
+def _active_profile_plugin_files(base_path, profile_name):
+    base_path = Path(base_path)
+    plugin_paths = {}
+    game_data_path = inferredSteamGameDataPathFromMo2Base(base_path)
+    if game_data_path:
+        plugin_paths.update(pluginPathsFromDirectory(game_data_path))
+    plugin_paths.update(
+        mo2PluginPathsFromActiveMods(
+            base_path / "mods",
+            _active_mod_names(base_path, profile_name),
+        )
+    )
+    return set(plugin_paths)
 
 
 def _report_archive_metadata_path(archive_path, base_path=None):
@@ -289,6 +371,30 @@ def reclassifyFailedEntryByCurrentArchiveLayout(entry, cached_archives):
     return failedInstallReviewEntriesWithCategories([updated])[0]
 
 
+def warningResolvedByCurrentProfile(warning, active_plugins, profile_audit_clean):
+    """Return True when a historical warning no longer describes current state."""
+    if not profile_audit_clean:
+        return False
+    if warning.get("category") != "plugin_state_missing":
+        return False
+
+    missing_plugins = pluginNotFoundNamesFromMessage(warning.get("message"))
+    if not missing_plugins:
+        return False
+    active_plugins = active_plugins or set()
+    current_plugin_files = warning.get("_current_plugin_files") or set()
+    if all(plugin.casefold() in current_plugin_files for plugin in missing_plugins):
+        return True
+    return not any(plugin.casefold() in active_plugins for plugin in missing_plugins)
+
+
+def _mark_resolved_warning_entry(warning):
+    item = _trim_warning_entry(warning)
+    item["historical_status"] = "resolved"
+    item["resolved_by_current_profile"] = True
+    return item
+
+
 def _mark_resolved_failed_entry(
     entry,
     historical_status="resolved",
@@ -334,7 +440,9 @@ def resolve_failed_entries_against_profile(
                 )
             )
         else:
-            updated = reclassifyFailedEntryByCurrentArchiveLayout(entry, cached_archives)
+            updated = reclassifyFailedEntryByCurrentArchiveLayout(
+                entry, cached_archives
+            )
             reclassified = reclassified or updated != entry
             unresolved.append(updated)
 
@@ -375,6 +483,70 @@ def resolve_failed_entries_against_profile(
     return summary
 
 
+def resolve_warning_entries_against_profile(
+    summary,
+    active_plugins,
+    current_plugin_files,
+    profile_audit_clean=False,
+):
+    warning_entries = summary.get("warning_entries") or []
+    if not warning_entries:
+        return summary
+
+    unresolved = []
+    resolved = []
+    for warning in warning_entries:
+        if warningResolvedByCurrentProfile(
+            {**warning, "_current_plugin_files": current_plugin_files},
+            active_plugins,
+            profile_audit_clean,
+        ):
+            resolved.append(_mark_resolved_warning_entry(warning))
+        else:
+            unresolved.append(warning)
+
+    if not resolved:
+        return summary
+
+    summary = dict(summary)
+    summary["warning_entries"] = unresolved
+    summary["resolved_warning_entries"] = resolved
+    summary["resolved_warning_count"] = sum(
+        int(item.get("occurrences") or 0) for item in resolved
+    )
+    summary["warning_count"] = sum(
+        int(item.get("occurrences") or 0) for item in unresolved
+    )
+    summary["unique_warning_count"] = len(unresolved)
+    summary["warning_categories"] = _warning_category_counts(unresolved)
+    summary["actionable_review_count"] = max(
+        0,
+        int(summary.get("actionable_review_count") or 0) - len(resolved),
+    )
+
+    if summary["actionable_review_count"]:
+        summary["review_severity"] = "actionable"
+    elif summary.get("informational_count"):
+        summary["review_severity"] = "informational"
+    else:
+        summary["review_severity"] = "clean"
+
+    has_review = any(
+        (
+            summary.get("warning_count"),
+            summary.get("unique_warning_count"),
+            summary.get("failed_count"),
+            summary.get("review_count"),
+            summary.get("root_level_count"),
+            summary.get("no_applicable_count"),
+            summary.get("queued_fomod_recovery_count"),
+            summary.get("download_metadata_review"),
+        )
+    )
+    summary["status"] = "needs_review" if has_review else "clean"
+    return summary
+
+
 def summarize_collection_report(report_path):
     report_path = Path(report_path)
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -384,6 +556,7 @@ def summarize_collection_report(report_path):
     no_applicable_entries = report.get("no_applicable_entries") or []
     queued_fomod_recovery_entries = report.get("queued_fomod_recovery_entries") or []
     warning_summary = report.get("warning_summary") or []
+    warning_entries = report.get("warnings") or []
     download_metadata_audit = report.get("download_metadata_audit") or {}
     warning_count = int(report.get("warning_count") or 0)
     unique_warning_count = int(report.get("unique_warning_count") or 0)
@@ -436,6 +609,9 @@ def summarize_collection_report(report_path):
             for item in warning_summary
             if item.get("category")
         },
+        "warning_entries": [_trim_warning_entry(item) for item in warning_entries],
+        "resolved_warning_entries": [],
+        "resolved_warning_count": 0,
         "failed_count": failed_count,
         "failed_entries": [
             _trim_failed_entry(item) for item in categorized_failed_entries
@@ -575,12 +751,14 @@ def summarize_stress_totals(summaries):
         "add_collection_recovery_count": 0,
         "download_metadata_review_count": 0,
         "resolved_failed_count": 0,
+        "resolved_warning_count": 0,
         "failed_categories": failed_categories,
         "warning_categories": warning_categories,
     }
     for item in summaries:
         totals["failed_count"] += int(item.get("failed_count") or 0)
         totals["resolved_failed_count"] += int(item.get("resolved_failed_count") or 0)
+        totals["resolved_warning_count"] += int(item.get("resolved_warning_count") or 0)
         totals["review_count"] += int(item.get("review_count") or 0)
         totals["warning_count"] += int(item.get("warning_count") or 0)
         totals["unique_warning_count"] += int(item.get("unique_warning_count") or 0)
@@ -647,10 +825,30 @@ def build_stress_report(
             )
             for summary in summaries
         ]
+        profile_audit = auditMo2ProfileState(
+            base_path=Path(base_path),
+            profile_name=profile_name,
+        )
+        profile_issues = profile_audit.get("issues", [])
+        profile_warnings = profile_audit.get("warnings", [])
+        active_plugins = _active_profile_plugins(base_path, profile_name)
+        current_plugin_files = _active_profile_plugin_files(base_path, profile_name)
+        summaries = [
+            resolve_warning_entries_against_profile(
+                summary,
+                active_plugins,
+                current_plugin_files,
+                profile_audit_clean=bool(profile_audit.get("clean")),
+            )
+            for summary in summaries
+        ]
         if needs_review_only:
             summaries = [
-                summary for summary in summaries if summary.get("status") == "needs_review"
+                summary
+                for summary in summaries
+                if summary.get("status") == "needs_review"
             ]
+
     clean_summaries = _strip_sort_keys(summaries)
     result = {
         "logs_dir": str(Path(logs_dir)),
@@ -666,9 +864,7 @@ def build_stress_report(
             1 for item in clean_summaries if item["status"] == "needs_review"
         ),
         "actionable_review_count": sum(
-            1
-            for item in clean_summaries
-            if item.get("review_severity") == "actionable"
+            1 for item in clean_summaries if item.get("review_severity") == "actionable"
         ),
         "informational_review_count": sum(
             1
@@ -679,12 +875,6 @@ def build_stress_report(
         "collections": clean_summaries,
     }
     if base_path is not None:
-        profile_audit = auditMo2ProfileState(
-            base_path=Path(base_path),
-            profile_name=profile_name,
-        )
-        profile_issues = profile_audit.get("issues", [])
-        profile_warnings = profile_audit.get("warnings", [])
         result["profile_audit"] = {
             "clean": profile_audit.get("clean"),
             "issues": profile_issues,
@@ -697,9 +887,7 @@ def build_stress_report(
             "issue_count": len(profile_issues),
             "warning_count": len(profile_warnings),
             "historical_needs_review_count": result["needs_review_count"],
-            "historical_actionable_review_count": result[
-                "actionable_review_count"
-            ],
+            "historical_actionable_review_count": result["actionable_review_count"],
             "historical_informational_review_count": result[
                 "informational_review_count"
             ],
@@ -737,7 +925,9 @@ def print_text_report(report):
                 details.append(f"{issue['count']} item(s)")
             examples = issue.get("examples") or []
             if examples:
-                details.append(f"examples: {', '.join(str(item) for item in examples[:3])}")
+                details.append(
+                    f"examples: {', '.join(str(item) for item in examples[:3])}"
+                )
             message = issue.get("message")
             suffix = f": {'; '.join(details)}" if details else ""
             print(f"  Profile issue - {issue_type}{suffix}")
@@ -764,6 +954,7 @@ def print_text_report(report):
             f"{totals.get('failed_count', 0)} failed, "
             f"{totals.get('resolved_failed_count', 0)} resolved historical, "
             f"{totals.get('warning_count', 0)} warning(s), "
+            f"{totals.get('resolved_warning_count', 0)} resolved warning(s), "
             f"{totals.get('add_collection_recovery_count', 0)} recovery launch(es)"
         )
     for item in report["collections"]:
@@ -779,6 +970,8 @@ def print_text_report(report):
             details.append(f"{item['failed_count']} failed")
         if item.get("resolved_failed_count"):
             details.append(f"{item['resolved_failed_count']} resolved historical")
+        if item.get("resolved_warning_count"):
+            details.append(f"{item['resolved_warning_count']} resolved warning(s)")
         if item["warning_count"]:
             warning_categories = item.get("warning_categories") or {}
             if warning_categories:
@@ -794,7 +987,9 @@ def print_text_report(report):
         if item.get("root_level_count"):
             details.append(f"{item['root_level_count']} root-level note(s)")
         if item["add_collection_recovery_count"]:
-            details.append(f"{item['add_collection_recovery_count']} recovery launch(es)")
+            details.append(
+                f"{item['add_collection_recovery_count']} recovery launch(es)"
+            )
         if item["download_metadata_review"]:
             details.append("download metadata review")
         if details:

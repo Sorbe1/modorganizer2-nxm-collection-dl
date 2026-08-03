@@ -68,7 +68,9 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertEqual(result["collections"][0]["review_severity"], "clean")
             self.assertEqual(result["actionable_review_count"], 0)
             self.assertEqual(result["informational_review_count"], 0)
-            self.assertEqual(result["collections"][0]["add_collection_recovery_count"], 1)
+            self.assertEqual(
+                result["collections"][0]["add_collection_recovery_count"], 1
+            )
 
     def test_classifies_failed_entries_and_download_metadata_review(self):
         with TemporaryDirectory() as tmp:
@@ -195,14 +197,17 @@ class CollectionStressReportTests(unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(
-                collection_stress_report,
-                "validInstalledDownloadKeysForProfile",
-                return_value={(1, 2)},
-            ), mock.patch.object(
-                collection_stress_report,
-                "auditMo2ProfileState",
-                return_value={"clean": True, "issues": [], "warnings": []},
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value={(1, 2)},
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
             ):
                 result = collection_stress_report.build_stress_report(
                     logs,
@@ -260,14 +265,17 @@ class CollectionStressReportTests(unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(
-                collection_stress_report,
-                "validInstalledDownloadKeysForProfile",
-                return_value={(1, 2)},
-            ), mock.patch.object(
-                collection_stress_report,
-                "auditMo2ProfileState",
-                return_value={"clean": True, "issues": [], "warnings": []},
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value={(1, 2)},
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
             ):
                 result = collection_stress_report.build_stress_report(
                     logs,
@@ -308,14 +316,17 @@ class CollectionStressReportTests(unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(
-                collection_stress_report,
-                "validInstalledDownloadKeysForProfile",
-                return_value={(11, 22)},
-            ), mock.patch.object(
-                collection_stress_report,
-                "auditMo2ProfileState",
-                return_value={"clean": True, "issues": [], "warnings": []},
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value={(11, 22)},
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
             ):
                 result = collection_stress_report.build_stress_report(
                     logs,
@@ -361,14 +372,17 @@ class CollectionStressReportTests(unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(
-                collection_stress_report,
-                "validInstalledDownloadKeysForProfile",
-                return_value={(1, 2)},
-            ), mock.patch.object(
-                collection_stress_report,
-                "auditMo2ProfileState",
-                return_value={"clean": True, "issues": [], "warnings": []},
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value={(1, 2)},
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
             ):
                 result = collection_stress_report.build_stress_report(
                     logs,
@@ -417,14 +431,17 @@ class CollectionStressReportTests(unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(
-                collection_stress_report,
-                "validInstalledDownloadKeysForProfile",
-                return_value=set(),
-            ), mock.patch.object(
-                collection_stress_report,
-                "auditMo2ProfileState",
-                return_value={"clean": True, "issues": [], "warnings": []},
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
             ):
                 result = collection_stress_report.build_stress_report(
                     logs,
@@ -442,9 +459,7 @@ class CollectionStressReportTests(unittest.TestCase):
                 "quarantined",
             )
             self.assertTrue(
-                summary["resolved_failed_entries"][0][
-                    "quarantined_by_current_profile"
-                ]
+                summary["resolved_failed_entries"][0]["quarantined_by_current_profile"]
             )
 
     def test_resolves_historical_failures_from_removed_container_metadata(self):
@@ -486,14 +501,17 @@ class CollectionStressReportTests(unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(
-                collection_stress_report,
-                "validInstalledDownloadKeysForProfile",
-                return_value=set(),
-            ), mock.patch.object(
-                collection_stress_report,
-                "auditMo2ProfileState",
-                return_value={"clean": True, "issues": [], "warnings": []},
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
             ):
                 result = collection_stress_report.build_stress_report(
                     logs,
@@ -538,14 +556,17 @@ class CollectionStressReportTests(unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(
-                collection_stress_report,
-                "validInstalledDownloadKeysForProfile",
-                return_value=set(),
-            ), mock.patch.object(
-                collection_stress_report,
-                "auditMo2ProfileState",
-                return_value={"clean": True, "issues": [], "warnings": []},
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
             ):
                 result = collection_stress_report.build_stress_report(
                     logs,
@@ -591,22 +612,26 @@ class CollectionStressReportTests(unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(
-                collection_stress_report,
-                "validInstalledDownloadKeysForProfile",
-                return_value=set(),
-            ), mock.patch.object(
-                collection_stress_report,
-                "auditMo2ProfileState",
-                return_value={"clean": True, "issues": [], "warnings": []},
-            ), mock.patch.object(
-                collection_stress_report,
-                "_archive_members_from_7z",
-                return_value=[
-                    "Wrapper/Data/Example.esp",
-                    "Wrapper/Data/Meshes/example.nif",
-                    "Wrapper/Readme.txt",
-                ],
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "_archive_members_from_7z",
+                    return_value=[
+                        "Wrapper/Data/Example.esp",
+                        "Wrapper/Data/Meshes/example.nif",
+                        "Wrapper/Readme.txt",
+                    ],
+                ),
             ):
                 result = collection_stress_report.build_stress_report(
                     logs,
@@ -658,21 +683,25 @@ class CollectionStressReportTests(unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(
-                collection_stress_report,
-                "validInstalledDownloadKeysForProfile",
-                return_value=set(),
-            ), mock.patch.object(
-                collection_stress_report,
-                "auditMo2ProfileState",
-                return_value={"clean": True, "issues": [], "warnings": []},
-            ), mock.patch.object(
-                collection_stress_report,
-                "_archive_members_from_7z",
-                return_value=[
-                    "Wrapper/Variant A/Data/Example.esp",
-                    "Wrapper/Variant B/Data/Example.esp",
-                ],
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "_archive_members_from_7z",
+                    return_value=[
+                        "Wrapper/Variant A/Data/Example.esp",
+                        "Wrapper/Variant B/Data/Example.esp",
+                    ],
+                ),
             ):
                 result = collection_stress_report.build_stress_report(
                     logs,
@@ -718,21 +747,25 @@ class CollectionStressReportTests(unittest.TestCase):
                 },
             )
 
-            with mock.patch.object(
-                collection_stress_report,
-                "validInstalledDownloadKeysForProfile",
-                return_value=set(),
-            ), mock.patch.object(
-                collection_stress_report,
-                "auditMo2ProfileState",
-                return_value={"clean": True, "issues": [], "warnings": []},
-            ), mock.patch.object(
-                collection_stress_report,
-                "_archive_members_from_7z",
-                return_value=[
-                    "fomod/ModuleConfig.xml",
-                    "Options/Default/Interface/example.swf",
-                ],
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "_archive_members_from_7z",
+                    return_value=[
+                        "fomod/ModuleConfig.xml",
+                        "Options/Default/Interface/example.swf",
+                    ],
+                ),
             ):
                 result = collection_stress_report.build_stress_report(
                     logs,
@@ -751,7 +784,191 @@ class CollectionStressReportTests(unittest.TestCase):
                 summary["failed_entries"][0]["review_category"],
                 "fomod_choices",
             )
-            self.assertIn("FOMOD installer present", summary["failed_entries"][0]["reason"])
+            self.assertIn(
+                "FOMOD installer present", summary["failed_entries"][0]["reason"]
+            )
+
+    def test_resolves_plugin_missing_warning_when_current_profile_is_clean(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            profile = root / "profiles" / "Default"
+            logs.mkdir()
+            profile.mkdir(parents=True)
+            (profile / "plugins.txt").write_text("*Current.esp\n", encoding="utf-8")
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-warn-1-20260802-010000.json",
+                {
+                    "collection": "warn",
+                    "revision": 1,
+                    "name": "Warn",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 1,
+                    "unique_warning_count": 1,
+                    "warning_summary": [
+                        {"category": "plugin_state_missing", "occurrences": 1}
+                    ],
+                    "warnings": [
+                        {
+                            "mod": "post-install activation",
+                            "message": "Plugin not found: Missing.esp",
+                            "category": "plugin_state_missing",
+                            "occurrences": 1,
+                            "source": "suppressed_dialog",
+                        }
+                    ],
+                    "failed_entries": [],
+                },
+            )
+
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 0)
+            self.assertEqual(result["totals"]["warning_count"], 0)
+            self.assertEqual(result["totals"]["resolved_warning_count"], 1)
+            self.assertEqual(summary["warning_count"], 0)
+            self.assertEqual(summary["unique_warning_count"], 0)
+            self.assertEqual(summary["resolved_warning_count"], 1)
+            self.assertEqual(
+                summary["resolved_warning_entries"][0]["historical_status"],
+                "resolved",
+            )
+
+    def test_keeps_plugin_missing_warning_when_plugin_is_active(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            profile = root / "profiles" / "Default"
+            logs.mkdir()
+            profile.mkdir(parents=True)
+            (profile / "plugins.txt").write_text("*Missing.esp\n", encoding="utf-8")
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-warn-1-20260802-010000.json",
+                {
+                    "collection": "warn",
+                    "revision": 1,
+                    "name": "Warn",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 1,
+                    "unique_warning_count": 1,
+                    "warning_summary": [
+                        {"category": "plugin_state_missing", "occurrences": 1}
+                    ],
+                    "warnings": [
+                        {
+                            "mod": "post-install activation",
+                            "message": "Plugin not found: Missing.esp",
+                            "category": "plugin_state_missing",
+                            "occurrences": 1,
+                            "source": "suppressed_dialog",
+                        }
+                    ],
+                    "failed_entries": [],
+                },
+            )
+
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 1)
+            self.assertEqual(result["totals"]["warning_count"], 1)
+            self.assertEqual(result["totals"]["resolved_warning_count"], 0)
+            self.assertEqual(summary["warning_count"], 1)
+            self.assertEqual(summary["unique_warning_count"], 1)
+
+    def test_resolves_plugin_missing_warning_when_active_plugin_file_exists(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            profile = root / "profiles" / "Default"
+            mod_dir = root / "mods" / "Provider"
+            logs.mkdir()
+            profile.mkdir(parents=True)
+            mod_dir.mkdir(parents=True)
+            (profile / "modlist.txt").write_text("+Provider\n", encoding="utf-8")
+            (profile / "plugins.txt").write_text("*Missing.esp\n", encoding="utf-8")
+            (mod_dir / "Missing.esp").write_text("plugin", encoding="utf-8")
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-warn-1-20260802-010000.json",
+                {
+                    "collection": "warn",
+                    "revision": 1,
+                    "name": "Warn",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 1,
+                    "unique_warning_count": 1,
+                    "warning_summary": [
+                        {"category": "plugin_state_missing", "occurrences": 1}
+                    ],
+                    "warnings": [
+                        {
+                            "mod": "post-install activation",
+                            "message": "Plugin not found: Missing.esp",
+                            "category": "plugin_state_missing",
+                            "occurrences": 1,
+                            "source": "suppressed_dialog",
+                        }
+                    ],
+                    "failed_entries": [],
+                },
+            )
+
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 0)
+            self.assertEqual(result["totals"]["warning_count"], 0)
+            self.assertEqual(result["totals"]["resolved_warning_count"], 1)
+            self.assertEqual(summary["resolved_warning_count"], 1)
 
     def test_can_include_profile_audit(self):
         with TemporaryDirectory() as tmp:
