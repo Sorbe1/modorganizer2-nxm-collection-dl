@@ -171,7 +171,13 @@ Observed collection-level completion results:
 | `lwpfm1` rev `2` | 13 | `13/13` installed/root-handled, `0` failed | Original Add Collection proof plus recovery replay; profile plugin repair enabled `MoonstoneCastle.esp` without MO2 modal |
 | `4vz5sn` rev `7` | 53 | `53/53` installed/root-handled, `0` failed | Community Shaders proof; NAT/TrueStorms FOMOD selected from profile evidence and installed headlessly |
 
-Observed final proof timings from MO2 log timestamps:
+Observed proof timings from MO2 log timestamps:
+
+The first timing block is the original timestamp-bounded two-collection final
+proof run. Later rows record additional live replay timings where exact MO2 log
+start/end timestamps were captured. The broader stress set is covered by the
+collection-level results above and later stress-report evidence, but not every
+collection had a uniform human-observed timing window recorded.
 
 | Scope | Started | Completed | Elapsed | Notes |
 | --- | --- | --- | ---: | --- |
