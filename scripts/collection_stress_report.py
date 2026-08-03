@@ -57,6 +57,8 @@ def _trim_failed_entry(entry):
         "name",
         "file",
         "archive",
+        "mod_id",
+        "file_id",
         "reason",
         "review_category",
         "recommended_action",
@@ -89,13 +91,21 @@ def failedEntryResolvedByCurrentProfile(entry, valid_installed_keys, base_path=N
     if valid_installed_keys is None:
         return False
 
+    valid_installed_keys = set(valid_installed_keys)
+    try:
+        entry_key = (int(entry["mod_id"]), int(entry["file_id"]))
+    except (KeyError, TypeError, ValueError):
+        entry_key = None
+    if entry_key in valid_installed_keys:
+        return True
+
     metadata_path = _report_archive_metadata_path(entry.get("archive"), base_path)
     if metadata_path is None or not metadata_path.is_file():
         return False
     if downloadMetaInstalledValue(metadata_path) != "true":
         return False
 
-    return readDownloadMetaKey(metadata_path) in set(valid_installed_keys)
+    return readDownloadMetaKey(metadata_path) in valid_installed_keys
 
 
 def _mark_resolved_failed_entry(entry):

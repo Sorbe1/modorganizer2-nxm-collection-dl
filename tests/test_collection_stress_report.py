@@ -280,6 +280,55 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertEqual(result["totals"]["failed_count"], 0)
             self.assertEqual(result["totals"]["resolved_failed_count"], 0)
 
+    def test_resolves_historical_failed_entries_from_nexus_ids_without_archive(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            logs.mkdir()
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-resolved-1-20260802-010000.json",
+                {
+                    "collection": "resolved",
+                    "revision": 1,
+                    "name": "Resolved",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {
+                            "mod": "Recovered",
+                            "file": "Recovered",
+                            "mod_id": 11,
+                            "file_id": 22,
+                            "reason": "Native archive worker timed out",
+                        }
+                    ],
+                },
+            )
+
+            with mock.patch.object(
+                collection_stress_report,
+                "validInstalledDownloadKeysForProfile",
+                return_value={(11, 22)},
+            ), mock.patch.object(
+                collection_stress_report,
+                "auditMo2ProfileState",
+                return_value={"clean": True, "issues": [], "warnings": []},
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 0)
+            self.assertEqual(result["totals"]["failed_count"], 0)
+            self.assertEqual(result["totals"]["resolved_failed_count"], 1)
+            self.assertEqual(summary["failed_count"], 0)
+            self.assertEqual(summary["resolved_failed_count"], 1)
+
     def test_keeps_unresolved_historical_failures_actionable(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
