@@ -12,8 +12,11 @@ if str(ROOT) not in sys.path:
 
 from collection_helpers import (
     auditMo2ProfileState,
+    downloadMetaInstalledValue,
     failedInstallReviewEntriesWithCategories,
     failedInstallReviewCategoryCounts,
+    readDownloadMetaKey,
+    validInstalledDownloadKeysForProfile,
 )
 
 
@@ -62,6 +65,94 @@ def _trim_failed_entry(entry):
         if value is not None:
             kept[key] = value
     return kept
+
+
+def _report_archive_metadata_path(archive_path, base_path=None):
+    if not archive_path:
+        return None
+
+    direct_metadata = Path(str(archive_path) + ".meta")
+    if direct_metadata.is_file():
+        return direct_metadata
+
+    if base_path is None:
+        return direct_metadata
+
+    archive_name = Path(str(archive_path).replace("\\", "/")).name
+    if not archive_name:
+        return direct_metadata
+    return Path(base_path) / "downloads" / f"{archive_name}.meta"
+
+
+def failedEntryResolvedByCurrentProfile(entry, valid_installed_keys, base_path=None):
+    """Return True when a historical failed entry is now valid in the profile."""
+    if valid_installed_keys is None:
+        return False
+
+    metadata_path = _report_archive_metadata_path(entry.get("archive"), base_path)
+    if metadata_path is None or not metadata_path.is_file():
+        return False
+    if downloadMetaInstalledValue(metadata_path) != "true":
+        return False
+
+    return readDownloadMetaKey(metadata_path) in set(valid_installed_keys)
+
+
+def _mark_resolved_failed_entry(entry):
+    item = _trim_failed_entry(entry)
+    item["resolved_by_current_profile"] = True
+    item["historical_status"] = "resolved"
+    return item
+
+
+def resolve_failed_entries_against_profile(summary, valid_installed_keys, base_path=None):
+    failed_entries = summary.get("failed_entries") or []
+    if not failed_entries or valid_installed_keys is None:
+        return summary
+
+    unresolved = []
+    resolved = []
+    for entry in failed_entries:
+        if failedEntryResolvedByCurrentProfile(entry, valid_installed_keys, base_path):
+            resolved.append(_mark_resolved_failed_entry(entry))
+        else:
+            unresolved.append(entry)
+
+    if not resolved:
+        return summary
+
+    summary = dict(summary)
+    summary["failed_entries"] = unresolved
+    summary["resolved_failed_entries"] = resolved
+    summary["resolved_failed_count"] = len(resolved)
+    summary["failed_count"] = len(unresolved)
+    summary["failed_categories"] = failedInstallReviewCategoryCounts(unresolved)
+    summary["actionable_review_count"] = max(
+        0,
+        int(summary.get("actionable_review_count") or 0) - len(resolved),
+    )
+
+    if summary["actionable_review_count"]:
+        summary["review_severity"] = "actionable"
+    elif summary.get("informational_count"):
+        summary["review_severity"] = "informational"
+    else:
+        summary["review_severity"] = "clean"
+
+    has_review = any(
+        (
+            summary.get("warning_count"),
+            summary.get("unique_warning_count"),
+            summary.get("failed_count"),
+            summary.get("review_count"),
+            summary.get("root_level_count"),
+            summary.get("no_applicable_count"),
+            summary.get("queued_fomod_recovery_count"),
+            summary.get("download_metadata_review"),
+        )
+    )
+    summary["status"] = "needs_review" if has_review else "clean"
+    return summary
 
 
 def summarize_collection_report(report_path):
@@ -129,6 +220,8 @@ def summarize_collection_report(report_path):
         "failed_entries": [
             _trim_failed_entry(item) for item in categorized_failed_entries
         ],
+        "resolved_failed_entries": [],
+        "resolved_failed_count": 0,
         "review_count": review_count,
         "failed_categories": failedInstallReviewCategoryCounts(
             categorized_failed_entries
@@ -205,6 +298,8 @@ def _filter_failed_entries_by_categories(summary, failed_category_filters):
     summary["failed_entries"] = matching
     summary["failed_count"] = len(matching)
     summary["failed_categories"] = failedInstallReviewCategoryCounts(matching)
+    summary["resolved_failed_entries"] = []
+    summary["resolved_failed_count"] = 0
     summary["status"] = "needs_review"
     return summary
 
@@ -259,11 +354,13 @@ def summarize_stress_totals(summaries):
         "add_collection_launch_count": 0,
         "add_collection_recovery_count": 0,
         "download_metadata_review_count": 0,
+        "resolved_failed_count": 0,
         "failed_categories": failed_categories,
         "warning_categories": warning_categories,
     }
     for item in summaries:
         totals["failed_count"] += int(item.get("failed_count") or 0)
+        totals["resolved_failed_count"] += int(item.get("resolved_failed_count") or 0)
         totals["review_count"] += int(item.get("review_count") or 0)
         totals["warning_count"] += int(item.get("warning_count") or 0)
         totals["unique_warning_count"] += int(item.get("unique_warning_count") or 0)
@@ -316,6 +413,20 @@ def build_stress_report(
         needs_review_only=needs_review_only,
         failed_category_filters=failed_category_filters,
     )
+    if base_path is not None:
+        valid_installed_keys = validInstalledDownloadKeysForProfile(base_path)
+        summaries = [
+            resolve_failed_entries_against_profile(
+                summary,
+                valid_installed_keys,
+                base_path=base_path,
+            )
+            for summary in summaries
+        ]
+        if needs_review_only:
+            summaries = [
+                summary for summary in summaries if summary.get("status") == "needs_review"
+            ]
     clean_summaries = _strip_sort_keys(summaries)
     result = {
         "logs_dir": str(Path(logs_dir)),
@@ -427,6 +538,7 @@ def print_text_report(report):
         print(
             "Review totals: "
             f"{totals.get('failed_count', 0)} failed, "
+            f"{totals.get('resolved_failed_count', 0)} resolved historical, "
             f"{totals.get('warning_count', 0)} warning(s), "
             f"{totals.get('add_collection_recovery_count', 0)} recovery launch(es)"
         )
@@ -441,6 +553,8 @@ def print_text_report(report):
             details.append(f"{item['review_severity']} review")
         if item["failed_count"]:
             details.append(f"{item['failed_count']} failed")
+        if item.get("resolved_failed_count"):
+            details.append(f"{item['resolved_failed_count']} resolved historical")
         if item["warning_count"]:
             warning_categories = item.get("warning_categories") or {}
             if warning_categories:

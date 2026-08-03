@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -155,6 +156,182 @@ class CollectionStressReportTests(unittest.TestCase):
                 ],
             )
             self.assertTrue(summary["download_metadata_review"])
+
+    def test_resolves_historical_failed_entries_against_current_profile(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            downloads = root / "downloads"
+            logs.mkdir()
+            downloads.mkdir()
+            metadata = downloads / "Resolved-1-2.7z.meta"
+            metadata.write_text(
+                "[General]\nmodID=1\nfileID=2\ninstalled=true\n",
+                encoding="utf-8",
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-resolved-1-20260802-010000.json",
+                {
+                    "collection": "resolved",
+                    "revision": 1,
+                    "name": "Resolved",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {
+                            "mod": "Recovered",
+                            "file": "Recovered",
+                            "archive": (
+                                "C:\\users\\steamuser\\AppData\\Local\\"
+                                "ModOrganizer\\Skyrim Special Edition - Derp\\"
+                                "downloads\\Resolved-1-2.7z"
+                            ),
+                            "reason": "duplicate MO2 mod container",
+                        }
+                    ],
+                },
+            )
+
+            with mock.patch.object(
+                collection_stress_report,
+                "validInstalledDownloadKeysForProfile",
+                return_value={(1, 2)},
+            ), mock.patch.object(
+                collection_stress_report,
+                "auditMo2ProfileState",
+                return_value={"clean": True, "issues": [], "warnings": []},
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["report_count"], 1)
+            self.assertEqual(result["clean_count"], 1)
+            self.assertEqual(result["needs_review_count"], 0)
+            self.assertEqual(result["totals"]["failed_count"], 0)
+            self.assertEqual(result["totals"]["resolved_failed_count"], 1)
+            self.assertEqual(summary["status"], "clean")
+            self.assertEqual(summary["review_severity"], "clean")
+            self.assertEqual(summary["failed_count"], 0)
+            self.assertEqual(summary["actionable_review_count"], 0)
+            self.assertEqual(summary["resolved_failed_count"], 1)
+            self.assertEqual(
+                summary["resolved_failed_entries"][0]["historical_status"],
+                "resolved",
+            )
+            self.assertTrue(
+                summary["resolved_failed_entries"][0]["resolved_by_current_profile"]
+            )
+
+    def test_needs_review_filter_excludes_profile_resolved_failures(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            downloads = root / "downloads"
+            logs.mkdir()
+            downloads.mkdir()
+            (downloads / "Resolved-1-2.7z.meta").write_text(
+                "[General]\nmodID=1\nfileID=2\ninstalled=true\n",
+                encoding="utf-8",
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-resolved-1-20260802-010000.json",
+                {
+                    "collection": "resolved",
+                    "revision": 1,
+                    "name": "Resolved",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {
+                            "mod": "Recovered",
+                            "archive": "C:\\downloads\\Resolved-1-2.7z",
+                            "reason": "duplicate MO2 mod container",
+                        }
+                    ],
+                },
+            )
+
+            with mock.patch.object(
+                collection_stress_report,
+                "validInstalledDownloadKeysForProfile",
+                return_value={(1, 2)},
+            ), mock.patch.object(
+                collection_stress_report,
+                "auditMo2ProfileState",
+                return_value={"clean": True, "issues": [], "warnings": []},
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                    needs_review_only=True,
+                )
+
+            self.assertEqual(result["report_count"], 0)
+            self.assertEqual(result["needs_review_count"], 0)
+            self.assertEqual(result["totals"]["failed_count"], 0)
+            self.assertEqual(result["totals"]["resolved_failed_count"], 0)
+
+    def test_keeps_unresolved_historical_failures_actionable(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            downloads = root / "downloads"
+            logs.mkdir()
+            downloads.mkdir()
+            (downloads / "Unresolved-1-2.7z.meta").write_text(
+                "[General]\nmodID=1\nfileID=2\ninstalled=false\n",
+                encoding="utf-8",
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-unresolved-1-20260802-010000.json",
+                {
+                    "collection": "unresolved",
+                    "revision": 1,
+                    "name": "Unresolved",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {
+                            "mod": "Still Failed",
+                            "archive": "C:\\downloads\\Unresolved-1-2.7z",
+                            "reason": "duplicate MO2 mod container",
+                        }
+                    ],
+                },
+            )
+
+            with mock.patch.object(
+                collection_stress_report,
+                "validInstalledDownloadKeysForProfile",
+                return_value={(1, 2)},
+            ), mock.patch.object(
+                collection_stress_report,
+                "auditMo2ProfileState",
+                return_value={"clean": True, "issues": [], "warnings": []},
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 1)
+            self.assertEqual(result["totals"]["failed_count"], 1)
+            self.assertEqual(result["totals"]["resolved_failed_count"], 0)
+            self.assertEqual(summary["failed_count"], 1)
+            self.assertEqual(summary["resolved_failed_count"], 0)
 
     def test_can_include_profile_audit(self):
         with TemporaryDirectory() as tmp:
