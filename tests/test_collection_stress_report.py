@@ -557,6 +557,133 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertEqual(result["totals"]["failed_count"], 1)
             self.assertEqual(summary["resolved_failed_count"], 0)
 
+    def test_resolves_ambiguous_failures_when_cached_archive_is_now_installable(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            cache = root / "nxm-collection-dl-install-cache"
+            logs.mkdir()
+            cache.mkdir()
+            (cache / "50-60-Single Data Wrapper.7z").write_text(
+                "placeholder",
+                encoding="utf-8",
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-layout-1-20260802-010000.json",
+                {
+                    "collection": "layout",
+                    "revision": 1,
+                    "name": "Layout",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {
+                            "mod": "Single Data Wrapper",
+                            "file": "Single Data Wrapper",
+                            "mod_id": 50,
+                            "file_id": 60,
+                            "reason": "manual archive layout: ambiguous archive layout",
+                        }
+                    ],
+                },
+            )
+
+            with mock.patch.object(
+                collection_stress_report,
+                "validInstalledDownloadKeysForProfile",
+                return_value=set(),
+            ), mock.patch.object(
+                collection_stress_report,
+                "auditMo2ProfileState",
+                return_value={"clean": True, "issues": [], "warnings": []},
+            ), mock.patch.object(
+                collection_stress_report,
+                "_archive_members_from_7z",
+                return_value=[
+                    "Wrapper/Data/Example.esp",
+                    "Wrapper/Data/Meshes/example.nif",
+                    "Wrapper/Readme.txt",
+                ],
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 0)
+            self.assertEqual(result["totals"]["failed_count"], 0)
+            self.assertEqual(result["totals"]["resolved_failed_count"], 1)
+            self.assertEqual(summary["failed_count"], 0)
+            self.assertTrue(
+                summary["resolved_failed_entries"][0][
+                    "resolved_by_current_archive_layout"
+                ]
+            )
+
+    def test_keeps_ambiguous_failures_when_cached_archive_is_still_manual(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            cache = root / "nxm-collection-dl-install-cache"
+            logs.mkdir()
+            cache.mkdir()
+            (cache / "50-60-Variant Wrapper.7z").write_text(
+                "placeholder",
+                encoding="utf-8",
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-layout-1-20260802-010000.json",
+                {
+                    "collection": "layout",
+                    "revision": 1,
+                    "name": "Layout",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {
+                            "mod": "Variant Wrapper",
+                            "file": "Variant Wrapper",
+                            "mod_id": 50,
+                            "file_id": 60,
+                            "reason": "manual archive layout: ambiguous archive layout",
+                        }
+                    ],
+                },
+            )
+
+            with mock.patch.object(
+                collection_stress_report,
+                "validInstalledDownloadKeysForProfile",
+                return_value=set(),
+            ), mock.patch.object(
+                collection_stress_report,
+                "auditMo2ProfileState",
+                return_value={"clean": True, "issues": [], "warnings": []},
+            ), mock.patch.object(
+                collection_stress_report,
+                "_archive_members_from_7z",
+                return_value=[
+                    "Wrapper/Variant A/Data/Example.esp",
+                    "Wrapper/Variant B/Data/Example.esp",
+                ],
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 1)
+            self.assertEqual(result["totals"]["failed_count"], 1)
+            self.assertEqual(summary["resolved_failed_count"], 0)
+
     def test_can_include_profile_audit(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

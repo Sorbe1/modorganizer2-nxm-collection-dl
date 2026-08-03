@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
 from configparser import ConfigParser
 from datetime import datetime
@@ -13,10 +14,13 @@ if str(ROOT) not in sys.path:
 
 from collection_helpers import (
     auditMo2ProfileState,
+    detachedInstallCacheKeyFromPath,
     downloadMetaInstalledValue,
     failedInstallReviewEntriesWithCategories,
     failedInstallReviewCategoryCounts,
+    headlessArchiveInstallLayout,
     readDownloadMetaKey,
+    sevenZipArchiveMemberPaths,
     validInstalledDownloadKeysForProfile,
 )
 
@@ -195,13 +199,78 @@ def failedEntryQuarantinedByCurrentProfile(entry, quarantined_evidence):
     )
 
 
-def _mark_resolved_failed_entry(entry, historical_status="resolved"):
+def _cached_install_archives(base_path):
+    if base_path is None:
+        return {}
+
+    cache_dir = Path(base_path) / "nxm-collection-dl-install-cache"
+    if not cache_dir.is_dir():
+        return {}
+
+    archives = {}
+    for path in cache_dir.iterdir():
+        if not path.is_file() or path.name.endswith(".unfinished"):
+            continue
+        key = detachedInstallCacheKeyFromPath(path)
+        if key is None:
+            continue
+        try:
+            if path.stat().st_size <= 0:
+                continue
+        except OSError:
+            continue
+        current = archives.get(key)
+        if current is None or len(path.name) < len(current.name):
+            archives[key] = path
+    return archives
+
+
+def _archive_members_from_7z(archive_path):
+    try:
+        result = subprocess.run(
+            ["7z", "l", "-slt", str(archive_path)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+    if result.returncode != 0:
+        return None
+    return sevenZipArchiveMemberPaths(result.stdout)
+
+
+def failedEntryResolvedByCurrentArchiveLayout(entry, cached_archives):
+    """Return True when current archive layout rules can now install the entry."""
+    if str(entry.get("review_category") or "") != "ambiguous_archive_layout":
+        return False
+    if "ambiguous archive layout" not in str(entry.get("reason") or "").casefold():
+        return False
+
+    entry_key = _entry_nexus_key(entry)
+    if entry_key is None:
+        return False
+    archive_path = (cached_archives or {}).get(entry_key)
+    if archive_path is None:
+        return False
+
+    members = _archive_members_from_7z(archive_path)
+    if not members:
+        return False
+    plan = headlessArchiveInstallLayout(members)
+    return bool(plan.get("installable"))
+
+
+def _mark_resolved_failed_entry(
+    entry,
+    historical_status="resolved",
+    resolution_field="resolved_by_current_profile",
+):
     item = _trim_failed_entry(entry)
     item["historical_status"] = historical_status
-    if historical_status == "quarantined":
-        item["quarantined_by_current_profile"] = True
-    else:
-        item["resolved_by_current_profile"] = True
+    item[resolution_field] = True
     return item
 
 
@@ -210,6 +279,7 @@ def resolve_failed_entries_against_profile(
     valid_installed_keys,
     base_path=None,
     quarantined_evidence=None,
+    cached_archives=None,
 ):
     failed_entries = summary.get("failed_entries") or []
     if not failed_entries or valid_installed_keys is None:
@@ -221,7 +291,21 @@ def resolve_failed_entries_against_profile(
         if failedEntryResolvedByCurrentProfile(entry, valid_installed_keys, base_path):
             resolved.append(_mark_resolved_failed_entry(entry))
         elif failedEntryQuarantinedByCurrentProfile(entry, quarantined_evidence):
-            resolved.append(_mark_resolved_failed_entry(entry, "quarantined"))
+            resolved.append(
+                _mark_resolved_failed_entry(
+                    entry,
+                    "quarantined",
+                    "quarantined_by_current_profile",
+                )
+            )
+        elif failedEntryResolvedByCurrentArchiveLayout(entry, cached_archives):
+            resolved.append(
+                _mark_resolved_failed_entry(
+                    entry,
+                    "resolved",
+                    "resolved_by_current_archive_layout",
+                )
+            )
         else:
             unresolved.append(entry)
 
@@ -523,12 +607,14 @@ def build_stress_report(
     if base_path is not None:
         valid_installed_keys = validInstalledDownloadKeysForProfile(base_path)
         quarantined_evidence = quarantinedDownloadEvidence(base_path)
+        cached_archives = _cached_install_archives(base_path)
         summaries = [
             resolve_failed_entries_against_profile(
                 summary,
                 valid_installed_keys,
                 base_path=base_path,
                 quarantined_evidence=quarantined_evidence,
+                cached_archives=cached_archives,
             )
             for summary in summaries
         ]
