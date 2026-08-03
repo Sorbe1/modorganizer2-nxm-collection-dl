@@ -6615,6 +6615,45 @@ def activeUnfinishedDownloadFingerprint(
     return tuple(sorted(fingerprint))
 
 
+def downloadByteProgressByKey(entries_by_key, pending_keys=None):
+    """Return the largest observed unfinished archive byte count per Nexus key."""
+    pending_keys = set(pending_keys or [])
+    restrict_to_pending = bool(pending_keys)
+    progress = {}
+
+    for key, entries in (entries_by_key or {}).items():
+        if restrict_to_pending and key not in pending_keys:
+            continue
+        max_size = 0
+        for entry in entries or []:
+            try:
+                max_size = max(max_size, int(entry.get("archive_size", 0) or 0))
+            except (TypeError, ValueError, AttributeError):
+                continue
+        progress[key] = max_size
+
+    return progress
+
+
+def downloadLatestProgressAt(last_terminal_progress_at, last_byte_progress_at, now):
+    """Return the newest sane download progress timestamp at or before ``now``."""
+    try:
+        now = float(now)
+    except (TypeError, ValueError):
+        now = 0.0
+
+    candidates = []
+    for value in (last_terminal_progress_at, last_byte_progress_at):
+        try:
+            timestamp = float(value)
+        except (TypeError, ValueError):
+            continue
+        if 0 < timestamp <= now:
+            candidates.append(timestamp)
+
+    return max(candidates) if candidates else now
+
+
 def staleZeroByteUnfinishedEntries(entries, now, stale_seconds):
     """Return unfinished entries safe to discard before a retry.
 

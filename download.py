@@ -50,6 +50,8 @@ from .collection_helpers import (
     downloadedArchiveNameKeys,
     downloadCompletionChoices,
     downloadCompletionPlan,
+    downloadByteProgressByKey,
+    downloadLatestProgressAt,
     downloadProgressIsStalled,
     downloadTailLaggardPlan,
     downloadTailBoundaryArmTime,
@@ -895,6 +897,9 @@ class stepDownloadProgress(QDialog):
         self.last_download_progress_at = time.time()
         self.last_download_progress_count = 0
         self.last_download_activity_fingerprint = None
+        self.last_download_byte_progress_at = self.last_download_progress_at
+        self.last_download_byte_progress_by_key = {}
+        self.last_download_byte_progress_at_by_key = {}
         self.tail_boundary_started_at = None
         self.tail_boundary_completion_ratio = 0.75
         self.tail_boundary_retry_budget = adaptiveDownloadTailRetryBudget(
@@ -1314,19 +1319,44 @@ class stepDownloadProgress(QDialog):
         """Record byte-level activity for in-flight MO2 downloads."""
         downloads_dir = downloadDirectory()
         pending_keys = set(self.key_counts) - self.completed_keys - self.failed_keys
+        entries_by_key = unfinishedDownloadEntries(downloads_dir)
         fingerprint = activeUnfinishedDownloadFingerprint(
-            unfinishedDownloadEntries(downloads_dir),
+            entries_by_key,
             orphanUnfinishedDownloadEntries(downloads_dir),
             pending_keys,
         )
-        if fingerprint == self.last_download_activity_fingerprint:
-            return False
 
         self.last_download_activity_fingerprint = fingerprint
-        if not fingerprint:
+        progress_by_key = downloadByteProgressByKey(entries_by_key, pending_keys)
+        self.last_download_byte_progress_by_key = {
+            key: size
+            for key, size in self.last_download_byte_progress_by_key.items()
+            if key in pending_keys and key in progress_by_key
+        }
+        self.last_download_byte_progress_at_by_key = {
+            key: timestamp
+            for key, timestamp in self.last_download_byte_progress_at_by_key.items()
+            if key in pending_keys and key in progress_by_key
+        }
+
+        progressed_keys = set()
+        for key, size in progress_by_key.items():
+            try:
+                size = max(0, int(size or 0))
+            except (TypeError, ValueError):
+                size = 0
+            previous_size = self.last_download_byte_progress_by_key.get(key, 0)
+            if size > previous_size:
+                progressed_keys.add(key)
+            self.last_download_byte_progress_by_key[key] = size
+
+        if not progressed_keys:
             return False
 
-        self.last_download_progress_at = time.time()
+        now = time.time()
+        self.last_download_byte_progress_at = now
+        for key in progressed_keys:
+            self.last_download_byte_progress_at_by_key[key] = now
         self.tail_boundary_started_at = None
         return True
 
@@ -1522,13 +1552,18 @@ class stepDownloadProgress(QDialog):
         state = self.refresh_progress_counts()
         if self.note_download_activity_from_disk():
             now = time.time()
+        latest_progress_at = downloadLatestProgressAt(
+            self.last_download_progress_at,
+            self.last_download_byte_progress_at,
+            now,
+        )
         effective_unresolved_limit = (
             self.max_unresolved_queue_submissions
             if unresolved_limit is None
             else max(1, int(unresolved_limit or 1))
         )
         if not downloadProgressIsStalled(
-            self.last_download_progress_at,
+            latest_progress_at,
             now,
             self.tail_boundary_grace_seconds,
         ):
@@ -1548,7 +1583,7 @@ class stepDownloadProgress(QDialog):
                 self.tail_boundary_completion_ratio,
             ):
                 self.tail_boundary_started_at = downloadTailBoundaryArmTime(
-                    self.last_download_progress_at,
+                    latest_progress_at,
                     now,
                 )
                 qDebug(
@@ -1979,6 +2014,8 @@ class stepDownloadProgress(QDialog):
         self.already_started_keys.discard(key)
         self.already_started_at.pop(key, None)
         self.paused_keys.pop(key, None)
+        self.last_download_byte_progress_by_key.pop(key, None)
+        self.last_download_byte_progress_at_by_key.pop(key, None)
         self.already_started_cleanup_attempts.discard(key)
         if self.active_queue_key == key:
             self.active_queue_key = None
@@ -3021,6 +3058,18 @@ class stepDownloadProgress(QDialog):
             if zero_start_retry:
                 stale_entries = zeroByteUnfinishedEntries(entries)
             if stale_entries is None:
+                last_byte_progress_at = self.last_download_byte_progress_at_by_key.get(
+                    key
+                )
+                if (
+                    last_byte_progress_at
+                    and not downloadProgressIsStalled(
+                        last_byte_progress_at,
+                        now,
+                        self.stale_unfinished_seconds,
+                    )
+                ):
+                    continue
                 stale_entries = staleUnfinishedEntries(
                     entries, now, self.stale_unfinished_seconds
                 )

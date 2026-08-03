@@ -52,6 +52,8 @@ from collection_helpers import (
     manualInstallGuidanceForReason,
     downloadCompletionChoices,
     downloadCompletionPlan,
+    downloadByteProgressByKey,
+    downloadLatestProgressAt,
     downloadProgressCanClose,
     downloadPromptKeyFromLabels,
     downloadPromptKeyFromArchiveLabels,
@@ -3543,6 +3545,34 @@ class DownloadTailBoundaryTests(unittest.TestCase):
 
     def test_progress_stall_trips_after_quiet_window(self):
         self.assertTrue(downloadProgressIsStalled(100, 120, 20))
+
+    def test_byte_progress_by_key_uses_largest_unfinished_entry(self):
+        progress = downloadByteProgressByKey(
+            {
+                (1, 10): [{"archive_size": 4}, {"archive_size": "9"}],
+                (2, 20): [{"archive_size": "bad"}],
+            }
+        )
+
+        self.assertEqual(progress[(1, 10)], 9)
+        self.assertEqual(progress[(2, 20)], 0)
+
+    def test_byte_progress_by_key_can_restrict_to_pending_keys(self):
+        progress = downloadByteProgressByKey(
+            {
+                (1, 10): [{"archive_size": 4}],
+                (2, 20): [{"archive_size": 9}],
+            },
+            pending_keys={(2, 20)},
+        )
+
+        self.assertEqual(progress, {(2, 20): 9})
+
+    def test_latest_progress_time_uses_newer_byte_progress(self):
+        self.assertEqual(downloadLatestProgressAt(100, 118, 120), 118)
+
+    def test_latest_progress_time_ignores_invalid_and_future_values(self):
+        self.assertEqual(downloadLatestProgressAt(None, 130, 120), 120)
 
     def test_tail_boundary_arm_time_uses_last_progress(self):
         self.assertEqual(downloadTailBoundaryArmTime(100, 150), 100)
