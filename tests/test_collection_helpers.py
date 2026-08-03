@@ -711,7 +711,7 @@ class TopLevelDownloadMetadataAuditTests(unittest.TestCase):
             self.assertEqual(downloadMetaInstalledValue(metadata), "false")
             self.assertTrue((backup / metadata.name).exists())
 
-    def test_skips_false_installed_metadata_without_archive(self):
+    def test_repairs_false_installed_metadata_without_archive(self):
         with TemporaryDirectory() as tmp:
             downloads = Path(tmp)
             metadata = downloads / "Missing-123-456.7z.meta"
@@ -724,9 +724,9 @@ class TopLevelDownloadMetadataAuditTests(unittest.TestCase):
                 {"installed_without_valid_container": [str(metadata)]}
             )
 
-            self.assertEqual(result["checked"], 0)
-            self.assertEqual(result["skipped"], 1)
-            self.assertEqual(downloadMetaInstalledValue(metadata), "true")
+            self.assertEqual(result["checked"], 1)
+            self.assertEqual(result["repaired"], 1)
+            self.assertEqual(downloadMetaInstalledValue(metadata), "false")
 
 
 class DownloadMetadataReviewEntriesTests(unittest.TestCase):

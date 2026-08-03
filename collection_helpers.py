@@ -5087,7 +5087,12 @@ def repairInstalledWithoutValidContainerMetadata(
     download_metadata_audit,
     backup_dir=None,
 ):
-    """Mark audited false-installed Downloads entries downloaded-only."""
+    """Mark audited false-installed Downloads entries downloaded-only.
+
+    The archive may already be gone by the time this runs. Still clearing the
+    installed flag keeps the remaining sidecar from advertising a successful
+    install that has no MO2 mod-container or verified external evidence.
+    """
     result = {
         "checked": 0,
         "repaired": 0,
@@ -5110,8 +5115,7 @@ def repairInstalledWithoutValidContainerMetadata(
         if metadata_file.name.endswith(".unfinished.meta"):
             result["skipped"] += 1
             continue
-        archive_file = metadata_file.with_suffix("")
-        if not metadata_file.is_file() or not archive_file.is_file():
+        if not metadata_file.is_file():
             result["skipped"] += 1
             continue
         result["checked"] += 1
