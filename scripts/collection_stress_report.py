@@ -18,6 +18,7 @@ from collection_helpers import (  # noqa: E402
     downloadMetaInstalledValue,
     failedInstallReviewEntriesWithCategories,
     failedInstallReviewCategoryCounts,
+    gameRootFileEvidenceForCollectionEntry,
     headlessArchiveInstallLayout,
     inferredSteamGameDataPathFromMo2Base,
     mo2PluginPathsFromActiveMods,
@@ -89,6 +90,15 @@ def _trim_warning_entry(entry):
         "occurrences",
         "source",
     ):
+        value = entry.get(key)
+        if value is not None:
+            kept[key] = value
+    return kept
+
+
+def _trim_root_level_entry(entry):
+    kept = {}
+    for key in ("mod", "file", "archive", "mod_id", "file_id", "reason"):
         value = entry.get(key)
         if value is not None:
             kept[key] = value
@@ -388,6 +398,15 @@ def warningResolvedByCurrentProfile(warning, active_plugins, profile_audit_clean
     return not any(plugin.casefold() in active_plugins for plugin in missing_plugins)
 
 
+def _game_root_evidence_paths(game_data_path):
+    if game_data_path is None:
+        return []
+    candidates = [Path(game_data_path)]
+    if Path(game_data_path).name.casefold() == "data":
+        candidates.append(Path(game_data_path).parent)
+    return candidates
+
+
 def _mark_resolved_warning_entry(warning):
     item = _trim_warning_entry(warning)
     item["historical_status"] = "resolved"
@@ -547,6 +566,79 @@ def resolve_warning_entries_against_profile(
     return summary
 
 
+def _game_root_evidence_for_entry(entry, game_data_path):
+    key = _entry_nexus_key(entry)
+    if key is None:
+        return []
+    for candidate in _game_root_evidence_paths(game_data_path):
+        evidence = gameRootFileEvidenceForCollectionEntry(key, candidate)
+        if evidence:
+            return evidence
+    return []
+
+
+def rootLevelEntryResolvedByCurrentGameRoot(entry, game_data_path):
+    """Return True when current game-root files prove a historical root note."""
+    return bool(_game_root_evidence_for_entry(entry, game_data_path))
+
+
+def _mark_resolved_root_level_entry(entry, game_data_path):
+    item = _trim_root_level_entry(entry)
+    item["historical_status"] = "resolved"
+    item["resolved_by_current_game_root"] = True
+    item["game_root_evidence"] = _game_root_evidence_for_entry(entry, game_data_path)
+    return item
+
+
+def resolve_root_level_entries_against_profile(summary, game_data_path):
+    root_level_entries = summary.get("root_level_entries") or []
+    if not root_level_entries:
+        return summary
+
+    unresolved = []
+    resolved = []
+    for entry in root_level_entries:
+        if rootLevelEntryResolvedByCurrentGameRoot(entry, game_data_path):
+            resolved.append(_mark_resolved_root_level_entry(entry, game_data_path))
+        else:
+            unresolved.append(entry)
+
+    if not resolved:
+        return summary
+
+    summary = dict(summary)
+    summary["root_level_entries"] = unresolved
+    summary["resolved_root_level_entries"] = resolved
+    summary["resolved_root_level_count"] = len(resolved)
+    summary["root_level_count"] = len(unresolved)
+    summary["informational_count"] = max(
+        0,
+        int(summary.get("informational_count") or 0) - len(resolved),
+    )
+
+    if summary["actionable_review_count"]:
+        summary["review_severity"] = "actionable"
+    elif summary.get("informational_count"):
+        summary["review_severity"] = "informational"
+    else:
+        summary["review_severity"] = "clean"
+
+    has_review = any(
+        (
+            summary.get("warning_count"),
+            summary.get("unique_warning_count"),
+            summary.get("failed_count"),
+            summary.get("review_count"),
+            summary.get("root_level_count"),
+            summary.get("no_applicable_count"),
+            summary.get("queued_fomod_recovery_count"),
+            summary.get("download_metadata_review"),
+        )
+    )
+    summary["status"] = "needs_review" if has_review else "clean"
+    return summary
+
+
 def summarize_collection_report(report_path):
     report_path = Path(report_path)
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -623,6 +715,11 @@ def summarize_collection_report(report_path):
             categorized_failed_entries
         ),
         "root_level_count": len(root_level_entries),
+        "root_level_entries": [
+            _trim_root_level_entry(item) for item in root_level_entries
+        ],
+        "resolved_root_level_entries": [],
+        "resolved_root_level_count": 0,
         "no_applicable_count": len(no_applicable_entries),
         "queued_fomod_recovery_count": len(queued_fomod_recovery_entries),
         "download_metadata_review": download_metadata_review,
@@ -752,6 +849,7 @@ def summarize_stress_totals(summaries):
         "download_metadata_review_count": 0,
         "resolved_failed_count": 0,
         "resolved_warning_count": 0,
+        "resolved_root_level_count": 0,
         "failed_categories": failed_categories,
         "warning_categories": warning_categories,
     }
@@ -759,6 +857,9 @@ def summarize_stress_totals(summaries):
         totals["failed_count"] += int(item.get("failed_count") or 0)
         totals["resolved_failed_count"] += int(item.get("resolved_failed_count") or 0)
         totals["resolved_warning_count"] += int(item.get("resolved_warning_count") or 0)
+        totals["resolved_root_level_count"] += int(
+            item.get("resolved_root_level_count") or 0
+        )
         totals["review_count"] += int(item.get("review_count") or 0)
         totals["warning_count"] += int(item.get("warning_count") or 0)
         totals["unique_warning_count"] += int(item.get("unique_warning_count") or 0)
@@ -833,6 +934,7 @@ def build_stress_report(
         profile_warnings = profile_audit.get("warnings", [])
         active_plugins = _active_profile_plugins(base_path, profile_name)
         current_plugin_files = _active_profile_plugin_files(base_path, profile_name)
+        game_root = inferredSteamGameDataPathFromMo2Base(base_path)
         summaries = [
             resolve_warning_entries_against_profile(
                 summary,
@@ -840,6 +942,10 @@ def build_stress_report(
                 current_plugin_files,
                 profile_audit_clean=bool(profile_audit.get("clean")),
             )
+            for summary in summaries
+        ]
+        summaries = [
+            resolve_root_level_entries_against_profile(summary, game_root)
             for summary in summaries
         ]
         if needs_review_only:
@@ -955,6 +1061,7 @@ def print_text_report(report):
             f"{totals.get('resolved_failed_count', 0)} resolved historical, "
             f"{totals.get('warning_count', 0)} warning(s), "
             f"{totals.get('resolved_warning_count', 0)} resolved warning(s), "
+            f"{totals.get('resolved_root_level_count', 0)} resolved root note(s), "
             f"{totals.get('add_collection_recovery_count', 0)} recovery launch(es)"
         )
     for item in report["collections"]:
@@ -972,6 +1079,8 @@ def print_text_report(report):
             details.append(f"{item['resolved_failed_count']} resolved historical")
         if item.get("resolved_warning_count"):
             details.append(f"{item['resolved_warning_count']} resolved warning(s)")
+        if item.get("resolved_root_level_count"):
+            details.append(f"{item['resolved_root_level_count']} resolved root note(s)")
         if item["warning_count"]:
             warning_categories = item.get("warning_categories") or {}
             if warning_categories:

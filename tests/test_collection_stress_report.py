@@ -970,6 +970,132 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertEqual(result["totals"]["resolved_warning_count"], 1)
             self.assertEqual(summary["resolved_warning_count"], 1)
 
+    def test_resolves_root_level_note_from_current_game_root_evidence(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            game_root = root / "game"
+            game_data = game_root / "Data"
+            logs.mkdir()
+            game_data.mkdir(parents=True)
+            (game_root / "d3dx9_42.dll").write_text("dll", encoding="utf-8")
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-root-1-20260802-010000.json",
+                {
+                    "collection": "root",
+                    "revision": 1,
+                    "name": "Root",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [],
+                    "root_level_entries": [
+                        {
+                            "mod": "SSE Engine Fixes (skse64 plugin)",
+                            "file": "Engine Fixes - SKSE64 Preloader",
+                            "mod_id": 17230,
+                            "file_id": 658442,
+                            "reason": "game-root file already present: d3dx9_42.dll",
+                        }
+                    ],
+                },
+            )
+
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "inferredSteamGameDataPathFromMo2Base",
+                    return_value=game_data,
+                ),
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 0)
+            self.assertEqual(result["totals"]["root_level_count"], 0)
+            self.assertEqual(result["totals"]["resolved_root_level_count"], 1)
+            self.assertEqual(summary["root_level_count"], 0)
+            self.assertEqual(summary["resolved_root_level_count"], 1)
+            self.assertEqual(
+                summary["resolved_root_level_entries"][0]["game_root_evidence"],
+                ["d3dx9_42.dll"],
+            )
+
+    def test_keeps_root_level_note_without_current_game_root_evidence(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            game_root = root / "game"
+            logs.mkdir()
+            game_root.mkdir()
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-root-1-20260802-010000.json",
+                {
+                    "collection": "root",
+                    "revision": 1,
+                    "name": "Root",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [],
+                    "root_level_entries": [
+                        {
+                            "mod": "SSE Engine Fixes (skse64 plugin)",
+                            "file": "Engine Fixes - SKSE64 Preloader",
+                            "mod_id": 17230,
+                            "file_id": 658442,
+                            "reason": "game-root file already present: d3dx9_42.dll",
+                        }
+                    ],
+                },
+            )
+
+            with (
+                mock.patch.object(
+                    collection_stress_report,
+                    "validInstalledDownloadKeysForProfile",
+                    return_value=set(),
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "auditMo2ProfileState",
+                    return_value={"clean": True, "issues": [], "warnings": []},
+                ),
+                mock.patch.object(
+                    collection_stress_report,
+                    "inferredSteamGameDataPathFromMo2Base",
+                    return_value=game_root,
+                ),
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 1)
+            self.assertEqual(result["totals"]["root_level_count"], 1)
+            self.assertEqual(result["totals"]["resolved_root_level_count"], 0)
+            self.assertEqual(summary["root_level_count"], 1)
+            self.assertEqual(summary["resolved_root_level_count"], 0)
+
     def test_can_include_profile_audit(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
