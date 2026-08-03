@@ -6201,18 +6201,25 @@ class HeadlessZipInstallLayoutTests(unittest.TestCase):
             plan["strip_prefix"], "CompanionArchive_Vanilla/Data/"
         )
 
-    def test_accepts_single_wrapper_multiple_variant_data_roots(self):
+    def test_rejects_single_wrapper_multiple_variant_data_roots(self):
         plan = headlessZipInstallLayout(
             [
                 "Loadscreen New Female Giant/Loadscreen New Female Giant NUDE/Data/Meshes/loadscreenart/loadscreengiant01.nif",
                 "Loadscreen New Female Giant/Loadscreen New Female Giant TOPLESS/DATA/Meshes/loadscreenart/loadscreengiant01.nif",
             ]
         )
-        self.assertTrue(plan["installable"])
-        self.assertEqual(plan["reason"], "single wrapper variant Data folder")
+        self.assertFalse(plan["installable"])
         self.assertEqual(
-            plan["strip_prefix"],
-            "Loadscreen New Female Giant/Loadscreen New Female Giant NUDE/Data/",
+            plan["reason"],
+            "ambiguous archive layout: multiple variant Data roots",
+        )
+        self.assertEqual(plan["strip_prefix"], "")
+        self.assertEqual(
+            plan["diagnostics"]["nested_data_candidates"],
+            [
+                "Loadscreen New Female Giant/Loadscreen New Female Giant NUDE/Data/",
+                "Loadscreen New Female Giant/Loadscreen New Female Giant TOPLESS/DATA/",
+            ],
         )
 
     def test_rejects_fomod_installer_zip(self):

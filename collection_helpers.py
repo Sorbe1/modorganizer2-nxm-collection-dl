@@ -2111,9 +2111,10 @@ def headlessArchiveInstallLayout(member_names):
             and _hasDirectInstallMarkers(variant_data_rooted)
         ):
             return {
-                "installable": True,
-                "reason": "single wrapper variant Data folder",
-                "strip_prefix": variant_prefixes[0],
+                "installable": False,
+                "reason": "ambiguous archive layout: multiple variant Data roots",
+                "strip_prefix": "",
+                "diagnostics": _archiveLayoutDiagnostics(install_paths),
             }
 
     common_wrapper = _singleCommonWrapperLayout(install_paths)
