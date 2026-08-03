@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 from datetime import datetime
-from PyQt6.QtCore import qDebug, QUrl
+from PyQt6.QtCore import QUrl, qDebug as _qDebug
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
@@ -24,6 +24,34 @@ bundledMods = []
 chosenOptional = []
 chosenExternal = True
 openModWebsites = False
+autoAdvanceFomodDefaultsOverride = None
+debugLogPath = None
+lastQuotaLimitMessage = None
+lastQuotaState = None
+
+
+def setDebugLogPath(path):
+    global debugLogPath
+
+    debugLogPath = Path(path) if path else None
+
+
+def debug(message):
+    """Send text to MO2's debug log without crashing on non-ASCII Nexus data."""
+    safe_message = str(message).encode("ascii", "backslashreplace").decode("ascii")
+    _qDebug(safe_message)
+    if not debugLogPath:
+        return
+    try:
+        debugLogPath.parent.mkdir(parents=True, exist_ok=True)
+        with open(debugLogPath, "a", encoding="utf-8") as log_file:
+            timestamp = datetime.now().isoformat(timespec="seconds")
+            log_file.write(f"{timestamp} {safe_message}\n")
+    except OSError:
+        pass
+
+
+qDebug = debug
 
 
 def cleanJson(data, visible=False):
@@ -81,6 +109,22 @@ def saveCollectionMetadata(base_path: Path):
     # Create metadata file path: <collection>_<revision>.json
     metadata_file = collections_dir / f"{collection}_{revision}.json"
 
+    preserved_metadata = {}
+    if metadata_file.exists():
+        try:
+            with open(metadata_file, "r", encoding="utf-8") as f:
+                existing_metadata = json.load(f)
+            for key in (
+                "addCollectionLaunchCount",
+                "addCollectionRecoveryCount",
+                "addCollectionLaunchMode",
+                "addCollectionLaunches",
+            ):
+                if key in existing_metadata:
+                    preserved_metadata[key] = existing_metadata[key]
+        except (OSError, json.JSONDecodeError):
+            preserved_metadata = {}
+
     # Prepare metadata
     metadata = {
         "uri": uri,
@@ -97,6 +141,7 @@ def saveCollectionMetadata(base_path: Path):
         "timestamp": datetime.now().isoformat(),
         "totalMods": len(essentialMods) + len(chosenOptional),
     }
+    metadata.update(preserved_metadata)
 
     # Save to file
     with open(metadata_file, "w", encoding="utf-8") as f:
@@ -144,4 +189,13 @@ def listCollectionMetadata(base_path: Path):
                     )
                     continue
 
-    return collections
+    def metadata_sort_key(collection_info):
+        metadata_file = collection_info[3]
+        try:
+            with open(metadata_file, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            return metadata.get("timestamp") or metadata_file.stat().st_mtime
+        except Exception:
+            return metadata_file.stat().st_mtime
+
+    return sorted(collections, key=metadata_sort_key, reverse=True)

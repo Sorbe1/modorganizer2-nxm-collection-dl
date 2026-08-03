@@ -1,33 +1,90 @@
 import json
+import time
+import traceback
+import urllib.error
 import urllib.request
-from PyQt6.QtCore import qDebug
 
 from . import var
+from .collection_helpers import nexusQuotaStateFromHeaders, quotaLimitMessage
+
+qDebug = var.debug
 
 
 def nxmFetch(requestData):
+    operation_name = requestData.get("operationName", "<unknown>")
+    variables = requestData.get("variables", {})
     jsonData = json.dumps(requestData).encode("utf-8")
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20211714 Firefox/135.0",
         "Accept": "application/json",
         "Content-type": "application/json",
     }
+    qDebug(
+        "[NXMColDL API] Request start: "
+        f"operation={operation_name}, variables={var.cleanJson(variables)}, "
+        f"bytes={len(jsonData)}"
+    )
     request = urllib.request.Request(
         "https://api.nexusmods.com/v2/graphql", data=jsonData, headers=headers
     )
+    started = time.monotonic()
     try:
         with urllib.request.urlopen(request) as response:
             content = response.read()
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            quota_state = nexusQuotaStateFromHeaders(response.headers, response.status)
+            if quota_state:
+                var.lastQuotaState = quota_state
+            qDebug(
+                "[NXMColDL API] Response received: "
+                f"operation={operation_name}, status={response.status}, "
+                f"bytes={len(content)}, elapsed_ms={elapsed_ms}, "
+                f"quota_state={var.cleanJson(quota_state) if quota_state else None}"
+            )
             resp = json.loads(content)
-            qDebug(var.cleanJson(resp))
             if "errors" in resp:
-                qDebug(f"[NXMColDL] API returned errors: {resp['errors']}")
-            return resp.get("data")
-    except (urllib.error.HTTPError, urllib.error.URLError) as e:
-        qDebug(f"[NXMColDL] Error fetching data: {str(e)}")
+                qDebug(
+                    "[NXMColDL API] GraphQL errors: "
+                    f"operation={operation_name}, errors={var.cleanJson(resp['errors'])}"
+                )
+            data = resp.get("data")
+            qDebug(
+                "[NXMColDL API] Response data keys: "
+                f"operation={operation_name}, keys={list(data.keys()) if isinstance(data, dict) else type(data).__name__}"
+            )
+            return data
+    except urllib.error.HTTPError as e:
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        quota_state = nexusQuotaStateFromHeaders(e.headers, e.code)
+        if quota_state:
+            var.lastQuotaState = quota_state
+        quota_message = quotaLimitMessage(e.code, e.headers, body)
+        if quota_message:
+            var.lastQuotaLimitMessage = quota_message
+        qDebug(
+            "[NXMColDL API] HTTP error: "
+            f"operation={operation_name}, status={e.code}, reason={e.reason}, "
+            f"elapsed_ms={elapsed_ms}, quota={quota_message!r}, body={body[:1000]}"
+        )
+        return None
+    except urllib.error.URLError as e:
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        qDebug(
+            "[NXMColDL API] URL error: "
+            f"operation={operation_name}, reason={e.reason}, elapsed_ms={elapsed_ms}"
+        )
         return None
     except Exception as e:
-        qDebug(f"[NXMColDL] Unexpected error: {str(e)}")
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        qDebug(
+            "[NXMColDL API] Unexpected error: "
+            f"operation={operation_name}, error={e}, elapsed_ms={elapsed_ms}, "
+            f"traceback={traceback.format_exc()}"
+        )
         return None
 
 
