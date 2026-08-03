@@ -201,6 +201,9 @@ INSTALL_DIALOG_HANDLER_INTERVAL_MS = AUTOMATED_INSTALL_CADENCE_DEFAULTS[
 FOMOD_ADVANCE_INTERVAL_MS = AUTOMATED_INSTALL_CADENCE_DEFAULTS[
     "fomod_advance_interval_ms"
 ]
+NATIVE_ARCHIVE_WORKER_LIST_TIMEOUT_SECONDS = 75
+NATIVE_ARCHIVE_WORKER_FOMOD_TIMEOUT_SECONDS = 135
+NATIVE_ARCHIVE_WORKER_EXTRACT_TIMEOUT_SECONDS = 330
 
 _invalid_install_content_cancelled = False
 _mod_exists_cancelled = False
@@ -2238,7 +2241,7 @@ class stepInstallMods(QDialog):
                 "archive": nativePathForArchiveInspection(archive_path),
                 "direct_error": direct_error,
             },
-            timeout_seconds=60,
+            timeout_seconds=NATIVE_ARCHIVE_WORKER_LIST_TIMEOUT_SECONDS,
         )
         if not result.get("ok"):
             return {
@@ -2263,7 +2266,7 @@ class stepInstallMods(QDialog):
                 "target_dir": nativePathForArchiveInspection(target_dir),
                 "direct_error": direct_error,
             },
-            timeout_seconds=300,
+            timeout_seconds=NATIVE_ARCHIVE_WORKER_EXTRACT_TIMEOUT_SECONDS,
         )
         if not result.get("ok"):
             return {"ok": False, "error": result.get("error") or direct_error}
@@ -2276,7 +2279,7 @@ class stepInstallMods(QDialog):
                 "action": "fomod",
                 "archive": nativePathForArchiveInspection(archive_path),
             },
-            timeout_seconds=10,
+            timeout_seconds=NATIVE_ARCHIVE_WORKER_FOMOD_TIMEOUT_SECONDS,
         )
         if not result.get("ok"):
             qDebug(

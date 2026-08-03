@@ -6235,6 +6235,25 @@ class InstallRuntimeSourceTests(unittest.TestCase):
         self.assertIn('"invalid_payload_metadata_failed"', source)
         self.assertIn("Invalid payload metadata repairs", source)
 
+    def test_native_archive_worker_caller_timeouts_exceed_worker_budgets(self):
+        source = self.install_source()
+
+        self.assertIn("NATIVE_ARCHIVE_WORKER_LIST_TIMEOUT_SECONDS = 75", source)
+        self.assertIn("NATIVE_ARCHIVE_WORKER_FOMOD_TIMEOUT_SECONDS = 135", source)
+        self.assertIn("NATIVE_ARCHIVE_WORKER_EXTRACT_TIMEOUT_SECONDS = 330", source)
+        self.assertIn(
+            "timeout_seconds=NATIVE_ARCHIVE_WORKER_LIST_TIMEOUT_SECONDS",
+            source,
+        )
+        self.assertIn(
+            "timeout_seconds=NATIVE_ARCHIVE_WORKER_FOMOD_TIMEOUT_SECONDS",
+            source,
+        )
+        self.assertIn(
+            "timeout_seconds=NATIVE_ARCHIVE_WORKER_EXTRACT_TIMEOUT_SECONDS",
+            source,
+        )
+
 
 class CoerceIntSettingTests(unittest.TestCase):
     def test_accepts_native_and_string_integer_values(self):
