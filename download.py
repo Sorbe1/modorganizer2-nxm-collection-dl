@@ -30,10 +30,12 @@ from .collection_helpers import (
     INSTALLER_SETTING_DEFAULTS,
     activeDownloadPromptKey,
     activeUnfinishedDownloadFingerprint,
+    adaptiveFinalDownloadReadinessAttempts,
     adaptiveDownloadQueueSubmissionLimit,
     adaptiveDownloadTailGraceSeconds,
     adaptiveDownloadTailRetryBatchLimit,
     adaptiveDownloadTailRetryBudget,
+    adaptiveTerminalFailureGraceAttempts,
     adaptiveZeroByteRestartThreshold,
     coerceBoolSetting,
     coerceDownloadId,
@@ -869,6 +871,17 @@ class stepDownloadProgress(QDialog):
         self.zero_byte_orphan_stale_seconds = 3
         self.max_unresolved_queue_submissions = adaptiveDownloadQueueSubmissionLimit(
             self.total_mods, 16
+        )
+        self.terminal_failure_grace_max_attempts = (
+            adaptiveTerminalFailureGraceAttempts(
+                self.total_mods,
+                self.max_unresolved_queue_submissions,
+                self.max_retries,
+            )
+        )
+        self.final_readiness_max_attempts = adaptiveFinalDownloadReadinessAttempts(
+            self.total_mods,
+            self.max_unresolved_queue_submissions,
         )
         self.zero_byte_restart_threshold = adaptiveZeroByteRestartThreshold(
             self.total_mods,

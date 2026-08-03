@@ -161,10 +161,12 @@ from collection_helpers import (
     warningReportNeedsWrite,
     shouldDelayTerminalDownloadFailure,
     staleAlreadyStartedAction,
+    adaptiveFinalDownloadReadinessAttempts,
     adaptiveDownloadQueueSubmissionLimit,
     adaptiveDownloadTailGraceSeconds,
     adaptiveDownloadTailRetryBatchLimit,
     adaptiveDownloadTailRetryBudget,
+    adaptiveTerminalFailureGraceAttempts,
     adaptiveZeroByteRestartThreshold,
     downloadProgressIsStalled,
     downloadTailLaggardPlan,
@@ -3551,6 +3553,30 @@ class DownloadTailBoundaryTests(unittest.TestCase):
     def test_adaptive_submission_limit_tolerates_invalid_values(self):
         self.assertEqual(adaptiveDownloadQueueSubmissionLimit("bad", 16), 16)
         self.assertEqual(adaptiveDownloadQueueSubmissionLimit(53, "bad"), 53)
+
+    def test_adaptive_terminal_failure_grace_keeps_small_runs_at_baseline(self):
+        self.assertEqual(adaptiveTerminalFailureGraceAttempts(26, 26, 0), 10)
+
+    def test_adaptive_terminal_failure_grace_scales_large_queue_pressure(self):
+        self.assertEqual(adaptiveTerminalFailureGraceAttempts(559, 64, 2), 30)
+
+    def test_adaptive_terminal_failure_grace_is_bounded(self):
+        self.assertEqual(
+            adaptiveTerminalFailureGraceAttempts(3000, 64, 20, maximum=30),
+            30,
+        )
+
+    def test_adaptive_final_readiness_keeps_small_runs_at_baseline(self):
+        self.assertEqual(adaptiveFinalDownloadReadinessAttempts(26, 26), 80)
+
+    def test_adaptive_final_readiness_scales_large_queue_pressure(self):
+        self.assertEqual(adaptiveFinalDownloadReadinessAttempts(559, 64), 144)
+
+    def test_adaptive_final_readiness_is_bounded(self):
+        self.assertEqual(
+            adaptiveFinalDownloadReadinessAttempts(3000, 64, maximum=100),
+            100,
+        )
 
     def test_progress_stall_waits_while_recent_progress_exists(self):
         self.assertFalse(downloadProgressIsStalled(100, 119, 20))

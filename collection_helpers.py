@@ -4392,6 +4392,49 @@ def shouldDelayTerminalDownloadFailure(has_failures, attempts, max_attempts):
     return bool(has_failures) and int(attempts or 0) < int(max_attempts or 0)
 
 
+def adaptiveTerminalFailureGraceAttempts(
+    total,
+    unresolved_limit,
+    max_retries,
+    minimum=10,
+    maximum=60,
+):
+    """Return bounded late-prompt settle attempts for a completed download queue."""
+    try:
+        total = max(0, int(total or 0))
+        unresolved_limit = max(1, int(unresolved_limit or 1))
+        max_retries = max(0, int(max_retries or 0))
+        minimum = max(0, int(minimum or 0))
+        maximum = max(minimum, int(maximum or minimum))
+    except (TypeError, ValueError):
+        return 10
+
+    queue_waves = max(1, (total + unresolved_limit - 1) // unresolved_limit)
+    pressure_bonus = min(30, max(0, queue_waves - 1) * 2)
+    retry_bonus = min(12, max_retries * 2)
+    return min(maximum, max(minimum, minimum + pressure_bonus + retry_bonus))
+
+
+def adaptiveFinalDownloadReadinessAttempts(
+    total,
+    unresolved_limit,
+    minimum=80,
+    maximum=240,
+):
+    """Return bounded readiness settle attempts after all downloads report done."""
+    try:
+        total = max(0, int(total or 0))
+        unresolved_limit = max(1, int(unresolved_limit or 1))
+        minimum = max(0, int(minimum or 0))
+        maximum = max(minimum, int(maximum or minimum))
+    except (TypeError, ValueError):
+        return 80
+
+    queue_waves = max(1, (total + unresolved_limit - 1) // unresolved_limit)
+    pressure_bonus = min(120, max(0, queue_waves - 1) * 8)
+    return min(maximum, max(minimum, minimum + pressure_bonus))
+
+
 def activeDownloadPromptKey(active_key, context_key, context_expires_at, now):
     """Return the Nexus key that owns a currently visible MO2 download prompt."""
     if active_key is not None:
