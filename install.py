@@ -75,7 +75,6 @@ from .collection_helpers import (
     invalidInstalledCollectionPlanAction,
     installedModCompletionIssueReason,
     installedModHasCompletionPayload,
-    installedPayloadFileCount,
     invalidInstallContentDialogAction,
     installNoResultReason,
     installPlanExecutionAction,
@@ -1277,9 +1276,7 @@ class stepInstallMods(QDialog):
         category = self.interfaceWarningCategory(message)
         key = (mod_name or "post-install", file_name or "", normalized)
         if key in self.install_warning_index:
-            self.install_warnings[self.install_warning_index[key]][
-                "occurrences"
-            ] += 1
+            self.install_warnings[self.install_warning_index[key]]["occurrences"] += 1
         else:
             self.install_warning_index[key] = len(self.install_warnings)
             self.install_warnings.append(
@@ -1402,9 +1399,7 @@ class stepInstallMods(QDialog):
         download_metadata_audit = self.install_context.get(
             "download_metadata_audit", {}
         )
-        download_metadata_report = downloadMetadataAuditSummary(
-            download_metadata_audit
-        )
+        download_metadata_report = downloadMetadataAuditSummary(download_metadata_audit)
         download_metadata_review_entries = self.install_context.get(
             "download_metadata_review_entries"
         )
@@ -2044,7 +2039,9 @@ class stepInstallMods(QDialog):
         )
 
     def nativeArchiveWorkerLogPath(self, organizer):
-        return self.nativeArchiveWorkerDirectory(organizer) / "native-archive-worker.log"
+        return (
+            self.nativeArchiveWorkerDirectory(organizer) / "native-archive-worker.log"
+        )
 
     def nativeArchiveWorkerScriptPath(self):
         return Path(__file__).resolve().parent / "scripts" / "native_archive_worker.py"
@@ -2167,7 +2164,9 @@ class stepInstallMods(QDialog):
                     attempts=1,
                     retry_delay_seconds=0,
                 ):
-                    request_id = f"shutdown-{int(time.time() * 1000)}-{uuid.uuid4().hex}"
+                    request_id = (
+                        f"shutdown-{int(time.time() * 1000)}-{uuid.uuid4().hex}"
+                    )
                     request_path = request_dir / f"{request_id}.request.json"
                     result_path = request_dir / f"{request_id}.result.json"
                     tmp_path = request_dir / f"{request_id}.request.json.tmp"
@@ -2295,8 +2294,11 @@ class stepInstallMods(QDialog):
                 "[NXMColDL Install] Native archive worker FOMOD inspection failed: "
                 f"archive={archive_path}, error={result.get('error')}"
             )
-            return None, None, result.get("error") or (
-                "Native archive worker could not inspect FOMOD XML."
+            return (
+                None,
+                None,
+                result.get("error")
+                or ("Native archive worker could not inspect FOMOD XML."),
             )
         if not result.get("has_fomod"):
             return None, None, "No fomod/ModuleConfig.xml found in archive."
@@ -2361,12 +2363,8 @@ class stepInstallMods(QDialog):
             tmp_path = request_dir / f"{request_id}.request.json.tmp"
             request_payload = dict(payload)
             request_payload["id"] = request_id
-            request_payload["result_path"] = nativePathForArchiveInspection(
-                result_path
-            )
-            tmp_path.write_text(
-                json.dumps(request_payload, indent=2), encoding="utf-8"
-            )
+            request_payload["result_path"] = nativePathForArchiveInspection(result_path)
+            tmp_path.write_text(json.dumps(request_payload, indent=2), encoding="utf-8")
             tmp_path.rename(request_path)
 
             deadline = time.monotonic() + timeout_seconds
@@ -2514,8 +2512,7 @@ class stepInstallMods(QDialog):
             group_name = safeDisplayText(group.get("group"))
             group_type = safeDisplayText(group.get("type"))
             lines.append(
-                "- Ambiguous FOMOD dependency group: "
-                f"`{group_name}` ({group_type})"
+                f"- Ambiguous FOMOD dependency group: `{group_name}` ({group_type})"
             )
             candidates = []
             for candidate in group.get("candidates") or []:
@@ -3075,9 +3072,12 @@ class stepInstallMods(QDialog):
                         plan.append(entry)
                         continue
 
-            if invalid_installed_name and not shouldRetryInvalidInstalledCollectionArchive(
-                fomod_state,
-                headless_archive_layout,
+            if (
+                invalid_installed_name
+                and not shouldRetryInvalidInstalledCollectionArchive(
+                    fomod_state,
+                    headless_archive_layout,
+                )
             ):
                 entry.update(
                     {
@@ -3235,8 +3235,8 @@ class stepInstallMods(QDialog):
                 no_applicable_count += 1
 
         if metadata_repair_keys:
-            context["fast_finish_metadata_repair"] = self.markInstalledDownloadMetadataKeys(
-                context, metadata_repair_keys
+            context["fast_finish_metadata_repair"] = (
+                self.markInstalledDownloadMetadataKeys(context, metadata_repair_keys)
             )
 
         context["install_plan_fast_finished"] = True
@@ -3689,7 +3689,9 @@ class stepInstallMods(QDialog):
                         / datetime.now().strftime("%Y%m%d-%H%M%S")
                     )
                     quarantine_result = quarantineInvalidPayloadModContainers(
-                        Path(organizer.modsPath()), [existing_name_match], quarantine_dir
+                        Path(organizer.modsPath()),
+                        [existing_name_match],
+                        quarantine_dir,
                     )
                     if quarantine_result.get("moved"):
                         self.log(
@@ -4014,14 +4016,11 @@ class stepInstallMods(QDialog):
             if installed_mod:
                 internal_name = installed_mod.name()
                 installed_dir = Path(organizer.modsPath()) / internal_name
-                payload_issue_reason = installedModCompletionIssueReason(
-                    installed_dir
-                )
+                payload_issue_reason = installedModCompletionIssueReason(installed_dir)
                 if payload_issue_reason:
                     empty_fomod_guide = None
                     if (
-                        payload_issue_reason
-                        == EMPTY_INSTALLER_OUTPUT_REASON
+                        payload_issue_reason == EMPTY_INSTALLER_OUTPUT_REASON
                         and fomod_state is True
                     ):
                         empty_fomod_guide = self.archiveFomodGuide(
@@ -4050,9 +4049,7 @@ class stepInstallMods(QDialog):
                             installed_name=internal_name,
                         )
                         self.log("")
-                        QTimer.singleShot(
-                            INSTALL_NEXT_DELAY_MS, self.installNextMod
-                        )
+                        QTimer.singleShot(INSTALL_NEXT_DELAY_MS, self.installNextMod)
                         return
                     try:
                         context["modlist"].setActive(internal_name, False)
@@ -4063,8 +4060,7 @@ class stepInstallMods(QDialog):
                             expected=True,
                         )
                     reason = (
-                        f"{payload_issue_reason}; review archive layout/manual "
-                        "choices"
+                        f"{payload_issue_reason}; review archive layout/manual choices"
                     )
                     self.markDownloadedOnlyMetadata(context, install_key)
                     failed_entries.append(
@@ -5166,12 +5162,13 @@ class stepInstallMods(QDialog):
 
         if fast_summary_only:
             self.log(
-                "No install work remains; validating installed state before "
-                "summary.",
+                "No install work remains; validating installed state before summary.",
                 "note",
             )
         postcondition_state = self.refreshInstalledCollectionState(context)
-        transient_cleanup = removeStaleCollectionTransientDirs(Path(organizer.modsPath()))
+        transient_cleanup = removeStaleCollectionTransientDirs(
+            Path(organizer.modsPath())
+        )
         if transient_cleanup["removed"]:
             self.log(
                 "Removed stale collection transient mod folder(s): "
@@ -5305,10 +5302,8 @@ class stepInstallMods(QDialog):
                 INSTALLER_SETTING_DEFAULTS["auto_advance_fomod_defaults"],
             )
         )
-        review_entries, queued_fomod_recovery_entries = (
-            splitQueuedFomodRecoveryEntries(
-                failed_entries, can_queue_fomod_recovery
-            )
+        review_entries, queued_fomod_recovery_entries = splitQueuedFomodRecoveryEntries(
+            failed_entries, can_queue_fomod_recovery
         )
         context["queued_fomod_recovery_entries"] = queued_fomod_recovery_entries
         review_entries.extend(
@@ -5438,8 +5433,7 @@ class stepInstallMods(QDialog):
                 if category == "missing_download" or not count:
                     continue
                 self.log(
-                    "  "
-                    f"{failedInstallReviewCategoryLabel(category)}: {count}",
+                    f"  {failedInstallReviewCategoryLabel(category)}: {count}",
                     "warning",
                 )
         else:
@@ -5468,18 +5462,18 @@ class stepInstallMods(QDialog):
             f"{postcondition_state['metadata_repaired']} repaired, "
             f"{postcondition_state['metadata_failed']} failed"
         )
-        if postcondition_state.get("stale_metadata_repaired") or postcondition_state.get(
-            "stale_metadata_failed"
-        ):
+        if postcondition_state.get(
+            "stale_metadata_repaired"
+        ) or postcondition_state.get("stale_metadata_failed"):
             self.log(
                 "  Downloaded-only metadata repairs: "
                 f"{postcondition_state.get('stale_metadata_repaired', 0)} repaired, "
                 f"{postcondition_state.get('stale_metadata_failed', 0)} failed",
                 "note",
             )
-        if audit_stale_metadata_repair.get("repaired") or audit_stale_metadata_repair.get(
-            "failed"
-        ):
+        if audit_stale_metadata_repair.get(
+            "repaired"
+        ) or audit_stale_metadata_repair.get("failed"):
             self.log(
                 "  Visible stale Downloads metadata repairs: "
                 f"{audit_stale_metadata_repair.get('repaired', 0)} repaired, "
@@ -5497,12 +5491,8 @@ class stepInstallMods(QDialog):
                 "failed",
                 "note",
             )
-        audit_downloaded_only = len(
-            download_metadata_audit.get("downloaded_only", [])
-        )
-        audit_missing_archive = len(
-            download_metadata_audit.get("missing_archive", [])
-        )
+        audit_downloaded_only = len(download_metadata_audit.get("downloaded_only", []))
+        audit_missing_archive = len(download_metadata_audit.get("missing_archive", []))
         audit_unknown_state = len(
             download_metadata_audit.get("unknown_installed_state", [])
         )
@@ -5529,8 +5519,7 @@ class stepInstallMods(QDialog):
                 "warning",
             )
             self.log(
-                "  Downloads pane metadata review entries: "
-                f"{metadata_review_count}",
+                f"  Downloads pane metadata review entries: {metadata_review_count}",
                 "warning",
             )
             for entry in download_metadata_review_entries[:10]:
@@ -6033,16 +6022,12 @@ class stepInstallMods(QDialog):
                     if missing:
                         details.append(
                             "missing "
-                            + ", ".join(
-                                safeDisplayText(name) for name in missing[:5]
-                            )
+                            + ", ".join(safeDisplayText(name) for name in missing[:5])
                         )
                     if inactive:
                         details.append(
                             "inactive "
-                            + ", ".join(
-                                safeDisplayText(name) for name in inactive[:5]
-                            )
+                            + ", ".join(safeDisplayText(name) for name in inactive[:5])
                         )
                     self.logInstallIssue(
                         "Plugin activation blocked by unresolved master: "
@@ -6267,8 +6252,7 @@ class stepInstallMods(QDialog):
                 )
             self.logInstallIssue(
                 "Plugin master dependency issue: "
-                f"{safeDisplayText(problem.get('plugin'))} "
-                + "; ".join(details),
+                f"{safeDisplayText(problem.get('plugin'))} " + "; ".join(details),
                 expected=True,
             )
 

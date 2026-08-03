@@ -874,12 +874,10 @@ class stepDownloadProgress(QDialog):
         self.max_unresolved_queue_submissions = adaptiveDownloadQueueSubmissionLimit(
             self.total_mods, 16
         )
-        self.terminal_failure_grace_max_attempts = (
-            adaptiveTerminalFailureGraceAttempts(
-                self.total_mods,
-                self.max_unresolved_queue_submissions,
-                self.max_retries,
-            )
+        self.terminal_failure_grace_max_attempts = adaptiveTerminalFailureGraceAttempts(
+            self.total_mods,
+            self.max_unresolved_queue_submissions,
+            self.max_retries,
         )
         self.final_readiness_max_attempts = adaptiveFinalDownloadReadinessAttempts(
             self.total_mods,
@@ -1476,10 +1474,7 @@ class stepDownloadProgress(QDialog):
         validation_pending_keys = self.recent_completed_callback_keys(now)
         stalled_zero_keys = self.stalled_zero_byte_keys(
             entries_by_key,
-            (
-                tracked_download_keys
-                | set(self.queued_at)
-            )
+            (tracked_download_keys | set(self.queued_at))
             - ambiguous_recent_keys
             - validation_pending_keys,
             now,
@@ -3061,13 +3056,10 @@ class stepDownloadProgress(QDialog):
                 last_byte_progress_at = self.last_download_byte_progress_at_by_key.get(
                     key
                 )
-                if (
-                    last_byte_progress_at
-                    and not downloadProgressIsStalled(
-                        last_byte_progress_at,
-                        now,
-                        self.stale_unfinished_seconds,
-                    )
+                if last_byte_progress_at and not downloadProgressIsStalled(
+                    last_byte_progress_at,
+                    now,
+                    self.stale_unfinished_seconds,
                 ):
                     continue
                 stale_entries = staleUnfinishedEntries(
@@ -3817,12 +3809,9 @@ class stepCollectionLinkFlow(QDialog):
             log_dir = Path(organizer.basePath()) / "logs"
             log_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            report_path = (
-                log_dir
-                / (
-                    "nxm-collection-download-failure-"
-                    f"{var.collection}-{var.revision}-{timestamp}.json"
-                )
+            report_path = log_dir / (
+                "nxm-collection-download-failure-"
+                f"{var.collection}-{var.revision}-{timestamp}.json"
             )
             report = collectionFlowFailureReport(
                 var.collection,
@@ -3835,10 +3824,7 @@ class stepCollectionLinkFlow(QDialog):
             report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
             return report_path
         except OSError as e:
-            qDebug(
-                "[NXMColDL] Failed to write direct collection failure report: "
-                f"{e}"
-            )
+            qDebug(f"[NXMColDL] Failed to write direct collection failure report: {e}")
             return None
 
     def fail(self, message, stage="unknown"):

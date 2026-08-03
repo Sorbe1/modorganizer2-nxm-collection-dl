@@ -744,9 +744,7 @@ class DownloadMetadataReviewEntriesTests(unittest.TestCase):
                 "downloaded_only": ["/tmp/downloads/NeedsReview.7z.meta"],
                 "missing_archive": ["/tmp/downloads/Missing.7z.meta"],
                 "unknown_installed_state": ["/tmp/downloads/Unknown.7z.meta"],
-                "installed_without_valid_container": [
-                    "/tmp/downloads/Stale.7z.meta"
-                ],
+                "installed_without_valid_container": ["/tmp/downloads/Stale.7z.meta"],
             }
         )
 
@@ -759,9 +757,7 @@ class DownloadMetadataReviewEntriesTests(unittest.TestCase):
                 "installed_without_valid_container",
             ],
         )
-        self.assertEqual(
-            entries[0]["archive"], "/tmp/downloads/NeedsReview.7z"
-        )
+        self.assertEqual(entries[0]["archive"], "/tmp/downloads/NeedsReview.7z")
         self.assertIn("install/review", entries[0]["reason"])
 
     def test_empty_audit_has_no_review_entries(self):
@@ -785,16 +781,12 @@ class ManualInstallGuidanceForReasonTests(unittest.TestCase):
         self.assertIn("invalid MO2 container", guidance)
 
     def test_explains_downloaded_only_entries(self):
-        guidance = manualInstallGuidanceForReason(
-            "downloaded-only/no applicable files"
-        )
+        guidance = manualInstallGuidanceForReason("downloaded-only/no applicable files")
 
         self.assertIn("downloaded-only", guidance)
 
     def test_explains_native_archive_worker_timeout(self):
-        guidance = manualInstallGuidanceForReason(
-            "Native archive worker timed out"
-        )
+        guidance = manualInstallGuidanceForReason("Native archive worker timed out")
 
         self.assertIn("native archive worker", guidance)
         self.assertIn("relaunch", guidance)
@@ -850,9 +842,7 @@ class ProfileSnapshotTests(unittest.TestCase):
                 manifest["files"]["modlist.txt"]["sha256"],
                 "af9e5677f5ec28038d0c4b08954e5a6272932acc4ade9cb9ae5b2610600b8173",
             )
-            self.assertEqual(
-                manifest["download_metadata_audit"]["installed_count"], 1
-            )
+            self.assertEqual(manifest["download_metadata_audit"]["installed_count"], 1)
             self.assertEqual(
                 manifest["download_metadata_audit"]["downloaded_only"],
                 [str(downloads / "NeedsReview-3-4.7z.meta")],
@@ -1012,9 +1002,7 @@ class ProfileSnapshotTests(unittest.TestCase):
                 base_path=base,
                 timestamp="20260802-120000",
             )
-            self.assertFalse(
-                compareMo2ProfileStateSnapshots(first, first)["changed"]
-            )
+            self.assertFalse(compareMo2ProfileStateSnapshots(first, first)["changed"])
 
             (profile / "modlist.txt").write_text("+A\n+B\n", encoding="utf-8")
             second, _manifest = snapshotMo2ProfileState(
@@ -1045,9 +1033,7 @@ class ProfileSnapshotTests(unittest.TestCase):
             profile = base / "profiles" / "Default"
             profile.mkdir(parents=True)
             (profile / "modlist.txt").write_text(
-                "+DLC: Dawnguard\n"
-                "+Creation Club: ccbgssse001-fish\n"
-                "+Managed Mod\n",
+                "+DLC: Dawnguard\n+Creation Club: ccbgssse001-fish\n+Managed Mod\n",
                 encoding="utf-8",
             )
             (profile / "plugins.txt").write_text("*Managed.esp\n", encoding="utf-8")
@@ -1084,9 +1070,7 @@ class PluginCapacityAuditTests(unittest.TestCase):
         self.assertFalse(audit["regular_limit_exceeded_by_extension"])
 
     def test_reports_regular_plugin_overage_by_extension(self):
-        plugins_text = "\n".join(
-            f"*Plugin{i:03d}.esp" for i in range(0xFD + 2)
-        )
+        plugins_text = "\n".join(f"*Plugin{i:03d}.esp" for i in range(0xFD + 2))
 
         audit = pluginCapacityAuditFromPluginsText(plugins_text)
 
@@ -1320,9 +1304,7 @@ class ProfileStateAuditTests(unittest.TestCase):
             (profile / "loadorder.txt").write_text("Active.esp\n", encoding="utf-8")
             downloads = base / "downloads"
             downloads.mkdir()
-            (downloads / "NeedsReview-3-4.7z").write_text(
-                "archive", encoding="utf-8"
-            )
+            (downloads / "NeedsReview-3-4.7z").write_text("archive", encoding="utf-8")
             (downloads / "NeedsReview-3-4.7z.meta").write_text(
                 "[General]\ninstalled=false\n", encoding="utf-8"
             )
@@ -1378,9 +1360,7 @@ class ProfileStateAuditTests(unittest.TestCase):
 
             self.assertFalse(result["clean"])
             self.assertEqual(
-                result["download_metadata_audit"][
-                    "installed_without_valid_container"
-                ],
+                result["download_metadata_audit"]["installed_without_valid_container"],
                 [str(metadata)],
             )
             self.assertEqual(
@@ -1465,9 +1445,7 @@ class ProfileStateAuditTests(unittest.TestCase):
 
             self.assertTrue(result["clean"])
             self.assertEqual(result["plugin_capacity_audit"]["regular_limit"], 0xFD)
-            self.assertEqual(
-                result["plugin_capacity_audit"]["regular_overage"], 1
-            )
+            self.assertEqual(result["plugin_capacity_audit"]["regular_overage"], 1)
             self.assertIn(
                 "plugin_capacity",
                 [warning["type"] for warning in result["warnings"]],
@@ -1722,7 +1700,9 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
             self.assertEqual(result["missing_installs"], [(123, 456)])
             self.assertEqual(len(result["false_installed_download_metadata"]), 1)
 
-    def test_handled_root_entry_allows_installed_download_metadata_without_container(self):
+    def test_handled_root_entry_allows_installed_download_metadata_without_container(
+        self,
+    ):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             mods = root / "mods"
@@ -1808,7 +1788,9 @@ class CollectionInstallPostconditionAuditTests(unittest.TestCase):
 
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["mod"], "Other Mod")
-        self.assertEqual(entries[0]["reason"], "installed container has no valid game data")
+        self.assertEqual(
+            entries[0]["reason"], "installed container has no valid game data"
+        )
         self.assertIn("invalid container", entries[0]["suggested_action"])
 
     def test_reads_installed_records_from_mo2_metadata(self):
@@ -2092,7 +2074,7 @@ class ManualFomodPlanFailureCacheTests(unittest.TestCase):
         )
 
 
-class NativeArchiveWorkerTests(unittest.TestCase):
+class NativeArchiveWorkerRequestTests(unittest.TestCase):
     def test_decodes_utf16_fomod_xml_from_7z_stdout(self):
         payload = (
             b"\xff\xfe<\x00c\x00o\x00n\x00f\x00i\x00g\x00>\x00"
@@ -2182,9 +2164,7 @@ class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            result = moveModlistEntriesToUiBottom(
-                modlist, ["New Mod A", "New Mod B"]
-            )
+            result = moveModlistEntriesToUiBottom(modlist, ["New Mod A", "New Mod B"])
 
             self.assertEqual(result["moved"], 2)
             self.assertEqual(result["missing"], [])
@@ -2200,7 +2180,9 @@ class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
                 ],
             )
 
-    def test_preserves_unmanaged_base_entries_at_file_end_after_moved_collection_entries(self):
+    def test_preserves_unmanaged_base_entries_at_file_end_after_moved_collection_entries(
+        self,
+    ):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             modlist = root / "modlist.txt"
@@ -2271,9 +2253,7 @@ class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            result = moveModlistEntriesToUiBottom(
-                modlist, ["Rejected Collection Mod"]
-            )
+            result = moveModlistEntriesToUiBottom(modlist, ["Rejected Collection Mod"])
 
             self.assertEqual(result["moved"], 1)
             self.assertEqual(
@@ -2391,7 +2371,9 @@ class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
                 mods
                 / "True Storms Special Edition - Thunder Rain and Weather Redone #2"
             )
-            base = mods / "True Storms Special Edition - Thunder Rain and Weather Redone"
+            base = (
+                mods / "True Storms Special Edition - Thunder Rain and Weather Redone"
+            )
             (variant / "textures" / "rain").mkdir(parents=True)
             (base / "textures" / "rain").mkdir(parents=True)
             (variant / "textures" / "rain" / "drop.dds").write_bytes(b"variant")
@@ -2637,7 +2619,9 @@ class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
             modlist.write_text(original, encoding="utf-8")
 
             repairMo2BaseModlistOrder(modlist, backup_dir=backup)
-            moveModlistEntriesToUiBottom(modlist, ["Collection Mod A"], backup_dir=backup)
+            moveModlistEntriesToUiBottom(
+                modlist, ["Collection Mod A"], backup_dir=backup
+            )
 
             self.assertEqual(
                 (backup / "modlist.txt").read_text(encoding="utf-8"),
@@ -3454,34 +3438,22 @@ class DownloadTailBoundaryTests(unittest.TestCase):
         )
 
     def test_waits_before_tail_grace_expires(self):
-        self.assertFalse(
-            downloadTailBoundaryReached(100, 75, 0, 16, 16, 100, 119, 20)
-        )
+        self.assertFalse(downloadTailBoundaryReached(100, 75, 0, 16, 16, 100, 119, 20))
 
     def test_stops_tail_after_majority_and_grace(self):
-        self.assertTrue(
-            downloadTailBoundaryReached(100, 75, 0, 16, 16, 100, 120, 20)
-        )
+        self.assertTrue(downloadTailBoundaryReached(100, 75, 0, 16, 16, 100, 120, 20))
 
     def test_stops_small_collection_tail_after_adaptive_threshold(self):
-        self.assertTrue(
-            downloadTailBoundaryReached(18, 14, 0, 4, 16, 100, 160, 60)
-        )
+        self.assertTrue(downloadTailBoundaryReached(18, 14, 0, 4, 16, 100, 160, 60))
 
     def test_waits_below_small_collection_adaptive_tail_threshold(self):
-        self.assertFalse(
-            downloadTailBoundaryReached(18, 15, 0, 3, 16, 100, 200, 60)
-        )
+        self.assertFalse(downloadTailBoundaryReached(18, 15, 0, 3, 16, 100, 200, 60))
 
     def test_stops_single_laggard_when_queue_is_drained(self):
-        self.assertTrue(
-            downloadTailBoundaryReached(100, 99, 0, 1, 1, 100, 160, 60)
-        )
+        self.assertTrue(downloadTailBoundaryReached(100, 99, 0, 1, 1, 100, 160, 60))
 
     def test_waits_single_laggard_before_drained_queue_grace_expires(self):
-        self.assertFalse(
-            downloadTailBoundaryReached(100, 99, 0, 1, 1, 100, 159, 60)
-        )
+        self.assertFalse(downloadTailBoundaryReached(100, 99, 0, 1, 1, 100, 159, 60))
 
     def test_adaptive_grace_scales_but_stays_bounded(self):
         small = adaptiveDownloadTailGraceSeconds(50, 16, 0, 30)
@@ -3752,9 +3724,7 @@ class InstallerDefaultActionLabelTests(unittest.TestCase):
 class ModExistsDialogButtonMatchesActionTests(unittest.TestCase):
     def test_matches_exact_and_decorated_action_labels(self):
         self.assertTrue(modExistsDialogButtonMatchesAction("&Rename", "rename"))
-        self.assertTrue(
-            modExistsDialogButtonMatchesAction("Rename New Mod", "rename")
-        )
+        self.assertTrue(modExistsDialogButtonMatchesAction("Rename New Mod", "rename"))
         self.assertTrue(
             modExistsDialogButtonMatchesAction("Merge with existing mod", "merge")
         )
@@ -5963,7 +5933,9 @@ class InstallRuntimeSourceTests(unittest.TestCase):
         )[0]
 
         self.assertIn('installed_action == "review-invalid"', plan_source)
-        self.assertIn("self.markDownloadedOnlyMetadata(context, install_key)", plan_source)
+        self.assertIn(
+            "self.markDownloadedOnlyMetadata(context, install_key)", plan_source
+        )
         self.assertIn("needs manual install", plan_source)
         self.assertNotIn("non-empty invalid kept installed", plan_source)
 
@@ -5973,7 +5945,10 @@ class InstallRuntimeSourceTests(unittest.TestCase):
             "\n    def fastFinishInstallPlan(", 1
         )[0]
 
-        self.assertNotIn("if invalid_installed_name:\n                fomod_state = True", plan_source)
+        self.assertNotIn(
+            "if invalid_installed_name:\n                fomod_state = True",
+            plan_source,
+        )
         self.assertIn("self.archiveHasFomodInstaller(", plan_source)
         self.assertIn("shouldRetryInvalidInstalledCollectionArchive", plan_source)
         self.assertIn("needs manual install or content-tree review", plan_source)
@@ -6007,9 +5982,9 @@ class InstallRuntimeSourceTests(unittest.TestCase):
 
     def test_native_archive_worker_request_retries_fresh_worker_once(self):
         source = self.install_source()
-        method_source = source.split(
-            "def runNativeArchiveWorkerRequest(", 1
-        )[1].split("\n    def readSevenZipFomodModuleConfig(", 1)[0]
+        method_source = source.split("def runNativeArchiveWorkerRequest(", 1)[1].split(
+            "\n    def readSevenZipFomodModuleConfig(", 1
+        )[0]
 
         self.assertIn("max_attempts = 2", method_source)
         self.assertIn("for attempt in range(max_attempts):", method_source)
@@ -6295,9 +6270,7 @@ class HeadlessZipInstallLayoutTests(unittest.TestCase):
         )
         self.assertTrue(plan["installable"])
         self.assertEqual(plan["reason"], "single wrapper Data folder")
-        self.assertEqual(
-            plan["strip_prefix"], "2-4k. New WispMother v2 nude/data/"
-        )
+        self.assertEqual(plan["strip_prefix"], "2-4k. New WispMother v2 nude/data/")
 
     def test_strips_single_wrapper_data_folder_before_generic_wrapper(self):
         plan = headlessZipInstallLayout(
@@ -6327,9 +6300,7 @@ class HeadlessZipInstallLayoutTests(unittest.TestCase):
         )
         self.assertTrue(plan["installable"])
         self.assertEqual(plan["reason"], "single wrapper Data folder")
-        self.assertEqual(
-            plan["strip_prefix"], "CompanionArchive_Vanilla/Data/"
-        )
+        self.assertEqual(plan["strip_prefix"], "CompanionArchive_Vanilla/Data/")
 
     def test_rejects_single_wrapper_multiple_variant_data_roots(self):
         plan = headlessZipInstallLayout(
@@ -6814,7 +6785,9 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
 
     def test_classifies_specific_manual_review_reasons(self):
         self.assertEqual(
-            failedInstallReviewCategory("manual archive layout: ambiguous archive layout"),
+            failedInstallReviewCategory(
+                "manual archive layout: ambiguous archive layout"
+            ),
             "ambiguous_archive_layout",
         )
         self.assertEqual(
@@ -6875,7 +6848,9 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
         categorized = failedInstallReviewEntriesWithCategories(entries)
 
         self.assertEqual(categorized[0]["review_category"], "missing_download")
-        self.assertIn("Download the missing archive", categorized[0]["recommended_action"])
+        self.assertIn(
+            "Download the missing archive", categorized[0]["recommended_action"]
+        )
         self.assertNotIn("review_category", entries[0])
         self.assertNotIn("recommended_action", entries[0])
 

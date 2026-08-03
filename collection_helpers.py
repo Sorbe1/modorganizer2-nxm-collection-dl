@@ -208,7 +208,9 @@ def profileStateFileStats(path):
     }
 
 
-def pluginCapacityAuditFromPluginNames(plugin_names, disabled_count=0, plugin_paths=None):
+def pluginCapacityAuditFromPluginNames(
+    plugin_names, disabled_count=0, plugin_paths=None
+):
     """Return plugin-capacity accounting from plugin names and optional headers."""
     enabled_plugins = []
     light_by_extension = []
@@ -248,14 +250,18 @@ def pluginCapacityAuditFromPluginNames(plugin_names, disabled_count=0, plugin_pa
     regular_extension_count = len(regular_by_extension)
     regular_extension_overage = max(0, regular_extension_count - regular_limit)
     header_supported = bool(plugin_paths)
-    regular_count = len(regular_by_header) if header_supported else regular_extension_count
+    regular_count = (
+        len(regular_by_header) if header_supported else regular_extension_count
+    )
     regular_overage = max(0, regular_count - regular_limit)
     return {
         "enabled_count": len(enabled_plugins),
         "disabled_count": disabled_count,
         "header_capacity_supported": header_supported,
         "regular_count": regular_count,
-        "light_count": len(light_by_header) if header_supported else len(light_by_extension),
+        "light_count": len(light_by_header)
+        if header_supported
+        else len(light_by_extension),
         "regular_slots_remaining": max(0, regular_limit - regular_count),
         "regular_limit_exceeded": regular_overage > 0,
         "regular_overage": regular_overage,
@@ -383,9 +389,7 @@ def bethesdaPluginMastersFromBytes(data):
         if subrecord_type != b"MAST":
             continue
         master_name = (
-            payload.split(b"\x00", 1)[0]
-            .decode("utf-8", errors="replace")
-            .strip()
+            payload.split(b"\x00", 1)[0].decode("utf-8", errors="replace").strip()
         )
         if master_name:
             masters.append(master_name)
@@ -430,7 +434,9 @@ def mo2PluginPathsFromActiveMods(mods_path, active_mod_names):
         return plugin_paths
     for mod_name in active_mod_names or []:
         mod_name = str(mod_name or "").strip()
-        if not mod_name or mod_name.startswith(("DLC:", "Creation Club:", "Unmanaged:")):
+        if not mod_name or mod_name.startswith(
+            ("DLC:", "Creation Club:", "Unmanaged:")
+        ):
             continue
         mod_dir = mods_path / mod_name
         if not mod_dir.is_dir():
@@ -479,7 +485,10 @@ def pluginPathsFromDirectory(data_path):
     except OSError:
         return plugin_paths
     for child in children:
-        if child.is_file() and child.suffix.casefold() in DIRECT_INSTALL_PLUGIN_EXTENSIONS:
+        if (
+            child.is_file()
+            and child.suffix.casefold() in DIRECT_INSTALL_PLUGIN_EXTENSIONS
+        ):
             plugin_paths[child.name.casefold()] = child
     return plugin_paths
 
@@ -554,14 +563,13 @@ def validInstalledDownloadKeysFromModContainers(mods_path, downloads_path):
     return {
         nexus_key
         for nexus_key, mod_names in installed_records.items()
-        if any(
-            headlessPayloadRootValid(mods_path / mod_name)
-            for mod_name in mod_names
-        )
+        if any(headlessPayloadRootValid(mods_path / mod_name) for mod_name in mod_names)
     }
 
 
-def validInstalledDownloadKeysForProfile(base_path, mods_path=None, downloads_path=None):
+def validInstalledDownloadKeysForProfile(
+    base_path, mods_path=None, downloads_path=None
+):
     """Return Nexus file keys backed by valid MO2 or verified external installs."""
     base_path = Path(base_path)
     mods_path = Path(mods_path) if mods_path is not None else base_path / "mods"
@@ -749,8 +757,10 @@ def snapshotMo2ProfileState(
         raise FileNotFoundError(f"MO2 profile not found: {profile_path}")
 
     timestamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
-    snapshot_root = Path(snapshot_root) if snapshot_root is not None else (
-        base_path / "profile-snapshots"
+    snapshot_root = (
+        Path(snapshot_root)
+        if snapshot_root is not None
+        else (base_path / "profile-snapshots")
     )
     snapshot_dir = snapshot_root / (
         f"{safeProfileSnapshotLabel(profile_name)}-"
@@ -988,9 +998,7 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
     }
     if not profile_path.exists():
         result["clean"] = False
-        result["issues"].append(
-            {"type": "missing_profile", "path": str(profile_path)}
-        )
+        result["issues"].append({"type": "missing_profile", "path": str(profile_path)})
         return result
 
     for file_name in MO2_PROFILE_STATE_FILES:
@@ -1006,9 +1014,7 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
             max_entries=10,
         )
         result["base_modlist_order_diagnostics"] = base_modlist_order_diagnostics
-        result["base_modlist_order_needs_repair"] = bool(
-            base_modlist_order_diagnostics
-        )
+        result["base_modlist_order_needs_repair"] = bool(base_modlist_order_diagnostics)
         if result["base_modlist_order_needs_repair"]:
             result["issues"].append(
                 {
@@ -1107,9 +1113,7 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
 
     plugins_path = profile_path / "plugins.txt"
     if plugins_path.exists():
-        plugins_text = plugins_path.read_text(
-            encoding="utf-8", errors="replace"
-        )
+        plugins_text = plugins_path.read_text(encoding="utf-8", errors="replace")
         parsed_plugins = parseMo2PluginsText(plugins_text)
         loadorder_plugins = []
         loadorder_path = profile_path / "loadorder.txt"
@@ -1145,18 +1149,14 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
                 {
                     "type": "plugin_capacity",
                     "file": str(plugins_path),
-                    "regular_count": result["plugin_capacity_audit"][
-                        "regular_count"
-                    ],
-                    "regular_limit": result["plugin_capacity_audit"][
-                        "regular_limit"
-                    ],
+                    "regular_count": result["plugin_capacity_audit"]["regular_count"],
+                    "regular_limit": result["plugin_capacity_audit"]["regular_limit"],
                     "regular_overage": result["plugin_capacity_audit"][
                         "regular_overage"
                     ],
-                    "header_capacity_supported": result[
-                        "plugin_capacity_audit"
-                    ]["header_capacity_supported"],
+                    "header_capacity_supported": result["plugin_capacity_audit"][
+                        "header_capacity_supported"
+                    ],
                     "message": (
                         "Enabled regular plugin count exceeds the regular "
                         "plugin slot limit"
@@ -1941,10 +1941,7 @@ def _installPayloadPaths(paths):
     for path in paths:
         parts = path.split("/")
         suffix = Path(parts[-1]).suffix.casefold() if parts else ""
-        if (
-            len(parts) == 1
-            and suffix in IGNORABLE_ARCHIVE_ROOT_FILE_EXTENSIONS
-        ):
+        if len(parts) == 1 and suffix in IGNORABLE_ARCHIVE_ROOT_FILE_EXTENSIONS:
             continue
         if (
             len(parts) == 2
@@ -2103,11 +2100,7 @@ def headlessArchiveInstallLayout(member_names):
         all_variant_data_rooted = True
         for path in install_paths:
             parts = path.split("/", 3)
-            if (
-                len(parts) < 4
-                or parts[0] != root
-                or parts[2].casefold() != "data"
-            ):
+            if len(parts) < 4 or parts[0] != root or parts[2].casefold() != "data":
                 all_variant_data_rooted = False
                 break
             prefix = f"{parts[0]}/{parts[1]}/{parts[2]}/"
@@ -2466,8 +2459,7 @@ def isTransientManualFomodPlanFailure(reason):
         or "could not list archive with subprocess 7z" in reason_text
         or "invalid handle" in reason_text
         or (
-            "fomod xml parse error" in reason_text
-            and "line 1, column 0" in reason_text
+            "fomod xml parse error" in reason_text and "line 1, column 0" in reason_text
         )
     )
 
@@ -3141,8 +3133,7 @@ def fomodDependencyOptionGuideLines(layout_plan):
         group_name = safeDisplayText(group.get("group"))
         group_type = safeDisplayText(group.get("type"))
         lines.append(
-            "- FOMOD dependency group not auto-selected: "
-            f"`{group_name}` ({group_type})"
+            f"- FOMOD dependency group not auto-selected: `{group_name}` ({group_type})"
         )
         options = []
         for option in group.get("options") or []:
@@ -3157,8 +3148,7 @@ def fomodDependencyOptionGuideLines(layout_plan):
             dependency_text = ", ".join(dependencies) or "no declared dependencies"
             details.append(dependency_text)
             payload_plugins = [
-                safeDisplayText(name)
-                for name in option.get("payload_plugins") or []
+                safeDisplayText(name) for name in option.get("payload_plugins") or []
             ]
             if payload_plugins:
                 details.append("payload plugins: " + ", ".join(payload_plugins))
@@ -3273,12 +3263,9 @@ def headlessFomodDependencyInstallLayout(
             )
             if plugin_type in {"notusable", "not usable"}:
                 continue
-            matched_profile_evidence = (
-                _fomodOptionMatchesEvidence(option_name, evidence_labels)
-                or _fomodPayloadMatchesEvidence(
-                    mappings, archive_members, evidence_files
-                )
-            )
+            matched_profile_evidence = _fomodOptionMatchesEvidence(
+                option_name, evidence_labels
+            ) or _fomodPayloadMatchesEvidence(mappings, archive_members, evidence_files)
             if matched_profile_evidence:
                 score = (
                     _fomodOptionEvidenceScore(option_name, evidence_labels)
@@ -3321,9 +3308,13 @@ def headlessFomodDependencyInstallLayout(
                 candidate for candidate in candidates if candidate[4]
             ]
             if evidence_candidates:
-                for option_name, mappings, score, plugin_type, evidence_match in (
-                    evidence_candidates
-                ):
+                for (
+                    option_name,
+                    mappings,
+                    score,
+                    plugin_type,
+                    evidence_match,
+                ) in evidence_candidates:
                     selected_records.append(
                         (option_name, mappings, score, plugin_type, evidence_match)
                     )
@@ -3350,7 +3341,9 @@ def headlessFomodDependencyInstallLayout(
                 selected_candidate = ranked_candidates[0]
 
         if selected_candidate:
-            option_name, mappings, score, plugin_type, evidence_match = selected_candidate
+            option_name, mappings, score, plugin_type, evidence_match = (
+                selected_candidate
+            )
             selected_records.append(
                 (option_name, mappings, score, plugin_type, evidence_match)
             )
@@ -3643,9 +3636,7 @@ def contentTreeWarningDialogAction(window_title, labels, buttons):
 def knownPostInstallErrorDialogMessage(labels):
     """Return durable text for MO2 post-install error dialogs we auto-dismiss."""
     parts = [
-        str(label or "").strip()
-        for label in (labels or [])
-        if str(label or "").strip()
+        str(label or "").strip() for label in (labels or []) if str(label or "").strip()
     ]
     if not parts:
         return None
@@ -3792,9 +3783,7 @@ def pluginActivationReviewEntries(missing_plugins, source="plugin activation"):
                 "file_id": "unknown",
                 "archive": "",
                 "missing_plugins": [plugin_name],
-                "dependency_issues": [
-                    {"type": "missing_plugin", "name": plugin_name}
-                ],
+                "dependency_issues": [{"type": "missing_plugin", "name": plugin_name}],
                 "suggested_action": (
                     "install the mod or optional patch source that provides "
                     f"{plugin_name}; disable the dependent patch if that plugin "
@@ -4002,9 +3991,7 @@ def pluginMasterDependencyReviewEntries(
                 "dependency_issues": [
                     {"type": "missing_master", "name": name} for name in missing
                 ]
-                + [
-                    {"type": "inactive_master", "name": name} for name in inactive
-                ],
+                + [{"type": "inactive_master", "name": name} for name in inactive],
                 "suggested_action": "; ".join(recommendation_parts),
                 "reason": (
                     "plugin has unresolved master dependencies"
@@ -4775,7 +4762,9 @@ def collectionRecoveryTargets(
     for nexus_key in sorted(candidate_keys):
         valid_names = []
         for mod_name in installed_records.get(nexus_key, []):
-            if mods_dir is not None and not headlessPayloadRootValid(mods_dir / mod_name):
+            if mods_dir is not None and not headlessPayloadRootValid(
+                mods_dir / mod_name
+            ):
                 continue
             valid_names.append(mod_name)
             if mod_name in seen_names:
@@ -4992,9 +4981,8 @@ def topLevelDownloadMetadataAudit(downloads_dir, valid_installed_keys=None):
             result["missing_archive"].append(metadata_path)
         if installed_value == "true":
             result["installed"].append(metadata_path)
-            if (
-                valid_installed_keys is not None
-                and (nexus_key is None or nexus_key not in valid_installed_keys)
+            if valid_installed_keys is not None and (
+                nexus_key is None or nexus_key not in valid_installed_keys
             ):
                 result["installed_without_valid_container"].append(metadata_path)
         elif installed_value == "false":
@@ -5080,9 +5068,7 @@ def setDownloadMetaGeneralValues(metadata_file, values):
 
     if remaining:
         newline = "\r\n" if any(line.endswith("\r\n") for line in lines) else "\n"
-        insert_lines = [
-            f"{key}={value}{newline}" for key, value in remaining.values()
-        ]
+        insert_lines = [f"{key}={value}{newline}" for key, value in remaining.values()]
         lines[general_end:general_end] = insert_lines
         changed = True
 
@@ -5200,10 +5186,9 @@ def repairInstalledWithoutValidContainerMetadata(
         "skipped": 0,
         "metadata": [],
     }
-    metadata_paths = (
-        (download_metadata_audit or {}).get("installed_without_valid_container")
-        or []
-    )
+    metadata_paths = (download_metadata_audit or {}).get(
+        "installed_without_valid_container"
+    ) or []
     backup_dir = Path(backup_dir) if backup_dir is not None else None
     seen = set()
     for metadata_path in metadata_paths:
