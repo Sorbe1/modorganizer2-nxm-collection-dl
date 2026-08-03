@@ -2712,6 +2712,17 @@ def normalizedButtonLabel(label):
     )
 
 
+def modExistsDialogButtonMatchesAction(label, action):
+    """Return True when a MO2 Mod Exists button matches the requested action."""
+    normalized_label = normalizedButtonLabel(label)
+    normalized_action = normalizedButtonLabel(action)
+    if normalized_action not in {"cancel", "merge", "replace", "rename"}:
+        return False
+    if normalized_label == normalized_action:
+        return True
+    return normalized_label.startswith(f"{normalized_action} ")
+
+
 def isRequiredFomodGroupTitle(title):
     """Return True for FOMOD option groups that are safe to auto-select.
 

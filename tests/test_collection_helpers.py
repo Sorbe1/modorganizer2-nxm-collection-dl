@@ -95,6 +95,7 @@ from collection_helpers import (
     matchingPartialOrphanUnfinishedEntries,
     mo2BaseModlistOrderNeedsRepair,
     mo2ModlistOrderingDiagnostics,
+    modExistsDialogButtonMatchesAction,
     moveHeadlessArchivePayload,
     moveModlistEntriesToUiBottom,
     nativeGameRootPathCandidate,
@@ -3672,6 +3673,25 @@ class InstallerDefaultActionLabelTests(unittest.TestCase):
             ),
             "next",
         )
+
+
+class ModExistsDialogButtonMatchesActionTests(unittest.TestCase):
+    def test_matches_exact_and_decorated_action_labels(self):
+        self.assertTrue(modExistsDialogButtonMatchesAction("&Rename", "rename"))
+        self.assertTrue(
+            modExistsDialogButtonMatchesAction("Rename New Mod", "rename")
+        )
+        self.assertTrue(
+            modExistsDialogButtonMatchesAction("Merge with existing mod", "merge")
+        )
+        self.assertTrue(
+            modExistsDialogButtonMatchesAction("Replace existing mod", "replace")
+        )
+        self.assertTrue(modExistsDialogButtonMatchesAction("Cancel", "cancel"))
+
+    def test_rejects_other_actions_and_unknown_requested_actions(self):
+        self.assertFalse(modExistsDialogButtonMatchesAction("Cancel", "rename"))
+        self.assertFalse(modExistsDialogButtonMatchesAction("Rename", "delete"))
 
 
 class RequiredFomodGroupTitleTests(unittest.TestCase):

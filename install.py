@@ -89,6 +89,7 @@ from .collection_helpers import (
     isTransientManualFomodPlanFailure,
     manualInstallGuidanceForReason,
     moveHeadlessArchivePayload,
+    modExistsDialogButtonMatchesAction,
     normalizedButtonLabel,
     nativeArchiveWorkerHeartbeatStatus,
     nativePathForArchiveInspection,
@@ -424,10 +425,18 @@ def handleModExistsDialog(action="merge"):
         if not widget.isVisible() or widget.windowTitle() != "Mod Exists":
             continue
 
-        if clickButtonByText(widget, (action,)):
+        for button in widget.findChildren(QPushButton):
+            if not button.isEnabled():
+                continue
+            if not modExistsDialogButtonMatchesAction(button.text(), action):
+                continue
+            suppressDialogAndClick(widget, button)
             if action == "cancel":
                 _mod_exists_cancelled = True
-            qDebug(f"[NXMColDL Install] Auto-{action} Mod Exists dialog")
+            qDebug(
+                "[NXMColDL Install] Auto-"
+                f"{action} Mod Exists dialog via {safeDisplayText(button.text())}"
+            )
             return True
 
     return False
