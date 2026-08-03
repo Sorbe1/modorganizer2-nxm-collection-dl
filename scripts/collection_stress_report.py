@@ -442,7 +442,15 @@ def print_text_report(report):
         if item["failed_count"]:
             details.append(f"{item['failed_count']} failed")
         if item["warning_count"]:
-            details.append(f"{item['warning_count']} warning(s)")
+            warning_categories = item.get("warning_categories") or {}
+            if warning_categories:
+                category_text = ", ".join(
+                    f"{category}={count}"
+                    for category, count in sorted(warning_categories.items())
+                )
+                details.append(f"{item['warning_count']} warning(s): {category_text}")
+            else:
+                details.append(f"{item['warning_count']} warning(s)")
         if item.get("no_applicable_count"):
             details.append(f"{item['no_applicable_count']} no-applicable note(s)")
         if item.get("root_level_count"):
