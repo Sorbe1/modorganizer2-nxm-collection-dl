@@ -105,6 +105,15 @@ def _trim_root_level_entry(entry):
     return kept
 
 
+def _trim_no_applicable_entry(entry):
+    kept = {}
+    for key in ("mod", "file", "archive", "mod_id", "file_id", "reason"):
+        value = entry.get(key)
+        if value is not None:
+            kept[key] = value
+    return kept
+
+
 def _warning_category_counts(entries):
     counts = {}
     for entry in entries or []:
@@ -721,6 +730,9 @@ def summarize_collection_report(report_path):
         "resolved_root_level_entries": [],
         "resolved_root_level_count": 0,
         "no_applicable_count": len(no_applicable_entries),
+        "no_applicable_entries": [
+            _trim_no_applicable_entry(item) for item in no_applicable_entries
+        ],
         "queued_fomod_recovery_count": len(queued_fomod_recovery_entries),
         "download_metadata_review": download_metadata_review,
         "add_collection_launch_count": int(

@@ -1156,7 +1156,17 @@ class CollectionStressReportTests(unittest.TestCase):
                     "unique_warning_count": 0,
                     "warning_summary": [],
                     "failed_entries": [],
-                    "no_applicable_entries": [{"mod": "Optional Patch"}],
+                    "no_applicable_entries": [
+                        {
+                            "mod": "Optional Patch",
+                            "file": "Patch FOMOD",
+                            "mod_id": 100,
+                            "file_id": 200,
+                            "archive": "/tmp/optional.7z",
+                            "reason": "FOMOD completed with no applicable files",
+                            "extra": "ignored",
+                        }
+                    ],
                 },
             )
 
@@ -1170,6 +1180,19 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertEqual(summary["review_severity"], "informational")
             self.assertEqual(summary["actionable_review_count"], 0)
             self.assertEqual(summary["informational_count"], 1)
+            self.assertEqual(
+                summary["no_applicable_entries"],
+                [
+                    {
+                        "mod": "Optional Patch",
+                        "file": "Patch FOMOD",
+                        "mod_id": 100,
+                        "file_id": 200,
+                        "archive": "/tmp/optional.7z",
+                        "reason": "FOMOD completed with no applicable files",
+                    }
+                ],
+            )
 
     def test_filters_reports_by_collection_slug_or_name(self):
         with TemporaryDirectory() as tmp:
