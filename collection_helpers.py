@@ -2287,13 +2287,19 @@ def failedInstallReviewCategoryLabel(category):
 def failedInstallReviewRecommendedAction(reason):
     """Return conservative operator guidance for a failed/review entry."""
     category = failedInstallReviewCategory(reason)
+    duplicate_target = None
+    if category == "duplicate_container":
+        match = re.search(r"\bfor target\s+(.+)$", str(reason or ""))
+        if match:
+            duplicate_target = match.group(1).strip()
     actions = {
         "missing_download": (
             "Download the missing archive, then rerun Add Collection or retry manually."
         ),
         "duplicate_container": (
-            "Resolve the duplicate MO2 mod container with an explicit rename, merge, "
-            "or replace choice."
+            "Resolve the duplicate MO2 mod container with an explicit rename"
+            + (f" to {duplicate_target}" if duplicate_target else "")
+            + ", merge, or replace choice."
         ),
         "native_worker_timeout": (
             "Restart the native archive worker and retry; fall back to the normal MO2 "

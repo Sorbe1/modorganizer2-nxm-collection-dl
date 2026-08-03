@@ -7144,6 +7144,13 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
             ),
             "duplicate_container",
         )
+        self.assertEqual(
+            failedInstallReviewCategory(
+                "duplicate MO2 mod container for archive-default FOMOD install; "
+                "needs manual rename/merge choice for target Example #2"
+            ),
+            "duplicate_container",
+        )
 
     def test_classifies_manual_and_review_reasons(self):
         reasons = [
@@ -7228,6 +7235,13 @@ class FailedInstallReviewCategoryTests(unittest.TestCase):
         self.assertIn(
             "rename, merge, or replace",
             failedInstallReviewRecommendedAction("duplicate MO2 mod container"),
+        )
+        self.assertIn(
+            "rename to Example #2",
+            failedInstallReviewRecommendedAction(
+                "duplicate MO2 mod container for archive-default FOMOD install; "
+                "needs manual rename/merge choice for target Example #2"
+            ),
         )
         self.assertIn(
             "native archive worker",

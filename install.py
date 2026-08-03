@@ -4027,6 +4027,8 @@ class stepInstallMods(QDialog):
                         "duplicate MO2 mod container for archive-default FOMOD "
                         "install; needs manual rename/merge choice"
                     )
+                    if target_mod_name:
+                        reason += f" for target {target_mod_name}"
                 self.markDownloadedOnlyMetadata(context, install_key)
                 failed_entries.append(
                     {
@@ -4243,7 +4245,7 @@ class stepInstallMods(QDialog):
                             "auto_cancel_invalid_install_content"
                         ),
                         retry_existing_mod_action,
-                        None,
+                        target_mod_name,
                         lambda generation=generation: (
                             generation == self.dialog_handler_generation
                         ),
