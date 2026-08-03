@@ -94,6 +94,7 @@ from collection_helpers import (
     isSafeSingletonFomodOption,
     isTransientManualFomodPlanFailure,
     matchingPartialOrphanUnfinishedEntries,
+    mo2BaseModlistOrderingDiagnostics,
     mo2BaseModlistOrderNeedsRepair,
     mo2ModlistOrderingDiagnostics,
     modExistsDialogButtonMatchesAction,
@@ -1327,6 +1328,10 @@ class ProfileStateAuditTests(unittest.TestCase):
 
             self.assertFalse(result["clean"])
             self.assertTrue(result["base_modlist_order_needs_repair"])
+            self.assertEqual(
+                result["base_modlist_order_diagnostics"][0]["type"],
+                "base_after_managed",
+            )
             self.assertEqual(result["disabled_mods"], ["Disabled Mod"])
             self.assertEqual(result["disabled_plugins"], ["Disabled.esp"])
             self.assertEqual(
@@ -1337,6 +1342,10 @@ class ProfileStateAuditTests(unittest.TestCase):
                     "disabled_plugins",
                     "download_metadata",
                 ],
+            )
+            self.assertEqual(
+                result["issues"][0]["examples"][0]["mod"],
+                "DLC: Dragonborn",
             )
 
     def test_reports_installed_metadata_without_valid_container_as_dirty(self):
@@ -2265,6 +2274,10 @@ class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
         )
 
         self.assertTrue(mo2BaseModlistOrderNeedsRepair(modlist_text))
+        diagnostics = mo2BaseModlistOrderingDiagnostics(modlist_text)
+        self.assertEqual(diagnostics[0]["type"], "base_after_managed")
+        self.assertEqual(diagnostics[0]["mod"], "DLC: Dawnguard")
+        self.assertEqual(diagnostics[0]["managed"], "Managed Texture Pack")
 
     def test_base_modlist_order_detects_inverted_dlc_entries(self):
         modlist_text = (
@@ -2276,6 +2289,10 @@ class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
         )
 
         self.assertTrue(mo2BaseModlistOrderNeedsRepair(modlist_text))
+        diagnostics = mo2BaseModlistOrderingDiagnostics(modlist_text)
+        self.assertEqual(diagnostics[0]["type"], "base_rank_inversion")
+        self.assertEqual(diagnostics[0]["mod"], "DLC: Dawnguard")
+        self.assertEqual(diagnostics[0]["previous_base"], "DLC: Dragonborn")
 
     def test_base_modlist_order_detects_starred_unmanaged_after_managed_entries(self):
         modlist_text = (
@@ -2288,6 +2305,9 @@ class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
         )
 
         self.assertTrue(mo2BaseModlistOrderNeedsRepair(modlist_text))
+        diagnostics = mo2BaseModlistOrderingDiagnostics(modlist_text)
+        self.assertEqual(diagnostics[0]["type"], "base_after_managed")
+        self.assertEqual(diagnostics[0]["mod"], "DLC: Dragonborn")
 
     def test_base_modlist_order_accepts_dlc_then_creation_club_then_managed(self):
         modlist_text = (
@@ -2313,6 +2333,13 @@ class MoveModlistEntriesToUiBottomTests(unittest.TestCase):
         )
 
         self.assertTrue(mo2BaseModlistOrderNeedsRepair(modlist_text))
+        diagnostics = mo2BaseModlistOrderingDiagnostics(modlist_text)
+        self.assertEqual(diagnostics[0]["type"], "base_rank_inversion")
+        self.assertEqual(diagnostics[0]["mod"], "Creation Club: _ResourcePack")
+        self.assertEqual(
+            diagnostics[0]["previous_base"],
+            "Unmanaged: hotrest nord presets",
+        )
 
     def test_modlist_ordering_diagnostics_reports_patch_before_target(self):
         modlist_text = (

@@ -972,6 +972,7 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
         "transient_mod_dirs": [],
         "invalid_active_mod_containers": [],
         "base_modlist_order_needs_repair": False,
+        "base_modlist_order_diagnostics": [],
         "modlist_ordering_diagnostics": [],
         "plugin_capacity_audit": None,
         "plugin_dependency_audit": {
@@ -1000,15 +1001,25 @@ def auditMo2ProfileState(base_path=None, profile_name="Default", profile_path=No
     active_mod_names = []
     if modlist_path.exists():
         modlist_text = modlist_path.read_text(encoding="utf-8", errors="replace")
-        result["base_modlist_order_needs_repair"] = mo2BaseModlistOrderNeedsRepair(
-            modlist_text
+        base_modlist_order_diagnostics = mo2BaseModlistOrderingDiagnostics(
+            modlist_text,
+            max_entries=10,
+        )
+        result["base_modlist_order_diagnostics"] = base_modlist_order_diagnostics
+        result["base_modlist_order_needs_repair"] = bool(
+            base_modlist_order_diagnostics
         )
         if result["base_modlist_order_needs_repair"]:
             result["issues"].append(
                 {
                     "type": "base_modlist_order",
                     "file": str(modlist_path),
-                    "message": "Unmanaged DLC/Creation Club entries are misplaced",
+                    "count": len(base_modlist_order_diagnostics),
+                    "examples": base_modlist_order_diagnostics[:10],
+                    "message": (
+                        "Unmanaged DLC/Creation Club/game-root entries are "
+                        "misplaced in the MO2 left-pane order"
+                    ),
                 }
             )
         result["modlist_ordering_diagnostics"] = mo2ModlistOrderingDiagnostics(
@@ -5728,6 +5739,16 @@ def mo2ModlistEntries(modlist_text):
     return entries
 
 
+def _mo2BaseModlistRank(name):
+    if name in MO2_BASE_DLC_ORDER:
+        return MO2_BASE_DLC_ORDER[name]
+    if str(name or "").startswith("Creation Club: "):
+        return MO2_BASE_CREATION_CLUB_RANK
+    if str(name or "").startswith("Unmanaged: "):
+        return MO2_BASE_UNMANAGED_RANK
+    return None
+
+
 def _normalizedMo2ModOrderName(name):
     normalized = unicodedata.normalize("NFKD", str(name or ""))
     normalized = normalized.encode("ascii", "ignore").decode("ascii")
@@ -5964,34 +5985,54 @@ def repairMo2ModlistOrderingDiagnostics(
     return result
 
 
+def mo2BaseModlistOrderingDiagnostics(modlist_text, max_entries=20):
+    """Return issue-level diagnostics for misplaced unmanaged base entries."""
+    diagnostics = []
+    seen_managed = None
+    last_base = None
+    last_base_rank = -1
+    for entry in mo2ModlistEntries(modlist_text):
+        name = entry["name"]
+        rank = _mo2BaseModlistRank(name)
+        if rank is None:
+            if seen_managed is None:
+                seen_managed = entry
+            continue
+
+        if seen_managed is not None:
+            diagnostics.append(
+                {
+                    "type": "base_after_managed",
+                    "mod": name,
+                    "priority": entry["priority"],
+                    "managed": seen_managed["name"],
+                    "managed_priority": seen_managed["priority"],
+                }
+            )
+            if len(diagnostics) >= max_entries:
+                return diagnostics
+        if rank < last_base_rank:
+            diagnostics.append(
+                {
+                    "type": "base_rank_inversion",
+                    "mod": name,
+                    "priority": entry["priority"],
+                    "previous_base": last_base["name"] if last_base else None,
+                    "previous_base_priority": (
+                        last_base["priority"] if last_base else None
+                    ),
+                }
+            )
+            if len(diagnostics) >= max_entries:
+                return diagnostics
+        last_base = entry
+        last_base_rank = rank
+    return diagnostics
+
+
 def mo2BaseModlistOrderNeedsRepair(modlist_text):
     """Return whether unmanaged DLC/Creation Club/game-root entries are misplaced."""
-    seen_managed = False
-    last_base_rank = -1
-    for raw_line in str(modlist_text or "").splitlines():
-        name = _mo2ModlistEntryName(raw_line)
-        if not name:
-            continue
-        if name in MO2_BASE_DLC_ORDER:
-            rank = MO2_BASE_DLC_ORDER[name]
-            if seen_managed or rank < last_base_rank:
-                return True
-            last_base_rank = rank
-            continue
-        if name.startswith("Creation Club: "):
-            rank = MO2_BASE_CREATION_CLUB_RANK
-            if seen_managed or rank < last_base_rank:
-                return True
-            last_base_rank = rank
-            continue
-        if name.startswith("Unmanaged: "):
-            rank = MO2_BASE_UNMANAGED_RANK
-            if seen_managed or rank < last_base_rank:
-                return True
-            last_base_rank = rank
-            continue
-        seen_managed = True
-    return False
+    return bool(mo2BaseModlistOrderingDiagnostics(modlist_text, max_entries=1))
 
 
 def repairMo2BaseModlistOrder(modlist_path, backup_dir=None):
@@ -6012,14 +6053,11 @@ def repairMo2BaseModlistOrder(modlist_path, backup_dir=None):
     indexed_base = []
     for index, line in enumerate(body):
         name = _mo2ModlistEntryName(line)
-        if name in MO2_BASE_DLC_ORDER:
-            indexed_base.append((MO2_BASE_DLC_ORDER[name], index, line))
-        elif name.startswith("Creation Club: "):
-            indexed_base.append((MO2_BASE_CREATION_CLUB_RANK, index, line))
-        elif name.startswith("Unmanaged: "):
-            indexed_base.append((MO2_BASE_UNMANAGED_RANK, index, line))
-        else:
+        rank = _mo2BaseModlistRank(name)
+        if rank is None:
             managed_entries.append(line)
+        else:
+            indexed_base.append((rank, index, line))
 
     indexed_base.sort(key=lambda item: (item[0], item[1]))
     base_entries = [line for _, _, line in indexed_base]
