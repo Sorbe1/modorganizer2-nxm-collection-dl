@@ -74,25 +74,25 @@ Use this checklist before opening the clean final PR.
 - Commit history reads as intentional implementation steps.
 - The PR body emphasizes the designed architecture, tested behavior,
   professional code quality, and complete deliverable set.
-- The PR body includes summary, review notes, verification, and follow-up.
+- The PR body includes summary, review notes, verification, measured timings,
+  current stress-report status, and current review status.
 - Maintainer outreach drafts exist for the introductory/access request and the
   PR review request.
 - Screenshots/log snippets are used only when they help prove behavior.
-- Any stale exploratory PR is closed after the replacement PR is verified, if it
-  is still open.
-- At the end, GitHub retains only the final intentional branch for this work.
-  The old exploratory branch is deleted only after the clean PR is verified and
-  no needed work remains there.
+- The stale exploratory PR has been closed in favor of the replacement PR.
+- GitHub retains the final intentional PR branch for this work.
 
 ## Final DONE Sweep
 
-Run this only after live proof and PR preparation are otherwise complete:
+Status: completed for the submitted PR body and PR-facing artifacts.
 
 - Re-read the README, PR body, design note, test plan, release checklist,
   clean-branch manifest, and maintainer emails as one deliverable.
 - Remove stale language, placeholders, estimates, and temporary caveats that
   were only valid before final proof.
-- Replace pending timing placeholders with measured collection timings.
+- Replace pending timing placeholders with measured collection timings or a
+  clear note where only stress-report evidence, not uniform timing evidence, was
+  recorded.
 - Confirm the PR body tells one coherent story: designed architecture,
   professional code quality, regression coverage, live validation, and clear
   remaining limitations.

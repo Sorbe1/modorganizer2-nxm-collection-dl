@@ -64,11 +64,10 @@ final audit.
   runtime code, regression tests, reset/probe support scripts, README updates,
   a maintainer test plan, and outreach/PR notes are kept together with abandoned
   exploratory artifacts excluded from the clean branch.
-- Scope is roughly `+14.9K/-0.35K` lines across the intended final branch:
-  - `+14.0K/-0.34K` runtime/test/script lines, including download reconciliation,
-    install planning, headless archive install, activation audit, and settings
-  - `+0.86K/-0.01K` README, design, test-plan, release-checklist,
-    clean-branch, outreach, and PR notes
+- The branch currently spans `30` changed files and roughly
+  `+39.4K/-0.4K` lines. This includes runtime code, scripts, mirrored helper
+  tests, stress-report tests, README updates, review artifacts, and captured
+  stress-report snapshots.
 - The direct archive path is intentionally small: classify archive members,
   extract to a temporary directory, move the proven install payload into the
   target MO2 mod directory, then write `meta.ini`.
@@ -149,6 +148,14 @@ final audit.
   - `python3 -m unittest test_collection_helpers`
   - `python3 -m py_compile download.py collection_helpers.py install.py scripts/native_archive_worker.py`
   - `git diff --check`
+- Latest full branch/stress gate after the stress-report hardening follow-ups:
+  - `uv run python -m unittest discover` (`504` tests)
+  - `uv run ruff check scripts/collection_stress_report.py tests/test_collection_stress_report.py`
+  - `uv run ruff format --check scripts/collection_stress_report.py tests/test_collection_stress_report.py`
+  - `python -m py_compile scripts/collection_stress_report.py tests/test_collection_stress_report.py`
+  - `python scripts/audit_profile_state.py --base '<Derp base>' --profile Default --strict`
+  - `python scripts/collection_stress_report.py --base '<Derp base>' --profile Default --strict-profile --output /tmp/nxm-collection-stress-needs-review.json`
+  - `git diff --check`
 
 ## Measured timings
 
@@ -171,6 +178,27 @@ Observed collection-level completion results:
 | `lwpfm1` rev `2` | 13 | `13/13` installed/root-handled, `0` failed | Original Add Collection proof plus recovery replay; profile plugin repair enabled `MoonstoneCastle.esp` without MO2 modal |
 | `4vz5sn` rev `7` | 53 | `53/53` installed/root-handled, `0` failed | Community Shaders proof; NAT/TrueStorms FOMOD selected from profile evidence and installed headlessly |
 
+Current stress-report snapshot after the latest follow-up hardening:
+
+| Collection | Revision | Current report status | Notes |
+| --- | ---: | --- | --- |
+| `8vdyr1` | 12 | clean | 2 historical rows resolved |
+| `xxsqm4` | 99 | needs review, actionable | 1 remaining `fomod_choices` row for Quest Journal Fixes FOMOD; SSE Engine Fixes root note resolved by current `d3dx9_42.dll` evidence |
+| `egtcmf` | 9 | clean | 1 historical row resolved |
+| `4vz5sn` | 7 | clean | 1 historical row resolved |
+| `sklk3h` | 2 | needs review, informational | 1 no-applicable FOMOD row for JK's Windhelm Outskirts Patch Collection (`87964/465619`) |
+| `lwpfm1` | 2 | clean | 1 Add Collection recovery launch |
+| `bdiz4d` | 9 | clean | 2 Add Collection recovery launches |
+| `codkfz` | 7 | clean | 3 Add Collection recovery launches |
+| `fk0tha` | 117 | clean | 2 Add Collection recovery launches |
+| `otpzzr` | 86 | clean | 2 historical rows and 1 historical warning resolved |
+
+The latest strict profile audit is clean. The stress report totals are
+`10` collections, `8` clean, `2` needing review (`1` actionable,
+`1` informational), `1` failed row, `6` resolved historical rows,
+`0` warnings, `1` resolved warning, `1` resolved root note, and
+`18` Add Collection recovery launches.
+
 Observed proof timings from MO2 log timestamps:
 
 The first timing block is the original timestamp-bounded two-collection final
@@ -190,10 +218,9 @@ collection had a uniform human-observed timing window recorded.
 | `4vz5sn` final replay | 16:24:22 | 16:24:32 | 10s | `53/53`, `0` failed/skipped; NAT/TrueStorms repaired via headless FOMOD dependency selection |
 | `4vz5sn` fast replay | 16:34:37 | 16:34:45 | 8s | `53/53`, `0` failed/skipped; no install work remained, activation audit clean |
 
-## Follow-up
+## Current Review Status
 
-- Perform a final DONE sweep over README, PR body, design note, test plan,
-  checklist, manifest, and maintainer emails so the submitted branch contains no
-  stale placeholders or temporary caveats.
-- After the replacement PR is verified, close any stale exploratory PR if still
-  open and remove the old exploratory branch.
+- The older exploratory PR #1 was closed in favor of this replacement PR.
+- The remaining stress-report rows are documented as manual/informational FOMOD
+  cases rather than current profile-gate failures.
+- The active branch is ready for maintainer review.

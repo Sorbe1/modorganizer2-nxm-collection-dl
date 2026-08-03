@@ -192,10 +192,10 @@ review surface clear.
      the appropriate base and replay only the delivered final-design artifacts.
      Do not carry the meandering experiment history, transient probes, or
      abandoned code paths into that branch.
-   - after the clean final branch and PR exist, delete the old exploratory branch
-     that accumulated the winding attempts. Do this only after confirming the
-     replacement PR contains the delivered artifacts and no needed work remains
-     stranded on the old branch.
+   - the replacement PR now contains the delivered final-design artifacts, and
+     the old exploratory PR has been closed in favor of it. Any remaining old
+     branch retention should be treated as temporary archaeology, not an active
+     source line.
 
 ## 2026-07-28 Live Results
 
@@ -222,6 +222,7 @@ Additional black-box collection results from the same MO2/Proton environment:
   collection and finished `75/75` installed/root-handled, `0` failed/skipped in
   the observed black-box run.
 
-Full collection execution timings should be added after the final clean proof
-run. Record download, install, activation/audit, total elapsed time, collection
-id, revision, entry count, and any expected manual blockers.
+The submitted PR body now records the measured final proof timings that had
+exact MO2 log start/end timestamps. Later stress-report evidence covers the
+broader 10-collection matrix, including the documented manual/informational
+FOMOD rows that remain after the current profile audit passes cleanly.

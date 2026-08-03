@@ -67,9 +67,11 @@ Measured probe timings:
 - `.zip`: `Companions Questline Tweaks`, 118ms
 - `.rar`: `JK's High Hrothgar`, 163ms
 
-Full collection timings are intentionally left for the final reset proof. Record
-download, install, activation, and total elapsed time for each target collection
-there so the PR describes measured behavior, not estimates.
+Final proof timings with exact MO2 log start/end timestamps are recorded in the
+PR body for the original two-collection proof run and later Community Shaders
+replays. The broader stress matrix is represented by the latest strict profile
+audit and collection stress report rather than uniform human-observed timing
+windows for every collection.
 
 ## End-To-End Acceptance
 

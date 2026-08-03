@@ -52,7 +52,6 @@ rewritten:
 3. Run the unit/compile test plan.
 4. Run the full live reset/download/install/activation proof.
 5. Open the new PR using `pr-artifacts/pr-description.md`.
-6. After the replacement PR is verified, close the old exploratory PR if it is
-   still open.
-7. Delete the old exploratory branch so GitHub retains only the final
-   intentional branch for this work.
+6. The old exploratory PR was closed in favor of the replacement PR.
+7. Retain only the final intentional PR branch for this work unless an old branch
+   needs to be kept temporarily for archaeology.
