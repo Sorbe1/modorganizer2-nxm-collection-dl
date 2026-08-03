@@ -382,6 +382,181 @@ class CollectionStressReportTests(unittest.TestCase):
             self.assertEqual(summary["failed_count"], 1)
             self.assertEqual(summary["resolved_failed_count"], 0)
 
+    def test_resolves_historical_failures_from_quarantined_download_archive(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            quarantine = root / "removed-downloads" / "definite-no-go-20260803"
+            logs.mkdir()
+            quarantine.mkdir(parents=True)
+            archive = quarantine / "Quarantined-10-20.7z"
+            archive.write_text("placeholder", encoding="utf-8")
+            (quarantine / "Quarantined-10-20.7z.meta").write_text(
+                "[General]\nmodID=10\nfileID=20\ninstalled=false\n",
+                encoding="utf-8",
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-quarantined-1-20260802-010000.json",
+                {
+                    "collection": "quarantined",
+                    "revision": 1,
+                    "name": "Quarantined",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {
+                            "mod": "Quarantined",
+                            "file": "Quarantined",
+                            "archive": "C:\\downloads\\Quarantined-10-20.7z",
+                            "reason": "installer completed but produced an empty mod container",
+                        }
+                    ],
+                },
+            )
+
+            with mock.patch.object(
+                collection_stress_report,
+                "validInstalledDownloadKeysForProfile",
+                return_value=set(),
+            ), mock.patch.object(
+                collection_stress_report,
+                "auditMo2ProfileState",
+                return_value={"clean": True, "issues": [], "warnings": []},
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 0)
+            self.assertEqual(result["totals"]["failed_count"], 0)
+            self.assertEqual(result["totals"]["resolved_failed_count"], 1)
+            self.assertEqual(summary["failed_count"], 0)
+            self.assertEqual(summary["resolved_failed_count"], 1)
+            self.assertEqual(
+                summary["resolved_failed_entries"][0]["historical_status"],
+                "quarantined",
+            )
+            self.assertTrue(
+                summary["resolved_failed_entries"][0][
+                    "quarantined_by_current_profile"
+                ]
+            )
+
+    def test_resolves_historical_failures_from_removed_container_metadata(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            container = (
+                root
+                / "removed-mod-containers"
+                / "disabled-unwanted-20260803"
+                / "Manual Choice"
+            )
+            logs.mkdir()
+            container.mkdir(parents=True)
+            (container / "meta.ini").write_text(
+                "[General]\nmodid=30\nfileid=40\ninstallationFile=Manual-30-40.7z\n",
+                encoding="utf-8",
+            )
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-disabled-1-20260802-010000.json",
+                {
+                    "collection": "disabled",
+                    "revision": 1,
+                    "name": "Disabled",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {
+                            "mod": "Manual Choice",
+                            "file": "Manual Choice",
+                            "mod_id": 30,
+                            "file_id": 40,
+                            "reason": "manual FOMOD choices required",
+                        }
+                    ],
+                },
+            )
+
+            with mock.patch.object(
+                collection_stress_report,
+                "validInstalledDownloadKeysForProfile",
+                return_value=set(),
+            ), mock.patch.object(
+                collection_stress_report,
+                "auditMo2ProfileState",
+                return_value={"clean": True, "issues": [], "warnings": []},
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 0)
+            self.assertEqual(result["totals"]["failed_count"], 0)
+            self.assertEqual(summary["resolved_failed_count"], 1)
+            self.assertEqual(
+                summary["resolved_failed_entries"][0]["historical_status"],
+                "quarantined",
+            )
+
+    def test_ignores_non_quarantine_removed_downloads_for_historical_failures(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            removed = root / "removed-downloads" / "scratch"
+            logs.mkdir()
+            removed.mkdir(parents=True)
+            (removed / "Still-10-20.7z").write_text("placeholder", encoding="utf-8")
+            write_warning_report(
+                logs,
+                "nxm-collection-install-warnings-unresolved-1-20260802-010000.json",
+                {
+                    "collection": "unresolved",
+                    "revision": 1,
+                    "name": "Unresolved",
+                    "generated": "2026-08-02T01:00:00",
+                    "warning_count": 0,
+                    "unique_warning_count": 0,
+                    "warning_summary": [],
+                    "failed_entries": [
+                        {
+                            "mod": "Still Failed",
+                            "archive": "C:\\downloads\\Still-10-20.7z",
+                            "reason": "ambiguous archive layout",
+                        }
+                    ],
+                },
+            )
+
+            with mock.patch.object(
+                collection_stress_report,
+                "validInstalledDownloadKeysForProfile",
+                return_value=set(),
+            ), mock.patch.object(
+                collection_stress_report,
+                "auditMo2ProfileState",
+                return_value={"clean": True, "issues": [], "warnings": []},
+            ):
+                result = collection_stress_report.build_stress_report(
+                    logs,
+                    base_path=root,
+                )
+
+            summary = result["collections"][0]
+            self.assertEqual(result["needs_review_count"], 1)
+            self.assertEqual(result["totals"]["failed_count"], 1)
+            self.assertEqual(summary["resolved_failed_count"], 0)
+
     def test_can_include_profile_audit(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

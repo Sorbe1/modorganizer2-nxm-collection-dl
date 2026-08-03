@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import sys
+from configparser import ConfigParser
 from datetime import datetime
 from pathlib import Path
 
@@ -86,16 +87,89 @@ def _report_archive_metadata_path(archive_path, base_path=None):
     return Path(base_path) / "downloads" / f"{archive_name}.meta"
 
 
+def _entry_nexus_key(entry):
+    try:
+        return (int(entry["mod_id"]), int(entry["file_id"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _entry_archive_name(entry):
+    archive = entry.get("archive")
+    if not archive:
+        return ""
+    return Path(str(archive).replace("\\", "/")).name.casefold()
+
+
+def _intentional_removed_state_dirs(base_path):
+    base_path = Path(base_path)
+    roots = (
+        base_path / "removed-downloads",
+        base_path / "removed-mod-containers",
+    )
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for child in root.iterdir():
+            if not child.is_dir():
+                continue
+            name = child.name.casefold()
+            if name.startswith("definite-no-go") or "quarantine" in name:
+                yield child
+            elif root.name == "removed-mod-containers" and name.startswith(
+                "disabled-unwanted"
+            ):
+                yield child
+
+
+def _read_removed_meta_key(path):
+    key = readDownloadMetaKey(path)
+    if key is not None:
+        return key
+
+    parser = ConfigParser()
+    try:
+        parser.read(path, encoding="utf-8")
+        general = parser["General"]
+        return (int(general["modid"]), int(general["fileid"]))
+    except (OSError, KeyError, ValueError):
+        return None
+
+
+def quarantinedDownloadEvidence(base_path):
+    """Return Nexus IDs and archive names intentionally removed from this profile."""
+    if base_path is None:
+        return {"keys": set(), "archives": set()}
+
+    keys = set()
+    archives = set()
+    for state_dir in _intentional_removed_state_dirs(base_path):
+        for path in state_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            if path.name.endswith(".meta"):
+                key = _read_removed_meta_key(path)
+                if key is not None:
+                    keys.add(key)
+                archive_name = path.name[: -len(".meta")]
+                if archive_name:
+                    archives.add(archive_name.casefold())
+            elif path.name == "meta.ini":
+                key = _read_removed_meta_key(path)
+                if key is not None:
+                    keys.add(key)
+            else:
+                archives.add(path.name.casefold())
+    return {"keys": keys, "archives": archives}
+
+
 def failedEntryResolvedByCurrentProfile(entry, valid_installed_keys, base_path=None):
     """Return True when a historical failed entry is now valid in the profile."""
     if valid_installed_keys is None:
         return False
 
     valid_installed_keys = set(valid_installed_keys)
-    try:
-        entry_key = (int(entry["mod_id"]), int(entry["file_id"]))
-    except (KeyError, TypeError, ValueError):
-        entry_key = None
+    entry_key = _entry_nexus_key(entry)
     if entry_key in valid_installed_keys:
         return True
 
@@ -108,14 +182,35 @@ def failedEntryResolvedByCurrentProfile(entry, valid_installed_keys, base_path=N
     return readDownloadMetaKey(metadata_path) in valid_installed_keys
 
 
-def _mark_resolved_failed_entry(entry):
+def failedEntryQuarantinedByCurrentProfile(entry, quarantined_evidence):
+    """Return True when a historical failed entry was intentionally quarantined."""
+    quarantined_evidence = quarantined_evidence or {}
+    entry_key = _entry_nexus_key(entry)
+    if entry_key in (quarantined_evidence.get("keys") or set()):
+        return True
+
+    archive_name = _entry_archive_name(entry)
+    return bool(
+        archive_name and archive_name in (quarantined_evidence.get("archives") or set())
+    )
+
+
+def _mark_resolved_failed_entry(entry, historical_status="resolved"):
     item = _trim_failed_entry(entry)
-    item["resolved_by_current_profile"] = True
-    item["historical_status"] = "resolved"
+    item["historical_status"] = historical_status
+    if historical_status == "quarantined":
+        item["quarantined_by_current_profile"] = True
+    else:
+        item["resolved_by_current_profile"] = True
     return item
 
 
-def resolve_failed_entries_against_profile(summary, valid_installed_keys, base_path=None):
+def resolve_failed_entries_against_profile(
+    summary,
+    valid_installed_keys,
+    base_path=None,
+    quarantined_evidence=None,
+):
     failed_entries = summary.get("failed_entries") or []
     if not failed_entries or valid_installed_keys is None:
         return summary
@@ -125,6 +220,8 @@ def resolve_failed_entries_against_profile(summary, valid_installed_keys, base_p
     for entry in failed_entries:
         if failedEntryResolvedByCurrentProfile(entry, valid_installed_keys, base_path):
             resolved.append(_mark_resolved_failed_entry(entry))
+        elif failedEntryQuarantinedByCurrentProfile(entry, quarantined_evidence):
+            resolved.append(_mark_resolved_failed_entry(entry, "quarantined"))
         else:
             unresolved.append(entry)
 
@@ -425,11 +522,13 @@ def build_stress_report(
     )
     if base_path is not None:
         valid_installed_keys = validInstalledDownloadKeysForProfile(base_path)
+        quarantined_evidence = quarantinedDownloadEvidence(base_path)
         summaries = [
             resolve_failed_entries_against_profile(
                 summary,
                 valid_installed_keys,
                 base_path=base_path,
+                quarantined_evidence=quarantined_evidence,
             )
             for summary in summaries
         ]
