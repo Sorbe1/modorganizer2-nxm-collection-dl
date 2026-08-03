@@ -395,6 +395,29 @@ def print_text_report(report):
             "Current profile gate: "
             f"{'clean' if current_gate.get('clean') else 'needs review'}"
         )
+        for issue in (profile or {}).get("issues") or []:
+            issue_type = issue.get("type", "unknown")
+            details = []
+            if issue.get("count") is not None:
+                details.append(f"{issue['count']} item(s)")
+            examples = issue.get("examples") or []
+            if examples:
+                details.append(f"examples: {', '.join(str(item) for item in examples[:3])}")
+            message = issue.get("message")
+            suffix = f": {'; '.join(details)}" if details else ""
+            print(f"  Profile issue - {issue_type}{suffix}")
+            if message:
+                print(f"    {message}")
+        for warning in (profile or {}).get("warnings") or []:
+            warning_type = warning.get("type", "unknown")
+            details = []
+            if warning.get("count") is not None:
+                details.append(f"{warning['count']} item(s)")
+            message = warning.get("message")
+            suffix = f": {'; '.join(details)}" if details else ""
+            print(f"  Profile warning - {warning_type}{suffix}")
+            if message:
+                print(f"    {message}")
         if current_gate.get("historical_review_only"):
             print(
                 "Historical review rows remain, but the current profile audit is clean."
